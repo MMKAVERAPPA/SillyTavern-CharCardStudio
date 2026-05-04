@@ -1,0 +1,14 @@
+{
+    "display_name": "Character Card Studio",
+    "loading_order": 10,
+    "requires": [],
+    "optional": [],
+    "dependencies": [],
+    "js": "index.js",
+    "css": "style.css",
+    "author": "DeathGamerSolo",
+    "version": "2.0.0",
+    "homePage": "https://github.com/YOUR_USERNAME/CharCardStudio",
+    "auto_update": true,
+    "minimum_client_version": "1.12.0"
+}
