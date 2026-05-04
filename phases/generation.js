@@ -1,363 +1,434 @@
 // phases/generation.js
-// Field generation phase: single fields, variations, batch ops, generate-all, rewrite actions, queue
+// Card field generation, variations, batch operations, rewrite instructions
+// FIX: try-catch all gen calls, parallel toggle, proper error cleanup
 
 import { chatEngine } from '../core/chat.js';
+import { memoryManager } from '../core/memory.js';
 import { cardManager } from '../core/card.js';
 import { auditEngine } from '../core/audit.js';
-import { memoryManager } from '../core/memory.js';
-import { buildBaseSystemPrompt } from '../prompts/base.js';
 import { chatPanel } from '../ui/chat-panel.js';
 import { cardPanel, FIELD_STATUS } from '../ui/card-panel.js';
+import { contextBuilder } from '../core/context-builder.js';
+import { buildBaseSystemPrompt } from '../prompts/base.js';
+import { CCSApiError, apiManager } from '../core/api.js';
+
 import {
-    detectFieldFromMessage, isBatchGreetingOp, isGenerateAllRequest, extractCodeBlock, parseMultiFieldResponse,
-} from '../core/parser.js';
-import {
-    buildFieldGenerationPrompt, GENERATE_ALL_FIELDS_PROMPT, BATCH_OPERATION_PROMPT,
-    REWRITE_INSTRUCTIONS, MES_EXAMPLE_WARNING,
+    buildFieldGenerationPrompt,
+    GENERATE_ALL_FIELDS_PROMPT,
+    BATCH_OPERATION_PROMPT,
+    REWRITE_INSTRUCTIONS,
+    MES_EXAMPLE_WARNING,
+    FIELD_SPECIFIC_INSTRUCTIONS,
 } from '../prompts/generation.js';
-import { VERSION_SUMMARY_PROMPT } from '../prompts/utility.js';
+
+import {
+    extractCodeBlock,
+    parseMultiFieldResponse,
+    detectFieldFromMessage,
+    detectBatchOperation,
+} from '../core/parser.js';
+
+const GENERATABLE_FIELDS = ['description','personality','scenario','first_mes','mes_example','system_prompt','creator_notes'];
 
 export class GenerationPhase {
     constructor() {
         this.session = null;
         this.cardFields = null;
-        this.pendingContent = {};   // fieldName -> generated content not yet accepted
-        this.onCardUpdated = null;
-        this.queue = [];            // generation queue: array of fieldNames
-        this.isQueueRunning = false;
+        this.callbacks = {};
+        this.queue = [];
+        this._isProcessingQueue = false;
     }
 
     start(session, cardFields, callbacks = {}) {
         this.session = session;
         this.cardFields = cardFields;
-        this.onCardUpdated = callbacks.onCardUpdated;
-
-        const idea = this.session?.ideaMemory;
-        chatPanel.addMessage('assistant',
-            `Let's start writing **${idea?.conceptName || 'your character'}**.\n\n` +
-            `Click 🪄 next to any field on the right to generate it, or tell me which field to tackle.\n` +
-            `Use **⚡ Generate All** for a quick full draft, or **🎲 Variations** on any field for 3 options side by side.\n\n` +
-            `What would you like to start with?`
-        );
+        this.callbacks = callbacks;
     }
 
-    async handleMessage(userMessage) {
-        if (isBatchGreetingOp(userMessage)) { await this._handleBatchGreetings(userMessage); return true; }
-        if (isGenerateAllRequest(userMessage)) { await this.generateAllFields(); return true; }
+    async handleMessage(message) {
+        // Detect field-specific intent
+        const field = detectFieldFromMessage(message);
+        const batch = detectBatchOperation(message);
 
-        // Rewrite action keywords
-        const lower = userMessage.toLowerCase();
-        for (const [action, instruction] of Object.entries(REWRITE_INSTRUCTIONS)) {
-            if (lower.includes(action) && lower.includes('this') || lower.includes(`make it ${action}`) || lower.startsWith(action)) {
-                const field = detectFieldFromMessage(userMessage);
-                if (field && this.cardFields[field]) {
-                    await this.rewriteField(field, action);
-                    return true;
-                }
-            }
+        if (batch) {
+            await this._handleBatchOperation(message, batch);
+            return;
         }
-
-        const requestedField = detectFieldFromMessage(userMessage);
-        if (requestedField) { await this.generateField(requestedField, userMessage); return true; }
-
-        await this._generalChat(userMessage);
-        return true;
+        if (field && /generat|write|create|make/i.test(message)) {
+            await this.generateField(field);
+            return;
+        }
+        if (field && /variation|option|alternative|version/i.test(message)) {
+            await this.generateVariations(field);
+            return;
+        }
+        if (field && /rewrite|shorten|lengthen|darker|specific|elevate|fix/i.test(message)) {
+            const action = this._detectRewriteAction(message);
+            if (action) { await this.rewriteField(field, action); return; }
+        }
+        // General chat about the card
+        await this._generalChat(message);
     }
 
-    // ── Single field generation ───────────────────────────────────────────────
+    // ── Single field generation ─────────────────────────────────────────────
 
-    async generateField(fieldName, userContext = '', detailLevelOverride = null) {
-        cardPanel.setFieldStatus(fieldName, FIELD_STATUS.IN_PROGRESS);
-        chatPanel.setInputEnabled(false);
-        chatPanel.startStreaming();
-
-        const settings = memoryManager.getGlobalSettings();
-        const detailLevel = detailLevelOverride || document.getElementById('ccs-detail-level')?.value || 'standard';
-        const extraInstruction = buildFieldGenerationPrompt(fieldName, this.cardFields, this.session?.ideaMemory, detailLevel)
-            + (userContext ? `\n\nAdditional user instruction: ${userContext}` : '');
-
-        const response = await chatEngine.chat({
-            userMessage: userContext || `Generate the ${fieldName} field.`,
-            session: this.session,
-            cardFields: this.cardFields,
-            extraInstruction,
-            onComplete: async (text) => {
-                chatPanel.finalizeStream(text);
-                chatPanel.setInputEnabled(true);
-                cardPanel.setFieldStatus(fieldName, FIELD_STATUS.GENERATED);
-
-                const content = extractCodeBlock(text);
-                this.pendingContent[fieldName] = content;
-
-                // Macro validation
-                const warnings = cardManager.validateMacros(fieldName, content);
-                for (const w of warnings) chatPanel.addSystemMessage(w, 'warning');
-
-                // mes_example format check
-                if (fieldName === 'mes_example') {
-                    const audit = await auditEngine.auditMesExample(content);
-                    if (audit.hasIssues) chatPanel.addSystemMessage(MES_EXAMPLE_WARNING, 'warning');
-                }
-
-                chatPanel.addAcceptBar(fieldName, content, (fn, c) => this._acceptField(fn, c));
-                memoryManager.saveSession(this.session.characterId, this.session);
-
-                // Auto-suggest check
-                const s = await auditEngine.autoSuggestCheck(this.session, this.cardFields);
-                if (s) chatPanel.addSystemMessage('💡 Smart Suggestion:\n' + s, 'info');
-            },
-        });
-    }
-
-    // ── Variations (3 options side by side) ──────────────────────────────────
-
-    async generateVariations(fieldName) {
-        chatPanel.addSystemMessage(`Generating 3 variations for ${fieldName} in parallel...`, 'info');
-        chatPanel.setInputEnabled(false);
-
-        const settings = memoryManager.getGlobalSettings();
-        const base = buildBaseSystemPrompt(settings.customSystemPromptRules)
-            + '\n\n' + memoryManager.buildIdeaMemorySummary(this.session);
+    async generateField(fieldName) {
         const detailLevel = document.getElementById('ccs-detail-level')?.value || 'standard';
-        const fieldInstruction = buildFieldGenerationPrompt(fieldName, this.cardFields, this.session?.ideaMemory, detailLevel);
+        const genPrompt = buildFieldGenerationPrompt(fieldName, this.cardFields, this.session.ideaMemory, detailLevel);
 
-        const directions = ['A', 'B', 'C'];
-        const requests = directions.map((dir, i) => ({
-            systemPrompt: base,
-            userPrompt: `Generate variation ${dir} for the ${fieldName} field. Make this variation meaningfully distinct from typical output — variation ${i + 1} of 3 should offer a different angle, tone, or approach. ${fieldInstruction}`,
-        }));
+        cardPanel.setFieldStatus(fieldName, FIELD_STATUS.IN_PROGRESS);
+        chatPanel.startStreaming();
+        chatPanel.setInputEnabled(false);
 
         try {
-            const results = await chatEngine.generateParallel(requests);
-
-            chatPanel.addMessage('assistant', `Here are 3 variations for **${fieldName}** — pick your favorite or blend elements:`);
-
-            results.forEach((result, i) => {
-                const content = extractCodeBlock(result);
-                chatPanel.addVariation(fieldName, `Variation ${directions[i]}`, content, (fn, c) => this._acceptField(fn, c));
+            await chatEngine.chat({
+                userMessage: `Generate the ${fieldName} field.`,
+                session: this.session,
+                cardFields: this.cardFields,
+                extraInstruction: genPrompt,
+                onComplete: (response) => {
+                    chatPanel.finalizeStream(response);
+                    this._processGeneratedField(fieldName, response);
+                },
+                onError: (err) => {
+                    chatPanel.cancelStreaming();
+                    cardPanel.setFieldStatus(fieldName, FIELD_STATUS.EMPTY);
+                    this._showError(err, `Failed to generate ${fieldName}`);
+                },
             });
         } catch (err) {
-            chatPanel.addSystemMessage(`Variation generation failed: ${err.message}`, 'error');
+            chatPanel.cancelStreaming();
+            cardPanel.setFieldStatus(fieldName, FIELD_STATUS.EMPTY);
+            this._showError(err, `Failed to generate ${fieldName}`);
         } finally {
             chatPanel.setInputEnabled(true);
         }
     }
 
-    // ── Quick rewrite actions ─────────────────────────────────────────────────
+    // ── Variations — 3 alternatives ─────────────────────────────────────────
+
+    async generateVariations(fieldName) {
+        const detailLevel = document.getElementById('ccs-detail-level')?.value || 'standard';
+        const settings = memoryManager.getGlobalSettings();
+        const systemPrompt = buildBaseSystemPrompt(settings.customSystemPromptRules);
+        const fieldInstruction = FIELD_SPECIFIC_INSTRUCTIONS[fieldName] || '';
+
+        chatPanel.addSystemMessage(`🎲 Generating 3 variations for ${fieldName}...`, 'info');
+        chatPanel.setInputEnabled(false);
+
+        const requests = ['A', 'B', 'C'].map(label => ({
+            systemPrompt,
+            userPrompt: `${fieldInstruction}\n\nGenerate variation ${label} for the "${fieldName}" field. Take a different creative angle than the others. Put content in a triple-backtick code block.\n\nConcept: ${this.session.ideaMemory?.conceptName || 'the character'}\nDetail level: ${detailLevel}`,
+        }));
+
+        try {
+            const results = await chatEngine.generateParallel(requests);
+
+            results.forEach((text, i) => {
+                const content = extractCodeBlock(text) || text;
+                const label = ['Variation A', 'Variation B', 'Variation C'][i];
+                chatPanel.addVariation(fieldName, label, content, (f, c) => this._acceptField(f, c));
+            });
+        } catch (err) {
+            this._showError(err, `Failed to generate variations for ${fieldName}`);
+        } finally {
+            chatPanel.setInputEnabled(true);
+        }
+    }
+
+    // ── Rewrite field ──────────────────────────────────────────────────────
 
     async rewriteField(fieldName, action) {
         const currentContent = this.cardFields[fieldName];
         if (!currentContent) {
-            chatPanel.addSystemMessage(`${fieldName} is empty — generate it first.`, 'warning');
+            chatPanel.addSystemMessage(`No content in ${fieldName} to rewrite.`, 'warning');
             return;
         }
-
         const instruction = REWRITE_INSTRUCTIONS[action];
         if (!instruction) return;
 
-        chatPanel.setInputEnabled(false);
+        cardPanel.setFieldStatus(fieldName, FIELD_STATUS.IN_PROGRESS);
         chatPanel.startStreaming();
-
-        const settings = memoryManager.getGlobalSettings();
-        const base = buildBaseSystemPrompt(settings.customSystemPromptRules);
-
-        const response = await chatEngine.generateBackground(
-            base + '\n\n[REWRITE TASK]\n' + instruction,
-            `Rewrite this ${fieldName} field:\n\n${currentContent}\n\nReturn the rewritten content in a triple-backtick code block.`
-        );
-
-        chatPanel.finalizeStream(response);
-        chatPanel.setInputEnabled(true);
-
-        const content = extractCodeBlock(response);
-        this.pendingContent[fieldName] = content;
-        cardPanel.setFieldStatus(fieldName, FIELD_STATUS.GENERATED);
-        chatPanel.addAcceptBar(fieldName, content, (fn, c) => this._acceptField(fn, c));
-    }
-
-    // ── Generate All ──────────────────────────────────────────────────────────
-
-    async generateAllFields(detailLevel = null) {
         chatPanel.setInputEnabled(false);
-        chatPanel.addSystemMessage('⚡ Generating all fields... this may take a moment.', 'info');
-
-        const settings = memoryManager.getGlobalSettings();
-        const dl = detailLevel || document.getElementById('ccs-detail-level')?.value || 'standard';
-
-        const fullPrompt = buildBaseSystemPrompt(settings.customSystemPromptRules)
-            + '\n\n' + memoryManager.buildIdeaMemorySummary(this.session)
-            + '\n\n' + memoryManager.getPlatformPrompt()
-            + '\n\nDetail level: ' + dl
-            + '\n\n' + GENERATE_ALL_FIELDS_PROMPT;
 
         try {
-            const response = await chatEngine.generateBackground(fullPrompt, 'Generate all character card fields now.');
-            chatPanel.addMessage('assistant', response);
-            memoryManager.addMessage(this.session, 'assistant', response);
-
-            const parsed = parseMultiFieldResponse(response);
-            const fieldNames = Object.keys(parsed);
-
-            if (!fieldNames.length) {
-                chatPanel.addSystemMessage('⚠️ Could not parse field outputs. Try individual field generation.', 'warning');
-                chatPanel.setInputEnabled(true);
-                return;
-            }
-
-            chatPanel.addMessage('assistant', `✅ Generated ${fieldNames.length} fields. Review and accept each:`);
-            for (const [fn, content] of Object.entries(parsed)) {
-                this.pendingContent[fn] = content;
-                cardPanel.setFieldStatus(fn, FIELD_STATUS.GENERATED);
-                chatPanel.addAcceptBar(fn, content, (f, c) => this._acceptField(f, c));
-            }
-
-            // Accept All button
-            const bar = document.createElement('div');
-            bar.className = 'ccs-accept-bar';
-            bar.innerHTML = `
-                <span class="ccs-accept-label">Accept all ${fieldNames.length} fields at once?</span>
-                <button class="ccs-btn ccs-btn-primary" id="ccs-accept-all-btn">✅ Accept All & Write to Card</button>
-            `;
-            bar.querySelector('#ccs-accept-all-btn').addEventListener('click', async () => {
-                for (const [fn, content] of Object.entries(parsed)) {
-                    await this._acceptField(fn, content, false);
-                }
-                this.onCardUpdated?.();
-                bar.innerHTML = '<span class="ccs-accept-label">✅ All fields written to card</span>';
+            await chatEngine.chat({
+                userMessage: `Rewrite ${fieldName}: ${instruction}`,
+                session: this.session,
+                cardFields: this.cardFields,
+                extraInstruction: `${instruction}\n\nCurrent content to rewrite:\n\`\`\`\n${currentContent}\n\`\`\`\n\nPut the rewritten version in a code block.`,
+                onComplete: (response) => {
+                    chatPanel.finalizeStream(response);
+                    this._processGeneratedField(fieldName, response);
+                },
+                onError: (err) => {
+                    chatPanel.cancelStreaming();
+                    cardPanel.setFieldStatus(fieldName, FIELD_STATUS.ACCEPTED); // restore to accepted
+                    this._showError(err, `Failed to rewrite ${fieldName}`);
+                },
             });
-            document.getElementById('ccs-chat-messages')?.appendChild(bar);
-
         } catch (err) {
-            chatPanel.addSystemMessage('❌ Generation failed: ' + err.message, 'error');
+            chatPanel.cancelStreaming();
+            cardPanel.setFieldStatus(fieldName, FIELD_STATUS.ACCEPTED);
+            this._showError(err, `Failed to rewrite ${fieldName}`);
         } finally {
             chatPanel.setInputEnabled(true);
         }
     }
 
-    // ── Generation queue ──────────────────────────────────────────────────────
+    // ── Generate all fields at once ─────────────────────────────────────────
 
-    addToQueue(fieldNames) {
-        for (const fn of fieldNames) {
-            if (!this.queue.includes(fn)) this.queue.push(fn);
-        }
-        chatPanel.addSystemMessage(`📋 Queued ${fieldNames.join(', ')} for generation.`, 'info');
-        if (!this.isQueueRunning) this._runQueue();
-    }
+    async generateAllFields() {
+        chatPanel.addSystemMessage('⚡ Generating all card fields...', 'info');
+        chatPanel.startStreaming();
+        chatPanel.setInputEnabled(false);
 
-    async _runQueue() {
-        this.isQueueRunning = true;
-        while (this.queue.length > 0) {
-            const field = this.queue.shift();
-            chatPanel.addSystemMessage(`Generating ${field}...`, 'info');
-            await this.generateField(field).catch(err =>
-                chatPanel.addSystemMessage(`Queue: ${field} failed — ${err.message}`, 'error')
-            );
-        }
-        this.isQueueRunning = false;
-        chatPanel.addSystemMessage('✅ Generation queue complete.', 'info');
-    }
+        GENERATABLE_FIELDS.forEach(f => cardPanel.setFieldStatus(f, FIELD_STATUS.IN_PROGRESS));
 
-    // ── Accept field ──────────────────────────────────────────────────────────
-
-    async _acceptField(fieldName, content, rerender = true) {
         try {
-            // Auto-fix mes_example format
-            const finalContent = fieldName === 'mes_example' ? cardManager.fixMesExampleFormat(content) : content;
-
-            // Conflict detection (non-blocking)
-            auditEngine.checkConflictOnAccept(this.session, this.cardFields, fieldName, finalContent)
-                .then(conflict => {
-                    if (conflict) chatPanel.addSystemMessage(`⚠️ Possible conflict: ${conflict}`, 'warning');
-                }).catch(() => {});
-
-            await cardManager.writeField(fieldName, finalContent);
-            this.cardFields[fieldName] = finalContent;
-
-            // Generate version summary (utility tier, non-blocking)
-            this._saveVersionWithSummary(fieldName, finalContent);
-
-            cardPanel.setFieldStatus(fieldName, FIELD_STATUS.ACCEPTED);
-            if (rerender) this.onCardUpdated?.();
-            delete this.pendingContent[fieldName];
+            await chatEngine.chat({
+                userMessage: 'Generate all card fields now.',
+                session: this.session,
+                cardFields: this.cardFields,
+                extraInstruction: GENERATE_ALL_FIELDS_PROMPT,
+                onComplete: (response) => {
+                    chatPanel.finalizeStream(response);
+                    this._processMultiFieldResponse(response);
+                },
+                onError: (err) => {
+                    chatPanel.cancelStreaming();
+                    GENERATABLE_FIELDS.forEach(f => cardPanel.setFieldStatus(f, FIELD_STATUS.EMPTY));
+                    this._showError(err, 'Failed to generate all fields');
+                },
+            });
         } catch (err) {
-            chatPanel.addSystemMessage('❌ Failed to write field: ' + err.message, 'error');
+            chatPanel.cancelStreaming();
+            GENERATABLE_FIELDS.forEach(f => cardPanel.setFieldStatus(f, FIELD_STATUS.EMPTY));
+            this._showError(err, 'Failed to generate all fields');
+        } finally {
+            chatPanel.setInputEnabled(true);
         }
     }
 
-    async _saveVersionWithSummary(fieldName, newContent) {
-        const versions = memoryManager.getFieldVersions(this.session, fieldName);
-        let summary = '';
-        if (versions.length > 0) {
-            const prev = versions[versions.length - 1].content;
-            try {
-                summary = await chatEngine.generateUtility(
-                    VERSION_SUMMARY_PROMPT,
-                    `Previous version:\n${prev.substring(0, 300)}\n\nNew version:\n${newContent.substring(0, 300)}`
-                ) || '';
-            } catch {}
-        }
-        memoryManager.saveFieldVersion(this.session, fieldName, newContent, summary.trim());
-        memoryManager.saveSession(this.session.characterId, this.session);
-    }
+    // ── Batch operations (alternate greetings) ──────────────────────────────
 
-    // ── Batch greeting operation ──────────────────────────────────────────────
-
-    async _handleBatchGreetings(userMessage) {
-        const greetings = this.cardFields.alternate_greetings || [];
-        if (!greetings.length) {
-            chatPanel.addMessage('assistant', 'No alternate greetings yet. Generate some first!');
+    async _handleBatchOperation(message, batchInfo) {
+        if (batchInfo.type === 'alternate_greetings') {
+            await this._handleBatchGreetings(batchInfo.count || 3);
             return;
         }
-
+        // General batch via chat
+        chatPanel.startStreaming();
         chatPanel.setInputEnabled(false);
-        chatPanel.addSystemMessage(`Running batch operation on ${greetings.length} greetings in parallel...`, 'info');
 
+        try {
+            await chatEngine.chat({
+                userMessage: message,
+                session: this.session,
+                cardFields: this.cardFields,
+                extraInstruction: BATCH_OPERATION_PROMPT,
+                onComplete: (response) => {
+                    chatPanel.finalizeStream(response);
+                },
+                onError: (err) => {
+                    chatPanel.cancelStreaming();
+                    this._showError(err, 'Batch operation failed');
+                },
+            });
+        } catch (err) {
+            chatPanel.cancelStreaming();
+            this._showError(err, 'Batch operation failed');
+        } finally {
+            chatPanel.setInputEnabled(true);
+        }
+    }
+
+    async _handleBatchGreetings(count) {
         const settings = memoryManager.getGlobalSettings();
-        const base = buildBaseSystemPrompt(settings.customSystemPromptRules);
+        const systemPrompt = buildBaseSystemPrompt(settings.customSystemPromptRules);
+        const fieldInstruction = FIELD_SPECIFIC_INSTRUCTIONS['alternate_greeting'] || '';
 
-        const requests = greetings.map((g, i) => ({
-            systemPrompt: base + '\n\n' + BATCH_OPERATION_PROMPT,
-            userPrompt: `Apply this operation to greeting [${i}]:\n\nOperation: "${userMessage}"\n\nCurrent greeting:\n${g}\n\nReturn ONLY the updated greeting in a code block.`,
+        chatPanel.addSystemMessage(`⚡ Generating ${count} alternate greetings...`, 'info');
+        chatPanel.setInputEnabled(false);
+
+        const requests = Array.from({ length: count }, (_, i) => ({
+            systemPrompt,
+            userPrompt: `${fieldInstruction}\n\nGenerate alternate greeting #${i + 1} of ${count} for this character. Each should offer a meaningfully different starting point.\n\nConcept: ${this.session.ideaMemory?.conceptName || 'the character'}\n\nPut the greeting in a triple-backtick code block.`,
         }));
 
         try {
             const results = await chatEngine.generateParallel(requests);
-            const newGreetings = results.map(r => extractCodeBlock(r));
 
-            chatPanel.addMessage('assistant', `✅ Updated all ${greetings.length} greetings.`);
-
-            const bar = document.createElement('div');
-            bar.className = 'ccs-accept-bar';
-            bar.innerHTML = `
-                <span class="ccs-accept-label">Accept all updated greetings?</span>
-                <button class="ccs-btn ccs-btn-primary" id="ccs-accept-greetings-btn">✅ Accept All Greetings</button>
-            `;
-            bar.querySelector('#ccs-accept-greetings-btn').addEventListener('click', async () => {
-                await this._acceptField('alternate_greetings', newGreetings);
-                bar.innerHTML = '<span class="ccs-accept-label">✅ All greetings updated</span>';
+            results.forEach((text, i) => {
+                const content = extractCodeBlock(text) || text;
+                chatPanel.addAcceptBar(`alternate_greeting_${i + 1}`, content, (f, c) => {
+                    this._acceptAlternateGreeting(c);
+                });
             });
-            document.getElementById('ccs-chat-messages')?.appendChild(bar);
-
         } catch (err) {
-            chatPanel.addSystemMessage('❌ Batch operation failed: ' + err.message, 'error');
+            this._showError(err, 'Failed to generate alternate greetings');
         } finally {
             chatPanel.setInputEnabled(true);
         }
     }
 
-    async _generalChat(userMessage) {
-        chatPanel.setInputEnabled(false);
+    // ── Queue processing ────────────────────────────────────────────────────
+
+    async addToQueue(fieldName) {
+        this.queue.push(fieldName);
+        if (!this._isProcessingQueue) {
+            await this._processQueue();
+        }
+    }
+
+    async _processQueue() {
+        this._isProcessingQueue = true;
+        while (this.queue.length) {
+            const field = this.queue.shift();
+            try {
+                await this.generateField(field);
+            } catch (err) {
+                // If rate limited or balance error, stop the entire queue
+                if (err instanceof CCSApiError && (err.errorType === 'rate_limit' || err.errorType === 'balance')) {
+                    chatPanel.addSystemMessage(`⏹ Queue stopped: ${err.userMessage}`, 'error');
+                    this.queue = [];
+                    break;
+                }
+            }
+        }
+        this._isProcessingQueue = false;
+    }
+
+    // ── General chat ────────────────────────────────────────────────────────
+
+    async _generalChat(message) {
         chatPanel.startStreaming();
-        await chatEngine.chat({
-            userMessage,
-            session: this.session,
-            cardFields: this.cardFields,
-            onComplete: (text) => {
-                chatPanel.finalizeStream(text);
-                chatPanel.setInputEnabled(true);
-                memoryManager.saveSession(this.session.characterId, this.session);
-            },
-        });
+        chatPanel.setInputEnabled(false);
+
+        try {
+            await chatEngine.chat({
+                userMessage: message,
+                session: this.session,
+                cardFields: this.cardFields,
+                onComplete: (response) => {
+                    chatPanel.finalizeStream(response);
+                    // Check if response contains a field suggestion
+                    const field = detectFieldFromMessage(response);
+                    if (field) {
+                        const content = extractCodeBlock(response);
+                        if (content) {
+                            chatPanel.addAcceptBar(field, content, (f, c) => this._acceptField(f, c));
+                        }
+                    }
+                },
+                onError: (err) => {
+                    chatPanel.cancelStreaming();
+                    this._showError(err, 'Chat failed');
+                },
+            });
+        } catch (err) {
+            chatPanel.cancelStreaming();
+            this._showError(err, 'Chat failed');
+        } finally {
+            chatPanel.setInputEnabled(true);
+        }
+    }
+
+    // ── Process generated field content ──────────────────────────────────────
+
+    _processGeneratedField(fieldName, response) {
+        const content = extractCodeBlock(response);
+        if (content) {
+            cardPanel.setFieldStatus(fieldName, FIELD_STATUS.GENERATED);
+            chatPanel.addAcceptBar(fieldName, content, (f, c) => this._acceptField(f, c));
+        } else {
+            cardPanel.setFieldStatus(fieldName, FIELD_STATUS.EMPTY);
+        }
+    }
+
+    _processMultiFieldResponse(response) {
+        const fields = parseMultiFieldResponse(response);
+        for (const [fieldName, content] of Object.entries(fields)) {
+            if (content && GENERATABLE_FIELDS.includes(fieldName)) {
+                cardPanel.setFieldStatus(fieldName, FIELD_STATUS.GENERATED);
+                chatPanel.addAcceptBar(fieldName, content, (f, c) => this._acceptField(f, c));
+            }
+        }
+    }
+
+    // ── Accept field — write to card ─────────────────────────────────────────
+
+    async _acceptField(fieldName, content) {
+        try {
+            // Validate macros
+            const macroIssues = cardManager.validateMacros(fieldName, content);
+            if (macroIssues.length) {
+                chatPanel.addSystemMessage(`⚠️ ${fieldName}: ${macroIssues.join(', ')}`, 'warning');
+            }
+
+            // mes_example format check
+            if (fieldName === 'mes_example') {
+                content = cardManager.fixMesExampleFormat(content);
+            }
+
+            // Write to card
+            await cardManager.writeField(fieldName, content);
+            this.cardFields[fieldName] = content;
+            cardPanel.setFieldStatus(fieldName, FIELD_STATUS.ACCEPTED);
+            this.callbacks.onCardUpdated?.();
+
+            // Save version (generate summary in background)
+            chatEngine.generateUtility(
+                'Summarize the change in one sentence under 15 words.',
+                `Field "${fieldName}" content:\n${content.substring(0, 300)}`
+            ).then(summary => {
+                memoryManager.saveFieldVersion(this.session, fieldName, content, summary || '');
+            }).catch(() => {
+                memoryManager.saveFieldVersion(this.session, fieldName, content, '');
+            });
+
+            // Conflict check (async, non-blocking)
+            auditEngine.checkConflictOnAccept(fieldName, content, this.cardFields).then(result => {
+                if (result?.conflict) {
+                    chatPanel.addSystemMessage(`⚠️ Potential conflict: ${result.details}`, 'warning');
+                }
+            }).catch(() => {});
+
+        } catch (err) {
+            chatPanel.addSystemMessage(`❌ Failed to write ${fieldName}: ${err.message}`, 'error');
+        }
+    }
+
+    async _acceptAlternateGreeting(content) {
+        try {
+            const existing = this.cardFields.alternate_greetings || [];
+            existing.push(content);
+            await cardManager.writeField('alternate_greetings', existing);
+            this.cardFields.alternate_greetings = existing;
+            cardPanel.setFieldStatus('alternate_greetings', FIELD_STATUS.ACCEPTED);
+            this.callbacks.onCardUpdated?.();
+            chatPanel.addSystemMessage(`✅ Added alternate greeting #${existing.length}`, 'info');
+        } catch (err) {
+            chatPanel.addSystemMessage(`❌ Failed to save greeting: ${err.message}`, 'error');
+        }
+    }
+
+    // ── Helpers ──────────────────────────────────────────────────────────────
+
+    _detectRewriteAction(message) {
+        const lower = message.toLowerCase();
+        for (const [action, _] of Object.entries(REWRITE_INSTRUCTIONS)) {
+            if (lower.includes(action)) return action;
+        }
+        return null;
+    }
+
+    // FIX: Centralized error display with proper cleanup
+    _showError(err, context) {
+        const userMessage = (err instanceof CCSApiError)
+            ? err.userMessage
+            : `❌ ${context}: ${err?.message || 'Unknown error'}`;
+        chatPanel.addSystemMessage(userMessage, 'error');
     }
 }
 

@@ -1,8 +1,9 @@
 // core/chat.js
 // AI generation engine — wraps apiManager, handles history, compression
+// FIX: Proper error cleanup, cancelStreaming support, typed errors
 
 import { memoryManager } from './memory.js';
-import { apiManager } from './api.js';
+import { apiManager, CCSApiError, classifyApiError } from './api.js';
 import { contextBuilder } from './context-builder.js';
 import { buildBaseSystemPrompt } from '../prompts/base.js';
 import { COMPRESSOR_PROMPT } from '../prompts/compressor.js';
@@ -16,7 +17,7 @@ export class ChatEngine {
     // ── Main conversational chat ────────────────────────────────────────────
 
     async chat(options) {
-        const { userMessage, session, cardFields, onComplete, extraInstruction } = options;
+        const { userMessage, session, cardFields, onComplete, onError, extraInstruction } = options;
         const settings = memoryManager.getGlobalSettings();
 
         // Add user turn to history
@@ -53,14 +54,21 @@ export class ChatEngine {
             onComplete && onComplete(fullResponse);
             return fullResponse;
         } catch (err) {
-            if (err.name === 'AbortError') {
+            // Classify the error
+            const classified = (err instanceof CCSApiError) ? err : classifyApiError(err, 'Chat');
+
+            if (classified.errorType === 'aborted') {
                 console.log('[CCS] Generation aborted by user');
                 return null;
             }
-            console.error('[CCS] Generation error:', err);
-            throw err;
+
+            console.error('[CCS] Generation error:', classified.userMessage);
+            // Notify caller about the error
+            onError && onError(classified);
+            throw classified;
         } finally {
             this.isGenerating = false;
+            this.abortController = null;
         }
     }
 
@@ -70,8 +78,9 @@ export class ChatEngine {
         try {
             return await apiManager.generatePrimary(systemPrompt, userPrompt, null);
         } catch (err) {
-            console.error('[CCS] Background generation error:', err);
-            throw err;
+            const classified = (err instanceof CCSApiError) ? err : classifyApiError(err, 'Background generation');
+            console.error('[CCS] Background generation error:', classified.userMessage);
+            throw classified;
         }
     }
 
@@ -81,7 +90,8 @@ export class ChatEngine {
         try {
             return await apiManager.generateUtility(systemPrompt, userPrompt);
         } catch (err) {
-            console.warn('[CCS] Utility generation failed:', err);
+            const classified = (err instanceof CCSApiError) ? err : classifyApiError(err, 'Utility');
+            console.warn('[CCS] Utility generation failed:', classified.userMessage);
             return null;
         }
     }
@@ -97,8 +107,9 @@ export class ChatEngine {
     abort() {
         if (this.abortController) {
             this.abortController.abort();
-            this.isGenerating = false;
+            this.abortController = null;
         }
+        this.isGenerating = false;
     }
 
     // ── Session compression ───────────────────────────────────────────────

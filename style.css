@@ -655,4 +655,53 @@
     .ccs-hdr-btn { padding: 6px 12px; }
     .ccs-send-btn, .ccs-abort-btn { width: 44px; height: 44px; }
     .ccs-msg-btn { padding: 4px 8px; }
+    /* FIX: Show message actions always on touch (no hover) */
+    .ccs-msg .ccs-msg-actions { opacity: 1; }
 }
+
+/* FIX: Toolbar button — prevent being clipped by parent overflow */
+.ccs-toolbar-btn {
+    touch-action: manipulation;
+    -webkit-tap-highlight-color: transparent;
+    position: relative;
+    z-index: 10;
+}
+
+/* FIX: Float button — ensure visibility on mobile */
+.ccs-float-btn {
+    touch-action: manipulation;
+    -webkit-tap-highlight-color: transparent;
+}
+
+/* FIX: Studio inner captures pointer events to prevent overlay-close misfire on mobile */
+.ccs-studio-inner {
+    touch-action: auto;
+}
+
+/* FIX: All interactive elements within studio — reliable mobile taps */
+.ccs-studio-overlay button,
+.ccs-studio-overlay input,
+.ccs-studio-overlay textarea,
+.ccs-studio-overlay select,
+.ccs-studio-overlay .ccs-field-btn,
+.ccs-studio-overlay .ccs-hdr-btn {
+    touch-action: manipulation;
+    -webkit-tap-highlight-color: transparent;
+}
+
+/* ── Toggle label (settings modal) ──────────────────────────────────────────── */
+.ccs-toggle-label {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 0.85rem;
+    color: var(--ccs-text);
+    cursor: pointer;
+}
+.ccs-toggle-label input[type="checkbox"] {
+    width: 16px;
+    height: 16px;
+    cursor: pointer;
+    accent-color: var(--ccs-accent);
+}
+

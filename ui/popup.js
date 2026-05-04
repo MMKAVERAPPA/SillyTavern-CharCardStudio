@@ -1,7 +1,7 @@
 // ui/popup.js
 // Full-screen studio overlay
-// FIX: all querySelector scoped to this.el (works before DOM insertion)
-// Mobile: pointer events, body scroll lock, touch-safe overlays
+// FIX: removed duplicate messages on phase switch, fixed editMessage index,
+//      fixed overlay close-on-tap for mobile, annotation cleanup on close
 
 import { memoryManager } from '../core/memory.js';
 import { cardManager } from '../core/card.js';
@@ -32,7 +32,6 @@ export class StudioPopup {
         this.cardFields = null;
         this.characterId = null;
         this._escHandler = null;
-        this._overlayPointerTarget = null;
     }
 
     // ── Scoped selectors — work whether el is in DOM or not ──────────────────
@@ -68,10 +67,16 @@ export class StudioPopup {
     close() {
         if (!this.isOpen) return;
         if (this.session) memoryManager.saveSession(this.characterId, this.session);
+
+        // Clean up escape handler
         if (this._escHandler) {
             document.removeEventListener('keydown', this._escHandler);
             this._escHandler = null;
         }
+
+        // FIX: Clean up annotation listener to prevent memory leak
+        chatPanel.destroy();
+
         this.el?.remove();
         this.el = null;
         this._minBar?.remove();
@@ -298,25 +303,40 @@ export class StudioPopup {
     }
 
     async _handleUserMessage(message, editIdx) {
+        // FIX: editMessage — pass actual message content, don't assume *2 index
         if (editIdx !== undefined) {
-            memoryManager.editMessage(this.session, editIdx * 2, message);
+            // Find the actual index in session history for this edit
+            const history = this.session.conversationHistory || [];
+            let userMsgCount = 0;
+            for (let i = 0; i < history.length; i++) {
+                if (history[i].role === 'user') {
+                    if (userMsgCount === editIdx) {
+                        // Truncate history to this point + rewrite the message
+                        this.session.conversationHistory = history.slice(0, i);
+                        break;
+                    }
+                    userMsgCount++;
+                }
+            }
         }
+
+        // FIX: Check for phase switch FIRST — don't add duplicate user message
+        // (chatPanel._handleSend already added the user message to the DOM)
         const switchTo = detectPhaseSwitch(message);
         if (switchTo === 'lorebook') {
-            chatPanel.addMessage('user', message);
+            // User message already rendered by _handleSend, just route
             this._routeToPhase(PHASE.LOREBOOK);
             return;
         }
         if (switchTo === 'building') {
-            chatPanel.addMessage('user', message);
             this._routeToPhase(PHASE.BUILDING);
             return;
         }
         if (switchTo === 'build_start' && this.currentPhase === PHASE.IDEATION) {
-            chatPanel.addMessage('user', message);
             await ideationPhase.handleMessage(message);
             return;
         }
+
         switch (this.currentPhase) {
             case PHASE.IDEATION: await ideationPhase.handleMessage(message); break;
             case PHASE.BUILDING: await generationPhase.handleMessage(message); break;
@@ -328,7 +348,6 @@ export class StudioPopup {
     // ── Header events — this.$() works before DOM insertion ───────────────────
 
     _bindHeaderEvents() {
-        // ✅ FIXED: this.$() not document.getElementById()
         this.$('#ccs-close-studio')?.addEventListener('click', () => this.close());
 
         this.$('#ccs-settings-btn')?.addEventListener('click', () => settingsModal.open());
@@ -344,28 +363,39 @@ export class StudioPopup {
 
         this.$('#ccs-resume-btn')?.addEventListener('click', () => {
             // Resume btn just scrolls to bottom and re-renders idea panel
-            // (session is already restored by _restoreSessionToUI on open)
             const idea = this.session.ideaMemory;
             ideaPanel.render(idea);
-            // Scroll chat to bottom
             const chatContainer = document.getElementById('ccs-chat-messages');
             if (chatContainer) chatContainer.scrollTop = chatContainer.scrollHeight;
         });
 
-        // Minimize button — ✅ uses this.$()
+        // Minimize button
         this.$('#ccs-minimize-studio')?.addEventListener('click', () => this.minimize());
 
         // Escape minimizes (not closes) to preserve session
-        document.addEventListener('keydown', this._escHandler = (e) => {
+        this._escHandler = (e) => {
             if (e.key === 'Escape' && this.isOpen && !this.isMinimized) this.minimize();
-        });
+        };
+        document.addEventListener('keydown', this._escHandler);
 
-        // Touch/pointer-safe overlay tap-to-close (tap the outer overlay, not content)
+        // FIX: Overlay close-on-tap — only trigger when BOTH pointerdown and click
+        // land on the overlay itself (not on .ccs-studio-inner or its children).
+        // This prevents accidental close on mobile when tapping inside the studio.
         let _pointerDownTarget = null;
         this.el.addEventListener('pointerdown', (e) => { _pointerDownTarget = e.target; });
         this.el.addEventListener('click', (e) => {
-            if (e.target === this.el && _pointerDownTarget === this.el) this.close();
+            // Only close if both the pointerdown AND click were on the overlay backdrop itself
+            if (e.target === this.el && _pointerDownTarget === this.el) {
+                this.close();
+            }
         });
+
+        // FIX: Prevent touches inside .ccs-studio-inner from reaching the overlay
+        const inner = this.$('.ccs-studio-inner');
+        if (inner) {
+            inner.addEventListener('pointerdown', (e) => e.stopPropagation());
+            inner.addEventListener('click', (e) => e.stopPropagation());
+        }
     }
 
     // ── Workspace tabs — this.$$ ───────────────────────────────────────────────
