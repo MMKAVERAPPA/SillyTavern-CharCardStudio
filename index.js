@@ -55,16 +55,21 @@ function injectToolbarButton() {
         }
     }
 
-    // Fallback: floating button in bottom-right corner (always visible)
-    const fallback = document.createElement('div');
-    fallback.id = 'ccs-float-btn';
-    fallback.className = 'ccs-float-btn';
-    fallback.innerHTML = '🎭';
-    fallback.title = 'Character Card Studio';
-    fallback.addEventListener('click', openStudio);
-    document.body.appendChild(fallback);
-
+    // FIX: Only create floating button as a fallback when toolbar injection fails
     if (!injected) {
+        // Remove any existing floating button first (avoid duplicates on re-inject)
+        document.getElementById('ccs-float-btn')?.remove();
+
+        const fallback = document.createElement('div');
+        fallback.id = 'ccs-float-btn';
+        fallback.className = 'ccs-float-btn';
+        fallback.innerHTML = '🎭';
+        fallback.title = 'Character Card Studio';
+        fallback.style.touchAction = 'manipulation'; // FIX: reliable mobile taps
+        fallback.addEventListener('click', openStudio);
+        fallback.addEventListener('pointerdown', (e) => e.stopPropagation()); // prevent ST catching it
+        document.body.appendChild(fallback);
+
         console.warn(`[${EXT_NAME}] Could not find toolbar target — floating button active`);
     }
 }
@@ -76,7 +81,9 @@ function createToolbarBtn() {
     btn.title = 'Character Card Studio (✒️)';
     btn.setAttribute('tabindex', '0');
     btn.setAttribute('role', 'button');
-    btn.addEventListener('click', openStudio);
+    btn.style.touchAction = 'manipulation'; // FIX: reliable mobile taps
+    btn.addEventListener('click', (e) => { e.stopPropagation(); openStudio(); });
+    btn.addEventListener('pointerdown', (e) => e.stopPropagation()); // prevent ST from swallowing the event
     btn.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') openStudio(); });
     return btn;
 }

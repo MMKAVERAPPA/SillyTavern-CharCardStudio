@@ -1,252 +1,330 @@
 // phases/ideation.js
-// Ideation phase: concept rating, pillar tracking, smart pillar detection, proposed profile
+// Ideation phase: concept pitching, rating, pillar resolution, proposed profile
+// FIX: try-catch all gen calls, add missing history entries, proper error cleanup
 
 import { chatEngine } from '../core/chat.js';
-import { auditEngine } from '../core/audit.js';
 import { memoryManager } from '../core/memory.js';
+import { contextBuilder } from '../core/context-builder.js';
 import { buildBaseSystemPrompt } from '../prompts/base.js';
 import { parseConceptRating } from '../core/parser.js';
-import {
-    GREETING_PROMPT, CONCEPT_RATING_PROMPT, GENERATE_IDEAS_PROMPT,
-    PILLAR_DISCUSSION_PROMPT, PROPOSED_PROFILE_PROMPT, LOAD_EXISTING_CARD_PROMPT,
-} from '../prompts/ideation.js';
+import { auditEngine } from '../core/audit.js';
 import { chatPanel } from '../ui/chat-panel.js';
 import { ideaPanel } from '../ui/idea-panel.js';
+import { CCSApiError } from '../core/api.js';
+
+import {
+    GREETING_PROMPT,
+    CONCEPT_RATING_PROMPT,
+    GENERATE_IDEAS_PROMPT,
+    PILLAR_DISCUSSION_PROMPT,
+    PROPOSED_PROFILE_PROMPT,
+    LOAD_EXISTING_CARD_PROMPT,
+} from '../prompts/ideation.js';
 
 export class IdeationPhase {
     constructor() {
         this.session = null;
         this.cardFields = null;
-        this.isActive = false;
-        this.onPhaseComplete = null;
+        this.onComplete = null;
     }
 
-    async start(session, cardFields, onPhaseComplete) {
+    start(session, cardFields, onComplete) {
         this.session = session;
         this.cardFields = cardFields;
-        this.onPhaseComplete = onPhaseComplete;
-        this.isActive = true;
+        this.onComplete = onComplete;
 
-        const hasContent = cardFields && (
-            cardFields.description?.trim() || cardFields.first_mes?.trim() || cardFields.personality?.trim()
-        );
-
-        if (hasContent && session.ideaMemory.pillars.length === 0) {
-            // Entering review/adopt mode
-            session.reviewMode = true;
-            await this._greetWithExistingCard(cardFields);
-        } else if (session.ideaMemory.pillars.length > 0) {
-            await this._resumeGreeting();
-        } else {
-            await this._initialGreeting();
+        // Only start fresh if no conversation history exists
+        if (!session.conversationHistory?.length) {
+            this._initialGreeting();
         }
     }
 
-    async handleMessage(userMessage) {
-        if (!this.isActive) return false;
-        const lower = userMessage.toLowerCase();
-
-        // "Start building" signals
-        const buildSignals = ['start building','start writing','let\'s build','begin writing',
-            'move on','ready to write','fill the fields','start the card','approve'];
-        if (buildSignals.some(s => lower.includes(s))) {
-            await this._offerProposedProfile();
-            return true;
-        }
-
-        // "Give me an idea" signals
-        const ideaSignals = ['give me an idea','suggest a concept','suggest something',
-            'generate ideas','i need an idea','come up with','create a concept'];
-        if (ideaSignals.some(s => lower.includes(s))) {
-            await this._generateIdeas();
-            return true;
-        }
-
-        // First concept pitch
+    async handleMessage(message) {
         const idea = this.session.ideaMemory;
-        if (!idea.conceptName && this.session.conversationHistory.length <= 2) {
-            await this._rateConceptAndSetupPillars(userMessage);
-            return true;
-        }
 
-        // Regular ideation conversation
-        await this._continueIdeation(userMessage);
-        return true;
+        // Route to the right handler based on ideation state
+        if (message.toLowerCase().includes('suggest') || message.toLowerCase().includes('ideas')) {
+            await this._generateIdeas(message);
+            return;
+        }
+        if (message.toLowerCase().includes('load existing') || message.toLowerCase().includes('improve existing')) {
+            await this._loadExistingCard(message);
+            return;
+        }
+        if (!idea.conceptName && !idea.pillars?.length) {
+            await this._rateConceptAndSetupPillars(message);
+            return;
+        }
+        if (idea.proposedProfileApproved) {
+            this.onComplete?.();
+            return;
+        }
+        if (this._isApproval(message) && idea.proposedProfileGenerated) {
+            idea.proposedProfileApproved = true;
+            chatPanel.addSystemMessage('✅ Profile approved — moving to card building!', 'info');
+            this.onComplete?.();
+            return;
+        }
+        if (this._allPillarsResolved() && !idea.proposedProfileGenerated) {
+            await this._offerProposedProfile(message);
+            return;
+        }
+        await this._continueIdeation(message);
     }
 
-    // ── Private ──────────────────────────────────────────────────────────────
+    // ── Initial greeting ────────────────────────────────────────────────────
 
     async _initialGreeting() {
-        const response = await chatEngine.generateBackground(GREETING_PROMPT, 'Generate the initial greeting.');
-        chatPanel.addMessage('assistant', response);
-        memoryManager.addMessage(this.session, 'assistant', response);
+        const settings = memoryManager.getGlobalSettings();
+        const systemPrompt = buildBaseSystemPrompt(settings.customSystemPromptRules);
+
+        chatPanel.startStreaming();
+        chatPanel.setInputEnabled(false);
+
+        try {
+            const response = await chatEngine.generateBackground(
+                systemPrompt,
+                GREETING_PROMPT
+            );
+
+            chatPanel.finalizeStream(response);
+            memoryManager.addMessage(this.session, 'assistant', response);
+        } catch (err) {
+            chatPanel.cancelStreaming();
+            this._showError(err, 'Failed to start ideation');
+        } finally {
+            chatPanel.setInputEnabled(true);
+        }
     }
 
-    async _greetWithExistingCard(cardFields) {
-        const summary = this._buildExistingCardSummary(cardFields);
-        const response = await chatEngine.generateBackground(
-            buildBaseSystemPrompt() + '\n\n' + LOAD_EXISTING_CARD_PROMPT,
-            `Analyze this existing character card:\n\n${summary}`
-        );
-        chatPanel.addMessage('assistant', response);
-        memoryManager.addMessage(this.session, 'assistant', response);
-    }
-
-    async _resumeGreeting() {
-        const idea = this.session.ideaMemory;
-        const resolved = idea.pillars.filter(p => p.resolved).length;
-        const total = idea.pillars.length;
-        const pending = idea.pillars.filter(p => !p.resolved).map(p => `□ ${p.name}`).join('\n');
-        const msg = `Welcome back! We were building **${idea.conceptName || 'your character'}**.\n\n${resolved}/${total} pillars resolved.\n${pending}\n\nWhere would you like to continue?`;
-        chatPanel.addMessage('assistant', msg);
-        memoryManager.addMessage(this.session, 'assistant', msg);
-        ideaPanel.render(idea);
-    }
+    // ── Concept rating ──────────────────────────────────────────────────────
 
     async _rateConceptAndSetupPillars(userMessage) {
-        chatPanel.setInputEnabled(false);
-        chatPanel.startStreaming();
-        const response = await chatEngine.generateBackground(
-            buildBaseSystemPrompt() + '\n\n' + CONCEPT_RATING_PROMPT,
-            `Rate this concept and set up structural pillars:\n\n"${userMessage}"`
-        );
-        chatPanel.finalizeStream(response);
-        chatPanel.setInputEnabled(true);
+        const settings = memoryManager.getGlobalSettings();
+        const systemPrompt = buildBaseSystemPrompt(settings.customSystemPromptRules);
 
-        const parsed = parseConceptRating(response);
-        if (parsed?.conceptName) {
-            this.session.ideaMemory.conceptName = parsed.conceptName;
-            this.session.ideaMemory.conceptRating = { scores: parsed.scores, overall: parsed.overall };
+        // FIX: Add user message to history (was missing before)
+        memoryManager.addMessage(this.session, 'user', userMessage);
+
+        chatPanel.startStreaming();
+        chatPanel.setInputEnabled(false);
+
+        try {
+            const response = await chatEngine.generateBackground(
+                systemPrompt,
+                `${CONCEPT_RATING_PROMPT}\n\nUser's concept pitch:\n${userMessage}`
+            );
+
+            chatPanel.finalizeStream(response);
+            memoryManager.addMessage(this.session, 'assistant', response);
+
+            // Parse rating and pillars from response
+            const rating = parseConceptRating(response);
+
+            this.session.ideaMemory.conceptRating = rating;
+            if (rating?.pillars?.length) {
+                this.session.ideaMemory.pillars = rating.pillars;
+            }
+            // Try to extract concept name from the response
+            const nameMatch = response.match(/Concept:\s*"?([^"\n]+)"?/i);
+            if (nameMatch) {
+                this.session.ideaMemory.conceptName = nameMatch[1].trim();
+            } else {
+                this.session.ideaMemory.conceptName = userMessage.substring(0, 60);
+            }
+
+            ideaPanel.render(this.session.ideaMemory);
+        } catch (err) {
+            chatPanel.cancelStreaming();
+            this._showError(err, 'Failed to rate concept');
+        } finally {
+            chatPanel.setInputEnabled(true);
         }
-        if (parsed?.pillars?.length) this.session.ideaMemory.pillars = parsed.pillars;
-
-        memoryManager.addMessage(this.session, 'assistant', response);
-        memoryManager.saveSession(this.session.characterId, this.session);
-        ideaPanel.render(this.session.ideaMemory);
     }
 
-    async _generateIdeas() {
-        chatPanel.setInputEnabled(false);
+    // ── Idea generation ─────────────────────────────────────────────────────
+
+    async _generateIdeas(userMessage) {
+        const settings = memoryManager.getGlobalSettings();
+        const systemPrompt = buildBaseSystemPrompt(settings.customSystemPromptRules);
+
+        // FIX: Add user message to history (was missing before)
+        memoryManager.addMessage(this.session, 'user', userMessage);
+
         chatPanel.startStreaming();
-        const response = await chatEngine.generateBackground(
-            buildBaseSystemPrompt() + '\n\n' + GENERATE_IDEAS_PROMPT,
-            'Generate 3 original character concept ideas.'
-        );
-        chatPanel.finalizeStream(response);
-        chatPanel.setInputEnabled(true);
-        memoryManager.addMessage(this.session, 'assistant', response);
+        chatPanel.setInputEnabled(false);
+
+        try {
+            const response = await chatEngine.generateBackground(
+                systemPrompt,
+                GENERATE_IDEAS_PROMPT
+            );
+
+            chatPanel.finalizeStream(response);
+            memoryManager.addMessage(this.session, 'assistant', response);
+        } catch (err) {
+            chatPanel.cancelStreaming();
+            this._showError(err, 'Failed to generate ideas');
+        } finally {
+            chatPanel.setInputEnabled(true);
+        }
     }
+
+    // ── Load existing card ──────────────────────────────────────────────────
+
+    async _loadExistingCard(userMessage) {
+        const settings = memoryManager.getGlobalSettings();
+        const systemPrompt = buildBaseSystemPrompt(settings.customSystemPromptRules);
+
+        // FIX: Add user message to history
+        memoryManager.addMessage(this.session, 'user', userMessage);
+
+        chatPanel.startStreaming();
+        chatPanel.setInputEnabled(false);
+
+        try {
+            const cardSummary = Object.entries(this.cardFields || {})
+                .filter(([k, v]) => typeof v === 'string' && v.trim())
+                .map(([k, v]) => `### ${k}\n${v.substring(0, 300)}`)
+                .join('\n\n');
+
+            const response = await chatEngine.generateBackground(
+                systemPrompt,
+                `${LOAD_EXISTING_CARD_PROMPT}\n\n---\nExisting card fields:\n${cardSummary}`
+            );
+
+            chatPanel.finalizeStream(response);
+            memoryManager.addMessage(this.session, 'assistant', response);
+
+            this.session.reviewMode = true;
+        } catch (err) {
+            chatPanel.cancelStreaming();
+            this._showError(err, 'Failed to load card');
+        } finally {
+            chatPanel.setInputEnabled(true);
+        }
+    }
+
+    // ── Continue ideation (pillar discussion) ───────────────────────────────
 
     async _continueIdeation(userMessage) {
-        chatPanel.setInputEnabled(false);
+        const idea = this.session.ideaMemory;
+        const pillarContext = (idea.pillars || []).map(p =>
+            `${p.resolved ? '✅' : '□'} ${p.name}${p.resolved ? `: ${p.answer}` : ''}`
+        ).join('\n');
+
+        const extraInstruction = `${PILLAR_DISCUSSION_PROMPT}
+
+Current Pillar Status:
+${pillarContext || 'No pillars established yet.'}`;
+
         chatPanel.startStreaming();
+        chatPanel.setInputEnabled(false);
 
-        // Smart pillar detection (utility tier — non-blocking if it fails)
-        this._detectAndMarkPillar(userMessage).catch(() => {});
+        try {
+            await chatEngine.chat({
+                userMessage,
+                session: this.session,
+                cardFields: this.cardFields,
+                extraInstruction,
+                onComplete: (response) => {
+                    chatPanel.finalizeStream(response);
+                },
+                onError: (err) => {
+                    chatPanel.cancelStreaming();
+                    this._showError(err, 'Ideation failed');
+                },
+            });
 
-        const response = await chatEngine.chat({
-            userMessage,
-            session: this.session,
-            cardFields: this.cardFields,
-            extraInstruction: PILLAR_DISCUSSION_PROMPT,
-            onComplete: (text) => {
-                chatPanel.finalizeStream(text);
-                chatPanel.setInputEnabled(true);
-                const allResolved = this.session.ideaMemory.pillars.length > 0 &&
-                    this.session.ideaMemory.pillars.every(p => p.resolved);
-                if (allResolved) {
-                    chatPanel.addSystemMessage('✅ All pillars resolved! Type "start building" or click below.', 'info');
-                    this._addStartBuildingButton();
-                }
-                memoryManager.saveSession(this.session.characterId, this.session);
-                ideaPanel.render(this.session.ideaMemory);
-            },
-        });
+            // Fire async pillar detection (non-blocking, utility tier)
+            this._detectAndMarkPillar(userMessage).catch(() => {});
+        } catch (err) {
+            chatPanel.cancelStreaming();
+            this._showError(err, 'Ideation failed');
+        } finally {
+            chatPanel.setInputEnabled(true);
+        }
     }
 
+    // ── Proposed profile ────────────────────────────────────────────────────
+
+    async _offerProposedProfile(userMessage) {
+        const settings = memoryManager.getGlobalSettings();
+        const systemPrompt = buildBaseSystemPrompt(settings.customSystemPromptRules);
+
+        const idea = this.session.ideaMemory;
+        const pillarSummary = (idea.pillars || []).map(p =>
+            `- ${p.name}: ${p.answer || 'Not yet decided'}`
+        ).join('\n');
+
+        // FIX: Add user message to history
+        memoryManager.addMessage(this.session, 'user', userMessage);
+
+        chatPanel.startStreaming();
+        chatPanel.setInputEnabled(false);
+
+        try {
+            const response = await chatEngine.generateBackground(
+                systemPrompt,
+                `${PROPOSED_PROFILE_PROMPT}\n\nResolved pillars:\n${pillarSummary}\n\nConcept: ${idea.conceptName || 'Not named'}`
+            );
+
+            chatPanel.finalizeStream(response);
+            memoryManager.addMessage(this.session, 'assistant', response);
+
+            idea.proposedProfileGenerated = true;
+            ideaPanel.render(idea);
+        } catch (err) {
+            chatPanel.cancelStreaming();
+            this._showError(err, 'Failed to generate profile');
+        } finally {
+            chatPanel.setInputEnabled(true);
+        }
+    }
+
+    // ── Pillar detection (utility tier, async) ──────────────────────────────
+
     async _detectAndMarkPillar(userMessage) {
-        const unresolved = this.session.ideaMemory.pillars.filter(p => !p.resolved);
-        if (!unresolved.length) return;
+        const idea = this.session.ideaMemory;
+        const pending = (idea.pillars || []).filter(p => !p.resolved);
+        if (!pending.length) return;
 
-        // Build context from last 2 messages
-        const recent = this.session.conversationHistory.slice(-4);
-        const ctx = recent.map(m => `${m.role}: ${m.content.substring(0, 100)}`).join('\n');
-
-        // Try each unresolved pillar — stop at first resolution found
-        for (const pillar of unresolved.slice(0, 3)) {
-            const resolution = await auditEngine.detectPillarResolution(userMessage, pillar.name, ctx);
-            if (resolution) {
-                pillar.resolved = true;
-                pillar.answer = resolution;
-                this.session.ideaMemory.keyDecisions.push({
-                    decision: `${pillar.name}: ${resolution}`,
-                    timestamp: Date.now(),
-                });
-                ideaPanel.updatePillar(this.session.ideaMemory.pillars);
-                memoryManager.saveSession(this.session.characterId, this.session);
-                break; // Only mark one pillar per message
+        for (const pillar of pending) {
+            try {
+                const result = await auditEngine.detectPillarResolution(userMessage, pillar.name, '');
+                if (result?.resolved) {
+                    pillar.resolved = true;
+                    pillar.answer = result.summary || '';
+                    idea.keyDecisions.push({
+                        decision: `${pillar.name}: ${result.summary}`,
+                        timestamp: Date.now(),
+                    });
+                    ideaPanel.updatePillar(idea.pillars);
+                }
+            } catch {
+                // Utility failure is non-blocking
             }
         }
     }
 
-    async _offerProposedProfile() {
-        chatPanel.setInputEnabled(false);
-        chatPanel.startStreaming();
-        const settings = memoryManager.getGlobalSettings();
-        const response = await chatEngine.generateBackground(
-            buildBaseSystemPrompt(settings.customSystemPromptRules)
-                + '\n\n' + PROPOSED_PROFILE_PROMPT
-                + '\n\n' + memoryManager.buildIdeaMemorySummary(this.session),
-            'Generate the proposed character profile summary.'
-        );
-        chatPanel.finalizeStream(response);
-        chatPanel.setInputEnabled(true);
-        memoryManager.addMessage(this.session, 'assistant', response);
-        this._addApproveButton();
+    // ── Helpers ──────────────────────────────────────────────────────────────
+
+    _allPillarsResolved() {
+        const pillars = this.session.ideaMemory?.pillars || [];
+        return pillars.length > 0 && pillars.every(p => p.resolved);
     }
 
-    _addApproveButton() {
-        const bar = document.createElement('div');
-        bar.className = 'ccs-accept-bar';
-        bar.innerHTML = `
-            <span class="ccs-accept-label">Ready to start writing fields?</span>
-            <button class="ccs-btn ccs-btn-primary" id="ccs-approve-profile-btn">✅ Approve & Start Building</button>
-        `;
-        bar.querySelector('#ccs-approve-profile-btn').addEventListener('click', () => {
-            this.session.ideaMemory.proposedProfileApproved = true;
-            memoryManager.saveSession(this.session.characterId, this.session);
-            this.isActive = false;
-            this.onPhaseComplete?.();
-            bar.innerHTML = '<span class="ccs-accept-label">✅ Moving to field generation...</span>';
-        });
-        document.getElementById('ccs-chat-messages')?.appendChild(bar);
+    _isApproval(message) {
+        const lower = message.toLowerCase().trim();
+        return /^(yes|yep|yeah|looks good|approved?|let'?s go|go|do it|start building|build)/i.test(lower);
     }
 
-    _addStartBuildingButton() {
-        const container = document.getElementById('ccs-chat-messages');
-        if (container?.querySelector('.ccs-start-building-bar')) return;
-        const bar = document.createElement('div');
-        bar.className = 'ccs-accept-bar ccs-start-building-bar';
-        bar.innerHTML = `
-            <span class="ccs-accept-label">All pillars resolved!</span>
-            <button class="ccs-btn ccs-btn-primary" id="ccs-start-build-btn">🚀 Generate Proposed Profile</button>
-        `;
-        bar.querySelector('#ccs-start-build-btn').addEventListener('click', () => this._offerProposedProfile());
-        container?.appendChild(bar);
-    }
-
-    _buildExistingCardSummary(cardFields) {
-        const parts = [];
-        const fields = ['name','description','personality','scenario','first_mes','mes_example','system_prompt'];
-        for (const f of fields) {
-            const v = cardFields[f];
-            if (v?.trim()) parts.push(`[${f.toUpperCase()}]\n${v.substring(0, 300)}${v.length > 300 ? '...' : ''}`);
-        }
-        const g = cardFields.alternate_greetings || [];
-        if (g.length) parts.push(`[ALTERNATE_GREETINGS: ${g.length} greeting(s)]`);
-        const b = cardFields.character_book;
-        if (b?.entries?.length) parts.push(`[CHARACTER_BOOK: ${b.entries.length} entries]`);
-        return parts.join('\n\n') || 'No fields populated yet.';
+    // FIX: Centralized error display with proper cleanup
+    _showError(err, context) {
+        const userMessage = (err instanceof CCSApiError)
+            ? err.userMessage
+            : `❌ ${context}: ${err?.message || 'Unknown error'}`;
+        chatPanel.addSystemMessage(userMessage, 'error');
     }
 }
 

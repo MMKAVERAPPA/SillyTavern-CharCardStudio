@@ -1,277 +1,349 @@
 // phases/lorebook-phase.js
-// Lorebook generation, entry staging, accept/insert, search/filter, keyword check, organize
+// Lorebook creation: brainstorming, entry generation, staging, insertion
+// FIX: try-catch all gen calls, proper error cleanup
 
 import { chatEngine } from '../core/chat.js';
-import { worldInfoManager } from '../core/worldinfo.js';
-import { auditEngine } from '../core/audit.js';
 import { memoryManager } from '../core/memory.js';
-import { buildBaseSystemPrompt } from '../prompts/base.js';
+import { worldInfoManager } from '../core/worldinfo.js';
 import { chatPanel } from '../ui/chat-panel.js';
 import { lorebookPanel } from '../ui/lorebook-panel.js';
+import { contextBuilder } from '../core/context-builder.js';
+import { buildBaseSystemPrompt } from '../prompts/base.js';
+import { CCSApiError } from '../core/api.js';
 import { parseLorebookEntriesFromResponse } from '../core/parser.js';
-import { LOREBOOK_ENTRY_PROMPT, LOREBOOK_IDEATION_PROMPT, LOREBOOK_ORGANIZE_PROMPT } from '../prompts/lorebook.js';
+
+import {
+    LOREBOOK_IDEATION_PROMPT,
+    LOREBOOK_ENTRY_PROMPT,
+    KEYWORD_QUALITY_CHECK_PROMPT,
+    LOREBOOK_ORGANIZE_PROMPT,
+} from '../prompts/lorebook.js';
 
 export class LorebookPhase {
     constructor() {
         this.session = null;
         this.cardFields = null;
-        this.targetBook = '';
-        this.embedded = true;
-        this.pendingEntries = [];   // staged but not yet written
-        this.onUpdated = null;
+        this.callbacks = {};
+        this.pendingEntries = [];
     }
 
     start(session, cardFields, callbacks = {}) {
         this.session = session;
         this.cardFields = cardFields;
-        this.onUpdated = callbacks.onUpdated;
+        this.callbacks = callbacks;
 
-        // Restore pending entries if resuming
-        this.pendingEntries = [...(session.lorebookLog.pendingEntries || [])];
-
-        chatPanel.addMessage('assistant',
-            `Let's build the lorebook for **${session.ideaMemory?.conceptName || 'your character'}**.\n\n` +
-            `I'll help brainstorm entries, generate them with full metadata, and write them directly to the card or an external lorebook.\n\n` +
-            `First — should entries be **embedded in the character card** (portable, recommended) or in an **external lorebook**?\n` +
-            `Also, what areas of lore do you want to start with?`
-        );
-
-        lorebookPanel.render(session.lorebookLog.acceptedEntries, this.pendingEntries);
+        // Restore pending entries from session
+        this.pendingEntries = session.lorebookLog.pendingEntries || [];
     }
 
-    async handleMessage(userMessage) {
-        const lower = userMessage.toLowerCase();
+    async handleMessage(message) {
+        const lower = message.toLowerCase();
 
-        // Configuration
-        if (lower.includes('embedded') || lower.includes('embed in card')) {
-            this.embedded = true;
-            this.session.lorebookLog.embedded = true;
-            chatPanel.addMessage('assistant', '✅ Set to **embedded** in character card. Entries will go into the character_book field.');
-            return true;
+        // Detect user intent
+        if (/brainstorm|plan|what entries|suggest entries/i.test(lower)) {
+            await this._brainstormEntries(message);
+            return;
         }
-        if (lower.includes('external lorebook') || lower.includes('standalone lorebook')) {
-            this.embedded = false;
-            this.session.lorebookLog.embedded = false;
-            await this._promptForLorebookName();
-            return true;
+        if (/generate.*entr|create.*entr|write.*entr/i.test(lower)) {
+            await this._generateEntries(message);
+            return;
         }
-
-        // Brainstorm
-        if (lower.includes('brainstorm') || lower.includes('what entries') || lower.includes('plan entries') || lower.includes('plan the lorebook')) {
-            await this._brainstormEntries();
-            return true;
+        if (/insert all|accept all|save all/i.test(lower)) {
+            await this._insertAllPending();
+            return;
         }
-
-        // Keyword quality check
-        if (lower.includes('check keywords') || lower.includes('keyword quality') || lower.includes('review keywords')) {
-            await this._checkKeywords();
-            return true;
+        if (/check.*key|keyword.*quality|audit.*key/i.test(lower)) {
+            await this._checkKeywordQuality();
+            return;
         }
-
-        // Organize
-        if (lower.includes('organise') || lower.includes('organize') || lower.includes('sort entries') || lower.includes('reorder')) {
+        if (/organiz|sort|reorder/i.test(lower)) {
             await this._organizeEntries();
-            return true;
+            return;
+        }
+        if (/embedded|character.?book/i.test(lower)) {
+            this.session.lorebookLog.embedded = true;
+            chatPanel.addSystemMessage('📝 Lorebook mode: embedded in character card.', 'info');
+            return;
+        }
+        if (/external|standalone|world.?info/i.test(lower)) {
+            await this._selectExternalBook();
+            return;
         }
 
-        // Accept all pending
-        if (lower.includes('accept all') || lower.includes('insert all') || lower.includes('write all entries')) {
-            await this._acceptAllPending();
-            return true;
-        }
-
-        // Generate entries
-        await this._generateEntries(userMessage);
-        return true;
+        // General lorebook chat
+        await this._generalChat(message);
     }
 
-    // ── Private ──────────────────────────────────────────────────────────────
+    // ── Brainstorm ─────────────────────────────────────────────────────────
 
-    async _brainstormEntries() {
-        chatPanel.setInputEnabled(false);
+    async _brainstormEntries(userMessage) {
+        const cardSummary = Object.entries(this.cardFields || {})
+            .filter(([k, v]) => typeof v === 'string' && v.trim())
+            .map(([k, v]) => `### ${k}\n${v.substring(0, 200)}`)
+            .join('\n\n');
+
         chatPanel.startStreaming();
-        const settings = memoryManager.getGlobalSettings();
-        const base = buildBaseSystemPrompt(settings.customSystemPromptRules)
-            + '\n\n' + memoryManager.buildIdeaMemorySummary(this.session);
-        const response = await chatEngine.generateBackground(
-            base + '\n\n' + LOREBOOK_IDEATION_PROMPT,
-            'Brainstorm all lorebook entries needed for this character card.'
-        );
-        chatPanel.finalizeStream(response);
-        chatPanel.setInputEnabled(true);
-        memoryManager.addMessage(this.session, 'assistant', response);
+        chatPanel.setInputEnabled(false);
+
+        try {
+            await chatEngine.chat({
+                userMessage,
+                session: this.session,
+                cardFields: this.cardFields,
+                extraInstruction: `${LOREBOOK_IDEATION_PROMPT}\n\n--- Card Summary ---\n${cardSummary}`,
+                onComplete: (response) => {
+                    chatPanel.finalizeStream(response);
+                    // Parse entry list and store
+                    this._parseEntryList(response);
+                },
+                onError: (err) => {
+                    chatPanel.cancelStreaming();
+                    this._showError(err, 'Brainstorming failed');
+                },
+            });
+        } catch (err) {
+            chatPanel.cancelStreaming();
+            this._showError(err, 'Brainstorming failed');
+        } finally {
+            chatPanel.setInputEnabled(true);
+        }
     }
+
+    // ── Generate entries ────────────────────────────────────────────────────
 
     async _generateEntries(userMessage) {
-        chatPanel.setInputEnabled(false);
+        const cardSummary = Object.entries(this.cardFields || {})
+            .filter(([k, v]) => typeof v === 'string' && v.trim())
+            .map(([k, v]) => `### ${k}\n${v.substring(0, 200)}`)
+            .join('\n\n');
+
         chatPanel.startStreaming();
-        const settings = memoryManager.getGlobalSettings();
+        chatPanel.setInputEnabled(false);
 
-        const lorebookIndex = memoryManager.buildLorebookIndex(this.session);
-        const base = buildBaseSystemPrompt(settings.customSystemPromptRules)
-            + '\n\n' + LOREBOOK_ENTRY_PROMPT
-            + (lorebookIndex ? '\n\n' + lorebookIndex : '')
-            + '\n\n' + memoryManager.buildIdeaMemorySummary(this.session);
-
-        const response = await chatEngine.chat({
-            userMessage,
-            session: this.session,
-            cardFields: this.cardFields,
-            extraInstruction: LOREBOOK_ENTRY_PROMPT,
-            onComplete: async (text) => {
-                chatPanel.finalizeStream(text);
-                chatPanel.setInputEnabled(true);
-
-                const entries = parseLorebookEntriesFromResponse(text);
-                if (!entries.length) {
-                    chatPanel.addSystemMessage('⚠️ No entries parsed. Try asking more specifically (e.g. "Generate 3 entries about the city").', 'warning');
-                    return;
-                }
-
-                // Deduplicate against existing accepted entries
-                const deduped = this._deduplicateEntries(entries);
-                if (deduped.skipped > 0) {
-                    chatPanel.addSystemMessage(`ℹ️ Skipped ${deduped.skipped} duplicate entry title(s).`, 'info');
-                }
-
-                for (const entry of deduped.entries) {
-                    this.pendingEntries.push(entry);
-                    memoryManager.addPendingEntry(this.session, entry);
-                }
-
-                lorebookPanel.render(this.session.lorebookLog.acceptedEntries, this.pendingEntries);
-
-                // Show staging bar
-                const bar = this._buildStagingBar(deduped.entries);
-                document.getElementById('ccs-chat-messages')?.appendChild(bar);
-
-                memoryManager.saveSession(this.session.characterId, this.session);
-            },
-        });
-    }
-
-    _buildStagingBar(entries) {
-        const bar = document.createElement('div');
-        bar.className = 'ccs-accept-bar ccs-lore-staging-bar';
-        bar.innerHTML = `
-            <span class="ccs-accept-label">📋 ${entries.length} entry/entries staged:</span>
-            <div class="ccs-lore-staged-list">
-                ${entries.map(e => `<span class="ccs-lore-tag">${e.comment || 'Untitled'}</span>`).join('')}
-            </div>
-            <div class="ccs-btn-row">
-                <button class="ccs-btn ccs-btn-primary ccs-insert-all-btn">💾 Insert All (${entries.length})</button>
-                <button class="ccs-btn ccs-btn-secondary ccs-review-staged-btn">👁 Review in Panel</button>
-                <button class="ccs-btn ccs-btn-ghost ccs-discard-staged-btn">🗑 Discard</button>
-            </div>
-        `;
-        bar.querySelector('.ccs-insert-all-btn').addEventListener('click', () => {
-            this._insertEntries(entries);
-            bar.innerHTML = `<span class="ccs-accept-label">✅ ${entries.length} entries inserted</span>`;
-        });
-        bar.querySelector('.ccs-review-staged-btn').addEventListener('click', () => {
-            lorebookPanel.render(this.session.lorebookLog.acceptedEntries, this.pendingEntries);
-            document.getElementById('ccs-tab-lorebook')?.click();
-        });
-        bar.querySelector('.ccs-discard-staged-btn').addEventListener('click', () => {
-            for (const e of entries) {
-                const idx = this.pendingEntries.findIndex(p => p._tempId === e._tempId);
-                if (idx !== -1) this.pendingEntries.splice(idx, 1);
-            }
-            lorebookPanel.render(this.session.lorebookLog.acceptedEntries, this.pendingEntries);
-            bar.innerHTML = '<span class="ccs-accept-label">🗑 Discarded</span>';
-        });
-        return bar;
-    }
-
-    async _insertEntries(entries) {
         try {
-            const { characterId } = SillyTavern.getContext();
-            if (this.embedded) {
-                await worldInfoManager.addEmbeddedEntries(characterId, entries);
-            } else {
-                if (!this.targetBook) {
-                    chatPanel.addSystemMessage('⚠️ No external lorebook selected. Set one in the Lorebook panel.', 'warning');
-                    return;
-                }
-                await worldInfoManager.addEntries(this.targetBook, entries);
-            }
-
-            for (const entry of entries) {
-                memoryManager.acceptLoreEntry(this.session, entry);
-                const idx = this.pendingEntries.findIndex(p => p._tempId === entry._tempId);
-                if (idx !== -1) this.pendingEntries.splice(idx, 1);
-            }
-
-            memoryManager.saveSession(this.session.characterId, this.session);
-            lorebookPanel.render(this.session.lorebookLog.acceptedEntries, this.pendingEntries);
-            this.onUpdated?.();
+            await chatEngine.chat({
+                userMessage,
+                session: this.session,
+                cardFields: this.cardFields,
+                extraInstruction: `${LOREBOOK_ENTRY_PROMPT}\n\n--- Card Summary ---\n${cardSummary}`,
+                onComplete: (response) => {
+                    chatPanel.finalizeStream(response);
+                    this._stageEntriesFromResponse(response);
+                },
+                onError: (err) => {
+                    chatPanel.cancelStreaming();
+                    this._showError(err, 'Entry generation failed');
+                },
+            });
         } catch (err) {
-            chatPanel.addSystemMessage('❌ Failed to insert entries: ' + err.message, 'error');
+            chatPanel.cancelStreaming();
+            this._showError(err, 'Entry generation failed');
+        } finally {
+            chatPanel.setInputEnabled(true);
         }
     }
 
-    async _acceptAllPending() {
-        if (!this.pendingEntries.length) {
-            chatPanel.addSystemMessage('No staged entries to accept.', 'info');
-            return;
-        }
-        const toInsert = [...this.pendingEntries];
-        await this._insertEntries(toInsert);
-        chatPanel.addSystemMessage(`✅ Inserted ${toInsert.length} entries.`, 'info');
-    }
+    // ── General chat ────────────────────────────────────────────────────────
 
-    async _checkKeywords() {
-        const all = [...this.session.lorebookLog.acceptedEntries, ...this.pendingEntries];
-        if (!all.length) {
-            chatPanel.addMessage('assistant', 'No entries yet to check keywords for.');
-            return;
-        }
-        chatPanel.setInputEnabled(false);
+    async _generalChat(message) {
         chatPanel.startStreaming();
-        const result = await auditEngine.checkKeywordQuality(all);
-        chatPanel.finalizeStream(result);
-        chatPanel.setInputEnabled(true);
+        chatPanel.setInputEnabled(false);
+
+        try {
+            await chatEngine.chat({
+                userMessage: message,
+                session: this.session,
+                cardFields: this.cardFields,
+                onComplete: (response) => {
+                    chatPanel.finalizeStream(response);
+                    // Check if response contains entry data
+                    const entries = parseLorebookEntriesFromResponse(response);
+                    if (entries.length) {
+                        this._stageEntries(entries);
+                    }
+                },
+                onError: (err) => {
+                    chatPanel.cancelStreaming();
+                    this._showError(err, 'Lorebook chat failed');
+                },
+            });
+        } catch (err) {
+            chatPanel.cancelStreaming();
+            this._showError(err, 'Lorebook chat failed');
+        } finally {
+            chatPanel.setInputEnabled(true);
+        }
     }
+
+    // ── Keyword quality check ───────────────────────────────────────────────
+
+    async _checkKeywordQuality() {
+        const accepted = this.session.lorebookLog.acceptedEntries || [];
+        if (!accepted.length) {
+            chatPanel.addSystemMessage('No entries to check — generate some first.', 'info');
+            return;
+        }
+
+        const entrySummary = accepted.map(e =>
+            `Entry: ${e.comment}\nKeys: ${(e.keys || []).join(', ')}\nSecondary: ${(e.secondary_keys || []).join(', ')}`
+        ).join('\n\n');
+
+        chatPanel.startStreaming();
+        chatPanel.setInputEnabled(false);
+
+        try {
+            await chatEngine.chat({
+                userMessage: 'Check keyword quality for all entries.',
+                session: this.session,
+                cardFields: this.cardFields,
+                extraInstruction: `${KEYWORD_QUALITY_CHECK_PROMPT}\n\n--- Entries ---\n${entrySummary}`,
+                onComplete: (response) => {
+                    chatPanel.finalizeStream(response);
+                },
+                onError: (err) => {
+                    chatPanel.cancelStreaming();
+                    this._showError(err, 'Keyword check failed');
+                },
+            });
+        } catch (err) {
+            chatPanel.cancelStreaming();
+            this._showError(err, 'Keyword check failed');
+        } finally {
+            chatPanel.setInputEnabled(true);
+        }
+    }
+
+    // ── Organize ────────────────────────────────────────────────────────────
 
     async _organizeEntries() {
-        const all = this.session.lorebookLog.acceptedEntries;
-        if (!all.length) {
-            chatPanel.addMessage('assistant', 'No accepted entries to organize yet.');
+        chatPanel.startStreaming();
+        chatPanel.setInputEnabled(false);
+
+        try {
+            await chatEngine.chat({
+                userMessage: 'Organize and sort my lorebook entries.',
+                session: this.session,
+                cardFields: this.cardFields,
+                extraInstruction: LOREBOOK_ORGANIZE_PROMPT,
+                onComplete: (response) => {
+                    chatPanel.finalizeStream(response);
+                },
+                onError: (err) => {
+                    chatPanel.cancelStreaming();
+                    this._showError(err, 'Organize failed');
+                },
+            });
+        } catch (err) {
+            chatPanel.cancelStreaming();
+            this._showError(err, 'Organize failed');
+        } finally {
+            chatPanel.setInputEnabled(true);
+        }
+    }
+
+    // ── External book selection ─────────────────────────────────────────────
+
+    async _selectExternalBook() {
+        try {
+            const books = await worldInfoManager.getLorebookList();
+            if (!books.length) {
+                chatPanel.addSystemMessage('No external lorebooks found. Create one in SillyTavern first, or use embedded mode.', 'warning');
+                return;
+            }
+            lorebookPanel.renderBookSelector(books, (name) => {
+                this.session.lorebookLog.targetBook = name;
+                this.session.lorebookLog.embedded = false;
+                chatPanel.addSystemMessage(`📖 Using external lorebook: **${name}**`, 'info');
+            });
+        } catch (err) {
+            chatPanel.addSystemMessage('❌ Failed to load lorebook list.', 'error');
+        }
+    }
+
+    // ── Stage entries ───────────────────────────────────────────────────────
+
+    _stageEntriesFromResponse(response) {
+        const entries = parseLorebookEntriesFromResponse(response);
+        if (!entries.length) {
+            chatPanel.addSystemMessage('No entries found in response. Try asking for specific entries.', 'info');
             return;
         }
-        chatPanel.setInputEnabled(false);
-        chatPanel.startStreaming();
-        const entrySummary = all.map((e, i) => `[${i + 1}] "${e.comment}" | Keys: ${e.keys?.join(', ')} | Order: ${e.insertion_order} | Position: ${e.position}`).join('\n');
-        const result = await chatEngine.generateBackground(
-            LOREBOOK_ORGANIZE_PROMPT,
-            `Organize these lorebook entries:\n\n${entrySummary}`
-        );
-        chatPanel.finalizeStream(result);
-        chatPanel.setInputEnabled(true);
+        this._stageEntries(entries);
     }
 
-    async _promptForLorebookName() {
-        const books = await worldInfoManager.getLorebookList();
-        lorebookPanel.renderBookSelector(books, (name) => {
-            this.targetBook = name;
-            this.session.lorebookLog.targetBook = name;
-            chatPanel.addMessage('assistant', `✅ Targeting external lorebook: **${name}**. Ready to generate entries.`);
-        });
-    }
+    _stageEntries(entries) {
+        let added = 0;
+        for (const entry of entries) {
+            // Dedup by title
+            const isDupe = this.pendingEntries.some(p => p.comment === entry.comment) ||
+                           (this.session.lorebookLog.acceptedEntries || []).some(a => a.comment === entry.comment);
+            if (isDupe) continue;
 
-    _deduplicateEntries(newEntries) {
-        const existingTitles = new Set([
-            ...this.session.lorebookLog.acceptedEntries.map(e => e.comment?.toLowerCase()),
-            ...this.pendingEntries.map(e => e.comment?.toLowerCase()),
-        ]);
-        const filtered = [];
-        let skipped = 0;
-        for (const e of newEntries) {
-            if (existingTitles.has(e.comment?.toLowerCase())) { skipped++; continue; }
-            filtered.push(e);
-            existingTitles.add(e.comment?.toLowerCase());
+            entry._tempId = Date.now() + Math.random();
+            this.pendingEntries.push(entry);
+            added++;
         }
-        return { entries: filtered, skipped };
+
+        this.session.lorebookLog.pendingEntries = this.pendingEntries;
+        this.callbacks.onUpdated?.();
+
+        if (added) {
+            chatPanel.addSystemMessage(`📋 Staged ${added} new entries. Review them in the Lorebook panel.`, 'info');
+        }
+    }
+
+    _parseEntryList(response) {
+        // Store the brainstormed list for reference
+        this.session.lorebookLog.entryList = response;
+    }
+
+    // ── Insert entries ──────────────────────────────────────────────────────
+
+    async _insertEntries(entries) {
+        const loreLog = this.session.lorebookLog;
+
+        for (const entry of entries) {
+            try {
+                if (loreLog.embedded) {
+                    await worldInfoManager.addEmbeddedEntries(this.session?.characterId, [entry]);
+                } else if (loreLog.targetBook) {
+                    await worldInfoManager.addEntries(loreLog.targetBook, [entry]);
+                } else {
+                    chatPanel.addSystemMessage('❌ No lorebook target set. Choose embedded or external first.', 'error');
+                    return;
+                }
+
+                // Move from pending to accepted
+                this.pendingEntries = this.pendingEntries.filter(p => p._tempId !== entry._tempId);
+                loreLog.acceptedEntries = loreLog.acceptedEntries || [];
+                loreLog.acceptedEntries.push(entry);
+                loreLog.pendingEntries = this.pendingEntries;
+
+                chatPanel.addSystemMessage(`✅ Inserted: ${entry.comment || 'Untitled'}`, 'info');
+            } catch (err) {
+                chatPanel.addSystemMessage(`❌ Failed to insert "${entry.comment}": ${err.message}`, 'error');
+            }
+        }
+
+        this.callbacks.onUpdated?.();
+    }
+
+    async _insertAllPending() {
+        if (!this.pendingEntries.length) {
+            chatPanel.addSystemMessage('No pending entries to insert.', 'info');
+            return;
+        }
+        await this._insertEntries([...this.pendingEntries]);
+    }
+
+    // ── Helpers ──────────────────────────────────────────────────────────────
+
+    // FIX: Centralized error display with proper cleanup
+    _showError(err, context) {
+        const userMessage = (err instanceof CCSApiError)
+            ? err.userMessage
+            : `❌ ${context}: ${err?.message || 'Unknown error'}`;
+        chatPanel.addSystemMessage(userMessage, 'error');
     }
 }
 

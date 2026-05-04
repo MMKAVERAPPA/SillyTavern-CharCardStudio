@@ -1,7 +1,7 @@
 // ui/popup.js
 // Full-screen studio overlay
-// FIX: all querySelector scoped to this.el (works before DOM insertion)
-// Mobile: pointer events, body scroll lock, touch-safe overlays
+// FIX: removed duplicate messages on phase switch, fixed editMessage index,
+//      fixed overlay close-on-tap for mobile, annotation cleanup on close
 
 import { memoryManager } from '../core/memory.js';
 import { cardManager } from '../core/card.js';
@@ -23,14 +23,15 @@ const TAB   = { IDEA: 'idea', CARD: 'card', LOREBOOK: 'lorebook' };
 export class StudioPopup {
     constructor() {
         this.isOpen = false;
+        this.isMinimized = false;
         this.el = null;
+        this._minBar = null;         // floating minimize bar
         this.currentPhase = PHASE.IDEATION;
         this.currentTab = TAB.CARD;
         this.session = null;
         this.cardFields = null;
         this.characterId = null;
         this._escHandler = null;
-        this._overlayPointerTarget = null;
     }
 
     // ── Scoped selectors — work whether el is in DOM or not ──────────────────
@@ -52,6 +53,10 @@ export class StudioPopup {
         this.isOpen = true;
 
         this._initPanels();             // safe to use document.getElementById now
+
+        // ✅ FIX: Restore saved conversation history into chat panel DOM
+        this._restoreSessionToUI();
+
         this._routeToPhase(this.session.currentPhase || PHASE.IDEATION);
 
         // Lock body scroll on mobile
@@ -62,15 +67,55 @@ export class StudioPopup {
     close() {
         if (!this.isOpen) return;
         if (this.session) memoryManager.saveSession(this.characterId, this.session);
+
+        // Clean up escape handler
         if (this._escHandler) {
             document.removeEventListener('keydown', this._escHandler);
             this._escHandler = null;
         }
+
+        // FIX: Clean up annotation listener to prevent memory leak
+        chatPanel.destroy();
+
         this.el?.remove();
         this.el = null;
+        this._minBar?.remove();
+        this._minBar = null;
         this.isOpen = false;
+        this.isMinimized = false;
         document.body.style.overflow = '';
         document.documentElement.style.overflow = '';
+    }
+
+    minimize() {
+        if (!this.isOpen || this.isMinimized) return;
+        this.isMinimized = true;
+        if (this.el) this.el.style.display = 'none';
+
+        // Create floating restore bar if it doesn't exist
+        if (!this._minBar) {
+            this._minBar = document.createElement('div');
+            this._minBar.className = 'ccs-min-bar';
+            this._minBar.innerHTML = `
+                <span class="ccs-min-bar-icon">🎭</span>
+                <span class="ccs-min-bar-label">Card Studio — ${this._esc(this.cardFields?.name || 'Character')}</span>
+                <span class="ccs-min-bar-phase">${this.currentPhase}</span>
+                <button class="ccs-min-bar-restore" title="Restore">▲ Restore</button>
+                <button class="ccs-min-bar-close" title="Close Studio">✕</button>
+            `;
+            this._minBar.querySelector('.ccs-min-bar-restore').addEventListener('click', () => this.restore());
+            this._minBar.querySelector('.ccs-min-bar-close').addEventListener('click', () => this.close());
+            document.body.appendChild(this._minBar);
+        }
+        this._minBar.style.display = '';
+    }
+
+    restore() {
+        if (!this.isOpen || !this.isMinimized) return;
+        this.isMinimized = false;
+        if (this.el) this.el.style.display = '';
+        if (this._minBar) this._minBar.style.display = 'none';
+        this._focusInput();
     }
 
     // ── DOM build — NO document.getElementById here ───────────────────────────
@@ -92,6 +137,7 @@ export class StudioPopup {
                         <button class="ccs-hdr-btn" id="ccs-resume-btn" style="display:none">📂 Resume</button>
                         <button class="ccs-hdr-btn" id="ccs-new-session-btn" title="Start fresh session">🆕 New</button>
                         <button class="ccs-hdr-btn" id="ccs-settings-btn" title="Settings">⚙️</button>
+                        <button class="ccs-hdr-btn" id="ccs-minimize-studio" title="Minimize (keep session)">—</button>
                         <button class="ccs-hdr-btn ccs-close-btn" id="ccs-close-studio" title="Close Studio">✕</button>
                     </div>
                 </div>
@@ -181,14 +227,44 @@ export class StudioPopup {
         ideaPanel.init('ccs-idea-panel-container');
         this._renderSnippetBar();
 
-        // Resume banner — now in DOM so getElementById works
-        if (memoryManager.hasIncompleteSession(this.characterId)) {
-            const info = memoryManager.getSessionInfo(this.characterId);
-            if (info?.messageCount > 0) {
-                const btn = document.getElementById('ccs-resume-btn');
-                if (btn) btn.style.display = '';
-            }
+        // Resume banner — session already loaded, check if it has history
+        const hasHistory = (this.session.conversationHistory?.length || 0) > 0;
+        const resumeBtn = document.getElementById('ccs-resume-btn');
+        if (resumeBtn) resumeBtn.style.display = hasHistory ? '' : 'none';
+    }
+
+    // ── Restore saved session to UI on re-open ────────────────────────────────
+    _restoreSessionToUI() {
+        const history = this.session.conversationHistory;
+        if (!history?.length) return;
+
+        // Replay messages into chat panel
+        chatPanel.restoreHistory(history);
+
+        // Restore idea panel
+        if (this.session.ideaMemory?.conceptName) {
+            ideaPanel.render(this.session.ideaMemory);
         }
+
+        // Restore card panel status dots
+        cardPanel.updateCardFields(this.cardFields);
+
+        // Restore lorebook panel if entries exist
+        if (this.session.lorebookLog.acceptedEntries?.length) {
+            lorebookPanel.render(
+                this.session.lorebookLog.acceptedEntries,
+                this.session.lorebookLog.pendingEntries || []
+            );
+        }
+
+        // Show resume banner with session info
+        const conceptName = this.session.ideaMemory?.conceptName;
+        const msgCount = history.length;
+        const phase = this.session.currentPhase || 'ideation';
+        chatPanel.addSystemMessage(
+            `📂 Session restored — **${conceptName || 'In-progress character'}** · ${msgCount} messages · Phase: ${phase}`,
+            'info'
+        );
     }
 
     // ── Phase routing ──────────────────────────────────────────────────────────
@@ -227,25 +303,40 @@ export class StudioPopup {
     }
 
     async _handleUserMessage(message, editIdx) {
+        // FIX: editMessage — pass actual message content, don't assume *2 index
         if (editIdx !== undefined) {
-            memoryManager.editMessage(this.session, editIdx * 2, message);
+            // Find the actual index in session history for this edit
+            const history = this.session.conversationHistory || [];
+            let userMsgCount = 0;
+            for (let i = 0; i < history.length; i++) {
+                if (history[i].role === 'user') {
+                    if (userMsgCount === editIdx) {
+                        // Truncate history to this point + rewrite the message
+                        this.session.conversationHistory = history.slice(0, i);
+                        break;
+                    }
+                    userMsgCount++;
+                }
+            }
         }
+
+        // FIX: Check for phase switch FIRST — don't add duplicate user message
+        // (chatPanel._handleSend already added the user message to the DOM)
         const switchTo = detectPhaseSwitch(message);
         if (switchTo === 'lorebook') {
-            chatPanel.addMessage('user', message);
+            // User message already rendered by _handleSend, just route
             this._routeToPhase(PHASE.LOREBOOK);
             return;
         }
         if (switchTo === 'building') {
-            chatPanel.addMessage('user', message);
             this._routeToPhase(PHASE.BUILDING);
             return;
         }
         if (switchTo === 'build_start' && this.currentPhase === PHASE.IDEATION) {
-            chatPanel.addMessage('user', message);
             await ideationPhase.handleMessage(message);
             return;
         }
+
         switch (this.currentPhase) {
             case PHASE.IDEATION: await ideationPhase.handleMessage(message); break;
             case PHASE.BUILDING: await generationPhase.handleMessage(message); break;
@@ -257,7 +348,6 @@ export class StudioPopup {
     // ── Header events — this.$() works before DOM insertion ───────────────────
 
     _bindHeaderEvents() {
-        // ✅ FIXED: this.$() not document.getElementById()
         this.$('#ccs-close-studio')?.addEventListener('click', () => this.close());
 
         this.$('#ccs-settings-btn')?.addEventListener('click', () => settingsModal.open());
@@ -272,25 +362,40 @@ export class StudioPopup {
         });
 
         this.$('#ccs-resume-btn')?.addEventListener('click', () => {
+            // Resume btn just scrolls to bottom and re-renders idea panel
             const idea = this.session.ideaMemory;
-            chatPanel.addSystemMessage(
-                `Resuming **${idea.conceptName || 'your character'}** (${this.session.conversationHistory?.length || 0} messages in history)`,
-                'info'
-            );
             ideaPanel.render(idea);
+            const chatContainer = document.getElementById('ccs-chat-messages');
+            if (chatContainer) chatContainer.scrollTop = chatContainer.scrollHeight;
         });
 
-        // Escape key to close
-        document.addEventListener('keydown', this._escHandler = (e) => {
-            if (e.key === 'Escape' && this.isOpen) this.close();
-        });
+        // Minimize button
+        this.$('#ccs-minimize-studio')?.addEventListener('click', () => this.minimize());
 
-        // Touch/pointer-safe overlay tap-to-close (tap the outer overlay, not content)
+        // Escape minimizes (not closes) to preserve session
+        this._escHandler = (e) => {
+            if (e.key === 'Escape' && this.isOpen && !this.isMinimized) this.minimize();
+        };
+        document.addEventListener('keydown', this._escHandler);
+
+        // FIX: Overlay close-on-tap — only trigger when BOTH pointerdown and click
+        // land on the overlay itself (not on .ccs-studio-inner or its children).
+        // This prevents accidental close on mobile when tapping inside the studio.
         let _pointerDownTarget = null;
         this.el.addEventListener('pointerdown', (e) => { _pointerDownTarget = e.target; });
         this.el.addEventListener('click', (e) => {
-            if (e.target === this.el && _pointerDownTarget === this.el) this.close();
+            // Only close if both the pointerdown AND click were on the overlay backdrop itself
+            if (e.target === this.el && _pointerDownTarget === this.el) {
+                this.close();
+            }
         });
+
+        // FIX: Prevent touches inside .ccs-studio-inner from reaching the overlay
+        const inner = this.$('.ccs-studio-inner');
+        if (inner) {
+            inner.addEventListener('pointerdown', (e) => e.stopPropagation());
+            inner.addEventListener('click', (e) => e.stopPropagation());
+        }
     }
 
     // ── Workspace tabs — this.$$ ───────────────────────────────────────────────

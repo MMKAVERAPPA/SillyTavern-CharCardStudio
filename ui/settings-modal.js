@@ -131,6 +131,14 @@ export class SettingsModal {
                             <div class="ccs-setting-hint">Number of messages before session history is compressed to preserve context. Lower = more frequent compression.</div>
                         </div>
                         <div class="ccs-setting-section">
+                            <div class="ccs-setting-label">Parallel API Calls</div>
+                            <label class="ccs-toggle-label">
+                                <input type="checkbox" id="ccs-parallel-api" ${s.parallelApiCalls !== false ? 'checked' : ''}>
+                                <span>Enable parallel API calls (variations, batch greetings)</span>
+                            </label>
+                            <div class="ccs-setting-hint">When enabled, variations and batch operations fire multiple API calls simultaneously. Disable if you're getting rate-limited (429 errors).</div>
+                        </div>
+                        <div class="ccs-setting-section">
                             <div class="ccs-setting-label">Danger Zone</div>
                             <button class="ccs-btn ccs-btn-danger" id="ccs-clear-all-sessions-btn">🗑 Clear All Sessions</button>
                         </div>
@@ -214,6 +222,7 @@ export class SettingsModal {
             utilityModel:       document.getElementById('ccs-util-model')?.value.trim() || '',
             customSystemPromptRules: document.getElementById('ccs-custom-rules')?.value || '',
             compressionThreshold: parseInt(document.getElementById('ccs-compression')?.value) || 15,
+            parallelApiCalls: document.getElementById('ccs-parallel-api')?.checked !== false,
             voiceToneProfile: {
                 pov:               document.getElementById('ccs-tone-pov')?.value || 'third',
                 actionFormat:      document.getElementById('ccs-tone-action')?.value || 'asterisk',

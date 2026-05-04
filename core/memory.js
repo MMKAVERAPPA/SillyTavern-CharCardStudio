@@ -23,6 +23,7 @@ export class MemoryManager {
         if (!s.globalSettings.utilityModel) s.globalSettings.utilityModel = '';
         if (!s.globalSettings.platformTarget) s.globalSettings.platformTarget = 'chub';
         if (!s.globalSettings.voiceToneProfile) s.globalSettings.voiceToneProfile = this._defaultToneProfile();
+        if (s.globalSettings.parallelApiCalls === undefined) s.globalSettings.parallelApiCalls = true;
         if (!s.snippets) s.snippets = [];
         this.settings = extensionSettings[SETTINGS_KEY];
     }
@@ -50,6 +51,8 @@ export class MemoryManager {
                 // Session
                 autoSaveInterval: 5,
                 compressionThreshold: DEFAULT_COMPRESSION_THRESHOLD,
+                // Parallel API calls
+                parallelApiCalls: true,       // false = run variations/batch ops sequentially
                 // Platform
                 platformTarget: 'chub',      // 'chub' | 'fictionlab' | 'janitor' | 'personal'
                 // Voice/Tone

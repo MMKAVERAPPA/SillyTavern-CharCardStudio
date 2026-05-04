@@ -560,3 +560,148 @@
     .ccs-chat-col { flex: 1; }
     .ccs-workspace-col { height: 40vh; }
 }
+
+/* ── Minimize bar ─────────────────────────────────────────────────────────── */
+.ccs-min-bar {
+    position: fixed;
+    bottom: 0;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 99998;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    background: var(--ccs-surface);
+    border: 1px solid var(--ccs-border2);
+    border-bottom: none;
+    border-radius: var(--ccs-radius) var(--ccs-radius) 0 0;
+    padding: 8px 16px;
+    box-shadow: 0 -4px 24px rgba(0,0,0,0.4);
+    min-width: 280px;
+    max-width: 90vw;
+}
+.ccs-min-bar-icon { font-size: 1.1rem; }
+.ccs-min-bar-label { flex: 1; font-size: 0.85rem; color: var(--ccs-text); font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ccs-min-bar-phase { font-size: 0.72rem; color: var(--ccs-text3); background: var(--ccs-surface3); padding: 2px 8px; border-radius: 10px; }
+.ccs-min-bar-restore {
+    background: var(--ccs-accent); color: #fff; border: none;
+    border-radius: var(--ccs-radius-sm); padding: 4px 12px;
+    font-size: 0.8rem; cursor: pointer; white-space: nowrap;
+}
+.ccs-min-bar-restore:hover { background: #8ab4f8; }
+.ccs-min-bar-close {
+    background: transparent; border: none; color: var(--ccs-text3);
+    font-size: 0.9rem; cursor: pointer; padding: 2px 6px;
+}
+.ccs-min-bar-close:hover { color: var(--ccs-red); }
+
+/* ── Abort button visible state ───────────────────────────────────────────── */
+.ccs-abort-btn {
+    background: rgba(247,118,142,0.15);
+    color: var(--ccs-red);
+    border: 1px solid var(--ccs-red);
+    font-size: 0.9rem;
+    animation: ccs-pulse-border 1.2s ease infinite;
+}
+@keyframes ccs-pulse-border {
+    0%, 100% { border-color: var(--ccs-red); box-shadow: none; }
+    50% { border-color: var(--ccs-red); box-shadow: 0 0 8px rgba(247,118,142,0.4); }
+}
+
+/* Send button disabled state */
+.ccs-send-btn:disabled {
+    opacity: 0.35;
+    cursor: not-allowed;
+}
+
+/* ── Mobile improvements ──────────────────────────────────────────────────── */
+@media (max-width: 768px) {
+    .ccs-studio-body {
+        flex-direction: column;
+    }
+    .ccs-chat-col {
+        width: 100%;
+        border-right: none;
+        border-bottom: 1px solid var(--ccs-border);
+        min-height: 55vh;
+        max-height: 55vh;
+    }
+    .ccs-workspace-col {
+        width: 100%;
+        min-height: 35vh;
+        max-height: 35vh;
+    }
+    .ccs-title { display: none; } /* save header space on mobile */
+    .ccs-hdr-btn { padding: 4px 8px; font-size: 0.78rem; }
+    .ccs-phase-badge { display: none; }
+    .ccs-workspace-panel { padding: 8px; }
+    .ccs-field-row-main { flex-wrap: wrap; }
+    .ccs-min-bar { left: 0; right: 0; transform: none; width: 100%; border-radius: 0; }
+}
+
+@media (max-width: 480px) {
+    .ccs-chat-col { min-height: 50vh; max-height: 50vh; }
+    .ccs-workspace-col { min-height: 40vh; max-height: 40vh; }
+    .ccs-studio-header { padding: 0 8px; gap: 6px; }
+    .ccs-input-row { gap: 4px; }
+    .ccs-phase-tabs { gap: 2px; }
+    .ccs-ptab { padding: 3px 8px; font-size: 0.74rem; }
+}
+
+/* Touch device: larger tap targets */
+@media (hover: none) and (pointer: coarse) {
+    .ccs-field-btn { padding: 6px 10px; }
+    .ccs-btn { padding: 8px 14px; }
+    .ccs-hdr-btn { padding: 6px 12px; }
+    .ccs-send-btn, .ccs-abort-btn { width: 44px; height: 44px; }
+    .ccs-msg-btn { padding: 4px 8px; }
+    /* FIX: Show message actions always on touch (no hover) */
+    .ccs-msg .ccs-msg-actions { opacity: 1; }
+}
+
+/* FIX: Toolbar button — prevent being clipped by parent overflow */
+.ccs-toolbar-btn {
+    touch-action: manipulation;
+    -webkit-tap-highlight-color: transparent;
+    position: relative;
+    z-index: 10;
+}
+
+/* FIX: Float button — ensure visibility on mobile */
+.ccs-float-btn {
+    touch-action: manipulation;
+    -webkit-tap-highlight-color: transparent;
+}
+
+/* FIX: Studio inner captures pointer events to prevent overlay-close misfire on mobile */
+.ccs-studio-inner {
+    touch-action: auto;
+}
+
+/* FIX: All interactive elements within studio — reliable mobile taps */
+.ccs-studio-overlay button,
+.ccs-studio-overlay input,
+.ccs-studio-overlay textarea,
+.ccs-studio-overlay select,
+.ccs-studio-overlay .ccs-field-btn,
+.ccs-studio-overlay .ccs-hdr-btn {
+    touch-action: manipulation;
+    -webkit-tap-highlight-color: transparent;
+}
+
+/* ── Toggle label (settings modal) ──────────────────────────────────────────── */
+.ccs-toggle-label {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 0.85rem;
+    color: var(--ccs-text);
+    cursor: pointer;
+}
+.ccs-toggle-label input[type="checkbox"] {
+    width: 16px;
+    height: 16px;
+    cursor: pointer;
+    accent-color: var(--ccs-accent);
+}
+

@@ -1,5 +1,6 @@
 // ui/chat-panel.js
 // Chat area: message rendering, streaming, accept bars, variation panels, edit/resend
+// FIX: restoreHistory pushes to messages, cancelStreaming(), annotation leak fix, markdown order fix
 
 export class ChatPanel {
     constructor() {
@@ -9,7 +10,9 @@ export class ChatPanel {
         this.streamingEl = null;
         this.onSend = null;
         this.onAbort = null;
-        this.messages = [];         // [{ role, content, el, index }]
+        this.abortBtn = null;
+        this.messages = [];
+        this._annotationHandler = null; // track for cleanup
     }
 
     init(containerId, onSend, onAbort) {
@@ -19,12 +22,19 @@ export class ChatPanel {
     }
 
     bindInput(inputId, sendBtnId, abortBtnId) {
-        this.inputEl   = document.getElementById(inputId);
-        this.sendBtn   = document.getElementById(sendBtnId);
-        const abortBtn = document.getElementById(abortBtnId);
+        this.inputEl  = document.getElementById(inputId);
+        this.sendBtn  = document.getElementById(sendBtnId);
+        this.abortBtn = document.getElementById(abortBtnId);
+
+        // Abort button hidden by default — shown during generation
+        if (this.abortBtn) this.abortBtn.style.display = 'none';
 
         this.sendBtn?.addEventListener('click', () => this._handleSend());
-        abortBtn?.addEventListener('click', () => this.onAbort?.());
+        this.abortBtn?.addEventListener('click', () => {
+            this.onAbort?.();
+            this.cancelStreaming(); // FIX: also clean up streaming element
+            this.setInputEnabled(true); // re-enable immediately on stop
+        });
 
         this.inputEl?.addEventListener('keydown', (e) => {
             if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); this._handleSend(); }
@@ -63,7 +73,7 @@ export class ChatPanel {
 
         if (role === 'user') {
             actions.innerHTML = `
-                <button class="ccs-msg-btn" title="Edit & Resend">✏️</button>
+                <button class="ccs-msg-btn" title="Edit &amp; Resend">✏️</button>
                 <button class="ccs-msg-btn" title="Resend">🔁</button>
             `;
             actions.querySelector('[title="Edit & Resend"]').addEventListener('click', () => this._editMessage(index, el));
@@ -81,6 +91,21 @@ export class ChatPanel {
         this.messages.push({ role, content, el, index });
         this._scrollToBottom();
         return el;
+    }
+
+    // Replay saved session history into DOM on re-open
+    // FIX: Now pushes to this.messages so edit/resend works on restored messages
+    restoreHistory(conversationHistory) {
+        if (!conversationHistory?.length) return;
+        const hasSomething = conversationHistory.some(m => m.role === 'user' || m.role === 'assistant');
+        if (!hasSomething) return;
+        for (const msg of conversationHistory) {
+            if (msg.role === 'user' || msg.role === 'assistant') {
+                // FIX: Use normal addMessage so messages are tracked properly
+                this.addMessage(msg.role, msg.content);
+            }
+        }
+        this._scrollToBottom();
     }
 
     addSystemMessage(text, type = 'info') {
@@ -125,6 +150,14 @@ export class ChatPanel {
         this._scrollToBottom();
     }
 
+    // FIX: Cancel/remove streaming element when generation is aborted or errors out
+    cancelStreaming() {
+        if (this.streamingEl) {
+            this.streamingEl.remove();
+            this.streamingEl = null;
+        }
+    }
+
     // ── Edit / Resend ─────────────────────────────────────────────────────────
 
     _editMessage(index, el) {
@@ -136,9 +169,9 @@ export class ChatPanel {
 
         // Replace bubble with inline editor
         bubble.innerHTML = `
-            <textarea class="ccs-inline-edit">${original}</textarea>
+            <textarea class="ccs-inline-edit">${this._escapeHtml(original)}</textarea>
             <div class="ccs-inline-edit-actions">
-                <button class="ccs-btn ccs-btn-primary ccs-edit-send-btn">✅ Update & Resend</button>
+                <button class="ccs-btn ccs-btn-primary ccs-edit-send-btn">✅ Update &amp; Resend</button>
                 <button class="ccs-btn ccs-btn-ghost ccs-edit-cancel-btn">Cancel</button>
             </div>
         `;
@@ -159,6 +192,9 @@ export class ChatPanel {
             for (const m of toRemove) m.el?.remove();
             this.messages = this.messages.slice(0, index + 1);
 
+            // Also remove any system messages / accept bars after this message element
+            this._removeElementsAfter(el);
+
             // Resend
             this.onSend?.(newContent, index);
         });
@@ -177,7 +213,18 @@ export class ChatPanel {
         for (const m of toRemove) m.el?.remove();
         this.messages = this.messages.slice(0, index + 1);
 
+        // Also remove any system messages / accept bars after this message element
+        this._removeElementsAfter(msg.el);
+
         this.onSend?.(msg.content, index);
+    }
+
+    // Remove all sibling DOM elements that come after `el` in the container
+    _removeElementsAfter(el) {
+        if (!el || !this.container) return;
+        while (el.nextSibling) {
+            el.nextSibling.remove();
+        }
     }
 
     // ── Accept bars ───────────────────────────────────────────────────────────
@@ -245,7 +292,10 @@ export class ChatPanel {
     // ── Inline annotation ─────────────────────────────────────────────────────
 
     enableInlineAnnotation(session, onRequest) {
-        document.addEventListener('mouseup', () => {
+        // FIX: Remove previous listener if any (prevents memory leak on re-open)
+        this.disableInlineAnnotation();
+
+        this._annotationHandler = () => {
             const selection = window.getSelection();
             if (!selection || selection.isCollapsed) return;
             const text = selection.toString().trim();
@@ -255,7 +305,16 @@ export class ChatPanel {
             if (!this.container?.contains(selection.anchorNode)) return;
 
             this._showAnnotationPopup(text, selection.getRangeAt(0), onRequest);
-        });
+        };
+        document.addEventListener('mouseup', this._annotationHandler);
+    }
+
+    // FIX: Clean up annotation listener
+    disableInlineAnnotation() {
+        if (this._annotationHandler) {
+            document.removeEventListener('mouseup', this._annotationHandler);
+            this._annotationHandler = null;
+        }
     }
 
     _showAnnotationPopup(selectedText, range, onRequest) {
@@ -291,6 +350,7 @@ export class ChatPanel {
     setInputEnabled(enabled) {
         if (this.inputEl) this.inputEl.disabled = !enabled;
         if (this.sendBtn) this.sendBtn.disabled = !enabled;
+        if (this.abortBtn) this.abortBtn.style.display = enabled ? 'none' : '';
     }
 
     clear() {
@@ -299,26 +359,62 @@ export class ChatPanel {
         this.streamingEl = null;
     }
 
+    // Full cleanup — called when studio closes
+    destroy() {
+        this.disableInlineAnnotation();
+        this.cancelStreaming();
+        this.clear();
+    }
+
     _scrollToBottom() {
         if (this.container) {
             this.container.scrollTop = this.container.scrollHeight;
         }
     }
 
+    // FIX: Process code blocks FIRST before inline formatting to prevent corruption
     _renderMarkdown(text) {
         if (!text) return '';
-        return text
-            .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+
+        // Step 1: Extract code blocks and replace with placeholders
+        const codeBlocks = [];
+        let processed = text.replace(/```[\w]*\n?([\s\S]*?)```/g, (match, code) => {
+            const idx = codeBlocks.length;
+            codeBlocks.push(`<pre><code>${code.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')}</code></pre>`);
+            return `\x00CODEBLOCK_${idx}\x00`;
+        });
+
+        // Step 2: Extract inline code and replace with placeholders
+        const inlineCode = [];
+        processed = processed.replace(/`([^`]+)`/g, (match, code) => {
+            const idx = inlineCode.length;
+            inlineCode.push(`<code>${code.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')}</code>`);
+            return `\x00INLINE_${idx}\x00`;
+        });
+
+        // Step 3: Escape HTML in remaining text
+        processed = processed.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
+        // Step 4: Apply inline formatting (bold, italic, headings)
+        processed = processed
             .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
             .replace(/\*(.+?)\*/g, '<em>$1</em>')
-            .replace(/`([^`]+)`/g, '<code>$1</code>')
-            .replace(/```[\w]*\n?([\s\S]*?)```/g, '<pre><code>$1</code></pre>')
             .replace(/^#{1,3} (.+)$/gm, (_, h) => `<div class="ccs-md-heading">${h}</div>`)
             .replace(/\n/g, '<br>');
+
+        // Step 5: Restore code blocks and inline code
+        for (let i = 0; i < codeBlocks.length; i++) {
+            processed = processed.replace(`\x00CODEBLOCK_${i}\x00`, codeBlocks[i]);
+        }
+        for (let i = 0; i < inlineCode.length; i++) {
+            processed = processed.replace(`\x00INLINE_${i}\x00`, inlineCode[i]);
+        }
+
+        return processed;
     }
 
     _escapeHtml(text) {
-        return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+        return (text || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
     }
 }
 
