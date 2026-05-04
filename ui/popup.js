@@ -1,5 +1,7 @@
 // ui/popup.js
-// Full-screen studio overlay — tabs, phase routing, session routing, export
+// Full-screen studio overlay
+// FIX: all querySelector scoped to this.el (works before DOM insertion)
+// Mobile: pointer events, body scroll lock, touch-safe overlays
 
 import { memoryManager } from '../core/memory.js';
 import { cardManager } from '../core/card.js';
@@ -15,7 +17,7 @@ import { generationPhase } from '../phases/generation.js';
 import { lorebookPhase } from '../phases/lorebook-phase.js';
 import { detectPhaseSwitch } from '../core/parser.js';
 
-const PHASE = { IDEATION: 'ideation', BUILDING: 'building', LOREBOOK: 'lorebook', REVIEW: 'review' };
+const PHASE = { IDEATION: 'ideation', BUILDING: 'building', LOREBOOK: 'lorebook' };
 const TAB   = { IDEA: 'idea', CARD: 'card', LOREBOOK: 'lorebook' };
 
 export class StudioPopup {
@@ -27,39 +29,51 @@ export class StudioPopup {
         this.session = null;
         this.cardFields = null;
         this.characterId = null;
+        this._escHandler = null;
+        this._overlayPointerTarget = null;
     }
+
+    // ── Scoped selectors — work whether el is in DOM or not ──────────────────
+    $(sel)  { return this.el?.querySelector(sel) ?? null; }
+    $$(sel) { return this.el ? [...this.el.querySelectorAll(sel)] : []; }
 
     open() {
         if (this.isOpen) { this._focusInput(); return; }
-
         const { characterId } = SillyTavern.getContext();
-        if (characterId === undefined || characterId < 0) {
-            this._showNoCharError(); return;
-        }
+        if (characterId === undefined || characterId < 0) { this._showNoCharError(); return; }
 
         this.characterId = characterId;
         this.cardFields = cardManager.readCurrentCard();
         if (!this.cardFields) { this._showNoCharError(); return; }
-
         this.session = memoryManager.loadSession(characterId);
 
-        this._buildDOM();
-        document.body.appendChild(this.el);
+        this._buildDOM();               // binds all events via this.$() before DOM insert
+        document.body.appendChild(this.el);  // NOW in DOM
         this.isOpen = true;
 
-        this._initPanels();
+        this._initPanels();             // safe to use document.getElementById now
         this._routeToPhase(this.session.currentPhase || PHASE.IDEATION);
+
+        // Lock body scroll on mobile
+        document.body.style.overflow = 'hidden';
+        document.documentElement.style.overflow = 'hidden';
     }
 
     close() {
         if (!this.isOpen) return;
         if (this.session) memoryManager.saveSession(this.characterId, this.session);
+        if (this._escHandler) {
+            document.removeEventListener('keydown', this._escHandler);
+            this._escHandler = null;
+        }
         this.el?.remove();
         this.el = null;
         this.isOpen = false;
+        document.body.style.overflow = '';
+        document.documentElement.style.overflow = '';
     }
 
-    // ── DOM ───────────────────────────────────────────────────────────────────
+    // ── DOM build — NO document.getElementById here ───────────────────────────
 
     _buildDOM() {
         this.el = document.createElement('div');
@@ -67,81 +81,81 @@ export class StudioPopup {
         this.el.className = 'ccs-studio-overlay';
         this.el.innerHTML = `
             <div class="ccs-studio-inner">
-
-                <!-- Header bar -->
                 <div class="ccs-studio-header">
                     <div class="ccs-header-left">
                         <span class="ccs-logo">🎭</span>
-                        <span class="ccs-title">Character Card Studio</span>
-                        <span class="ccs-char-name" id="ccs-char-name">${this.cardFields.name || 'New Character'}</span>
-                        <span class="ccs-phase-badge" id="ccs-phase-badge">Ideation</span>
+                        <span class="ccs-title">Card Studio</span>
+                        <span class="ccs-char-name" id="ccs-char-name">${this._esc(this.cardFields.name || 'New Character')}</span>
+                        <span class="ccs-phase-badge" id="ccs-phase-badge">💡 Ideating</span>
                     </div>
                     <div class="ccs-header-right">
-                        <button class="ccs-hdr-btn" id="ccs-resume-btn" title="Resume Previous Session" style="display:none">📂 Resume</button>
-                        <button class="ccs-hdr-btn" id="ccs-new-session-btn" title="Start Fresh">🆕 New Session</button>
+                        <button class="ccs-hdr-btn" id="ccs-resume-btn" style="display:none">📂 Resume</button>
+                        <button class="ccs-hdr-btn" id="ccs-new-session-btn" title="Start fresh session">🆕 New</button>
                         <button class="ccs-hdr-btn" id="ccs-settings-btn" title="Settings">⚙️</button>
                         <button class="ccs-hdr-btn ccs-close-btn" id="ccs-close-studio" title="Close Studio">✕</button>
                     </div>
                 </div>
 
-                <!-- Main area: chat left, workspace right -->
                 <div class="ccs-studio-body">
-
-                    <!-- Left: chat -->
-                    <div class="ccs-chat-col" id="ccs-chat-col">
+                    <div class="ccs-chat-col">
                         <div class="ccs-chat-messages" id="ccs-chat-messages"></div>
                         <div class="ccs-chat-input-area">
-                            <div class="ccs-phase-tabs" id="ccs-phase-tabs">
+                            <div class="ccs-phase-tabs">
                                 <button class="ccs-ptab active" data-phase="${PHASE.IDEATION}">💡 Ideate</button>
                                 <button class="ccs-ptab" data-phase="${PHASE.BUILDING}">📝 Build</button>
-                                <button class="ccs-ptab" data-phase="${PHASE.LOREBOOK}">📖 Lorebook</button>
+                                <button class="ccs-ptab" data-phase="${PHASE.LOREBOOK}">📖 Lore</button>
                             </div>
                             <div class="ccs-input-row">
                                 <textarea id="ccs-chat-input" class="ccs-chat-textarea" placeholder="Talk to the Lab Assistant..." rows="2"></textarea>
                                 <div class="ccs-input-btns">
-                                    <button class="ccs-send-btn" id="ccs-send-btn" title="Send">▶</button>
-                                    <button class="ccs-abort-btn" id="ccs-abort-btn" title="Stop">⏹</button>
+                                    <button class="ccs-send-btn" id="ccs-send-btn" title="Send (Enter)">▶</button>
+                                    <button class="ccs-abort-btn" id="ccs-abort-btn" title="Stop generation">⏹</button>
                                 </div>
                             </div>
-                            <div class="ccs-snippet-bar" id="ccs-snippet-bar">
-                                <span class="ccs-snip-label">Snippets:</span>
+                            <div class="ccs-snippet-bar" id="ccs-snippet-bar" style="display:none">
+                                <span class="ccs-snip-label">📌</span>
                                 <div id="ccs-snip-chips"></div>
                             </div>
                         </div>
                     </div>
 
-                    <!-- Right: workspace tabs -->
-                    <div class="ccs-workspace-col" id="ccs-workspace-col">
+                    <div class="ccs-workspace-col">
                         <div class="ccs-workspace-tabs">
-                            <button class="ccs-wtab active" id="ccs-tab-card" data-tab="${TAB.CARD}">📋 Card</button>
-                            <button class="ccs-wtab" id="ccs-tab-lorebook" data-tab="${TAB.LOREBOOK}">📖 Lorebook</button>
-                            <button class="ccs-wtab" id="ccs-tab-idea" data-tab="${TAB.IDEA}">💡 Concept</button>
+                            <button class="ccs-wtab active" data-tab="${TAB.CARD}">📋 Card</button>
+                            <button class="ccs-wtab" data-tab="${TAB.LOREBOOK}">📖 Lore</button>
+                            <button class="ccs-wtab" data-tab="${TAB.IDEA}">💡 Concept</button>
                         </div>
-                        <div class="ccs-workspace-panel" id="ccs-workspace-panel">
+                        <div class="ccs-workspace-panel">
                             <div id="ccs-card-panel-container"></div>
-                            <div id="ccs-lorebook-panel-container" style="display:none;"></div>
-                            <div id="ccs-idea-panel-container" style="display:none;"></div>
+                            <div id="ccs-lorebook-panel-container" style="display:none"></div>
+                            <div id="ccs-idea-panel-container" style="display:none"></div>
                         </div>
                     </div>
                 </div>
-
             </div>
         `;
 
+        // ✅ All bindings use this.$() — el is NOT in DOM yet here, but this.$() works
         this._bindHeaderEvents();
         this._bindWorkspaceTabs();
         this._bindPhaseTabs();
     }
 
+    _esc(str) {
+        return String(str || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    }
+
+    // ── _initPanels — called AFTER appendChild ─────────────────────────────────
+
     _initPanels() {
-        chatPanel.init('ccs-chat-messages', (msg, editIdx) => this._handleUserMessage(msg, editIdx), () => {
-            chatEngine.abort();
-            generationPhase.queue = [];
-        });
+        chatPanel.init('ccs-chat-messages',
+            (msg, editIdx) => this._handleUserMessage(msg, editIdx),
+            () => { chatEngine.abort(); generationPhase.queue = []; }
+        );
         chatPanel.bindInput('ccs-chat-input', 'ccs-send-btn', 'ccs-abort-btn');
-        chatPanel.enableInlineAnnotation(this.session, (selectedText, action) => {
-            this._handleAnnotationRequest(selectedText, action);
-        });
+        chatPanel.enableInlineAnnotation(this.session, (text, action) =>
+            this._handleAnnotationRequest(text, action)
+        );
 
         cardPanel.init('ccs-card-panel-container', this.cardFields, this.session, {
             onGenerateField:  (f) => generationPhase.generateField(f),
@@ -157,9 +171,7 @@ export class StudioPopup {
         });
 
         lorebookPanel.init('ccs-lorebook-panel-container', {
-            onInsertEntry: (entry) => {
-                lorebookPhase._insertEntries([entry]);
-            },
+            onInsertEntry:  (entry) => lorebookPhase._insertEntries([entry]),
             onDiscardEntry: (tempId) => {
                 const idx = lorebookPhase.pendingEntries.findIndex(p => p._tempId === tempId);
                 if (idx !== -1) lorebookPhase.pendingEntries.splice(idx, 1);
@@ -167,33 +179,29 @@ export class StudioPopup {
         });
 
         ideaPanel.init('ccs-idea-panel-container');
-
         this._renderSnippetBar();
 
-        // Resume banner
+        // Resume banner — now in DOM so getElementById works
         if (memoryManager.hasIncompleteSession(this.characterId)) {
             const info = memoryManager.getSessionInfo(this.characterId);
             if (info?.messageCount > 0) {
-                const resumeBtn = document.getElementById('ccs-resume-btn');
-                if (resumeBtn) resumeBtn.style.display = '';
+                const btn = document.getElementById('ccs-resume-btn');
+                if (btn) btn.style.display = '';
             }
         }
     }
 
-    // ── Phase routing ─────────────────────────────────────────────────────────
+    // ── Phase routing ──────────────────────────────────────────────────────────
 
     _routeToPhase(phase) {
         this.currentPhase = phase;
         this.session.currentPhase = phase;
-
         this._updatePhaseBadge(phase);
         this._updatePhaseTabs(phase);
 
         switch (phase) {
             case PHASE.IDEATION:
-                ideationPhase.start(this.session, this.cardFields, () => {
-                    this._routeToPhase(PHASE.BUILDING);
-                });
+                ideationPhase.start(this.session, this.cardFields, () => this._routeToPhase(PHASE.BUILDING));
                 break;
             case PHASE.BUILDING:
                 generationPhase.start(this.session, this.cardFields, {
@@ -206,7 +214,10 @@ export class StudioPopup {
             case PHASE.LOREBOOK:
                 lorebookPhase.start(this.session, this.cardFields, {
                     onUpdated: () => {
-                        lorebookPanel.render(this.session.lorebookLog.acceptedEntries, lorebookPhase.pendingEntries);
+                        lorebookPanel.render(
+                            this.session.lorebookLog.acceptedEntries,
+                            lorebookPhase.pendingEntries
+                        );
                         this._switchWorkspaceTab(TAB.LOREBOOK);
                     },
                 });
@@ -216,38 +227,42 @@ export class StudioPopup {
     }
 
     async _handleUserMessage(message, editIdx) {
-        // Handle edit-at-index: roll back memory history
         if (editIdx !== undefined) {
-            memoryManager.editMessage(this.session, editIdx * 2, message); // *2 because user msgs are every other
+            memoryManager.editMessage(this.session, editIdx * 2, message);
         }
-
-        // Phase switch detection
         const switchTo = detectPhaseSwitch(message);
-        if (switchTo === 'lorebook') { chatPanel.addMessage('user', message); this._routeToPhase(PHASE.LOREBOOK); return; }
-        if (switchTo === 'building') { chatPanel.addMessage('user', message); this._routeToPhase(PHASE.BUILDING); return; }
+        if (switchTo === 'lorebook') {
+            chatPanel.addMessage('user', message);
+            this._routeToPhase(PHASE.LOREBOOK);
+            return;
+        }
+        if (switchTo === 'building') {
+            chatPanel.addMessage('user', message);
+            this._routeToPhase(PHASE.BUILDING);
+            return;
+        }
         if (switchTo === 'build_start' && this.currentPhase === PHASE.IDEATION) {
             chatPanel.addMessage('user', message);
             await ideationPhase.handleMessage(message);
             return;
         }
-
-        // Route to current phase handler
         switch (this.currentPhase) {
             case PHASE.IDEATION: await ideationPhase.handleMessage(message); break;
             case PHASE.BUILDING: await generationPhase.handleMessage(message); break;
             case PHASE.LOREBOOK: await lorebookPhase.handleMessage(message); break;
         }
-
         memoryManager.saveSession(this.characterId, this.session);
     }
 
-    // ── Header events ─────────────────────────────────────────────────────────
+    // ── Header events — this.$() works before DOM insertion ───────────────────
 
     _bindHeaderEvents() {
-        document.getElementById('ccs-close-studio')?.addEventListener('click', () => this.close());
-        document.getElementById('ccs-settings-btn')?.addEventListener('click', () => settingsModal.open());
+        // ✅ FIXED: this.$() not document.getElementById()
+        this.$('#ccs-close-studio')?.addEventListener('click', () => this.close());
 
-        document.getElementById('ccs-new-session-btn')?.addEventListener('click', () => {
+        this.$('#ccs-settings-btn')?.addEventListener('click', () => settingsModal.open());
+
+        this.$('#ccs-new-session-btn')?.addEventListener('click', () => {
             if (!confirm('Start a new session? Current session will be saved.')) return;
             memoryManager.clearSession(this.characterId);
             this.session = memoryManager.createNewSession(this.characterId);
@@ -256,50 +271,57 @@ export class StudioPopup {
             this._routeToPhase(PHASE.IDEATION);
         });
 
-        document.getElementById('ccs-resume-btn')?.addEventListener('click', () => {
-            // Session is already loaded — just show a summary
+        this.$('#ccs-resume-btn')?.addEventListener('click', () => {
             const idea = this.session.ideaMemory;
             chatPanel.addSystemMessage(
-                `Resuming: **${idea.conceptName || 'your character'}** (${this.session.conversationHistory.length} messages in history)`,
+                `Resuming **${idea.conceptName || 'your character'}** (${this.session.conversationHistory?.length || 0} messages in history)`,
                 'info'
             );
             ideaPanel.render(idea);
         });
 
-        // Escape key closes
+        // Escape key to close
         document.addEventListener('keydown', this._escHandler = (e) => {
             if (e.key === 'Escape' && this.isOpen) this.close();
         });
+
+        // Touch/pointer-safe overlay tap-to-close (tap the outer overlay, not content)
+        let _pointerDownTarget = null;
+        this.el.addEventListener('pointerdown', (e) => { _pointerDownTarget = e.target; });
+        this.el.addEventListener('click', (e) => {
+            if (e.target === this.el && _pointerDownTarget === this.el) this.close();
+        });
     }
 
-    // ── Workspace tabs ────────────────────────────────────────────────────────
+    // ── Workspace tabs — this.$$ ───────────────────────────────────────────────
 
     _bindWorkspaceTabs() {
-        this.el.querySelectorAll('.ccs-wtab').forEach(tab => {
+        this.$$('.ccs-wtab').forEach(tab => {
             tab.addEventListener('click', () => this._switchWorkspaceTab(tab.dataset.tab));
         });
     }
 
     _switchWorkspaceTab(tabName) {
         this.currentTab = tabName;
-        this.el.querySelectorAll('.ccs-wtab').forEach(t => t.classList.toggle('active', t.dataset.tab === tabName));
-
-        document.getElementById('ccs-card-panel-container').style.display = tabName === TAB.CARD ? '' : 'none';
-        document.getElementById('ccs-lorebook-panel-container').style.display = tabName === TAB.LOREBOOK ? '' : 'none';
-        document.getElementById('ccs-idea-panel-container').style.display = tabName === TAB.IDEA ? '' : 'none';
+        this.$$('.ccs-wtab').forEach(t => t.classList.toggle('active', t.dataset.tab === tabName));
+        this.$('#ccs-card-panel-container')?.style && (this.$('#ccs-card-panel-container').style.display     = tabName === TAB.CARD     ? '' : 'none');
+        this.$('#ccs-lorebook-panel-container')?.style && (this.$('#ccs-lorebook-panel-container').style.display = tabName === TAB.LOREBOOK ? '' : 'none');
+        this.$('#ccs-idea-panel-container')?.style && (this.$('#ccs-idea-panel-container').style.display     = tabName === TAB.IDEA     ? '' : 'none');
 
         if (tabName === TAB.LOREBOOK) lorebookPanel.render(this.session.lorebookLog.acceptedEntries, lorebookPhase.pendingEntries);
         if (tabName === TAB.IDEA) ideaPanel.render(this.session.ideaMemory);
     }
 
-    // ── Phase tabs ────────────────────────────────────────────────────────────
+    // ── Phase tabs — this.$$ ──────────────────────────────────────────────────
 
     _bindPhaseTabs() {
-        this.el.querySelectorAll('.ccs-ptab').forEach(tab => {
+        this.$$('.ccs-ptab').forEach(tab => {
             tab.addEventListener('click', () => {
                 const phase = tab.dataset.phase;
                 if (phase === this.currentPhase) return;
-                if (phase === PHASE.BUILDING && this.currentPhase === PHASE.IDEATION && !this.session.ideaMemory.proposedProfileApproved) {
+                if (phase === PHASE.BUILDING
+                    && this.currentPhase === PHASE.IDEATION
+                    && !this.session.ideaMemory.proposedProfileApproved) {
                     if (!confirm('Move to building phase without approving the concept profile?')) return;
                 }
                 chatPanel.addSystemMessage(`Switching to ${phase} mode...`, 'info');
@@ -309,40 +331,40 @@ export class StudioPopup {
     }
 
     _updatePhaseTabs(phase) {
-        this.el.querySelectorAll('.ccs-ptab').forEach(t => t.classList.toggle('active', t.dataset.phase === phase));
+        this.$$('.ccs-ptab').forEach(t => t.classList.toggle('active', t.dataset.phase === phase));
     }
 
     _updatePhaseBadge(phase) {
-        const badge = document.getElementById('ccs-phase-badge');
+        const badge = this.$('#ccs-phase-badge');
         if (!badge) return;
-        const labels = { ideation:'💡 Ideating', building:'📝 Building', lorebook:'📖 Lorebook', review:'⭐ Review' };
+        const labels = { ideation:'💡 Ideating', building:'📝 Building', lorebook:'📖 Lorebook' };
         badge.textContent = labels[phase] || phase;
         badge.className = `ccs-phase-badge ccs-phase-${phase}`;
     }
 
-    // ── Snippets ──────────────────────────────────────────────────────────────
+    // ── Snippets ───────────────────────────────────────────────────────────────
 
     _renderSnippetBar() {
         const snippets = memoryManager.getSnippets();
-        const chipsEl = document.getElementById('ccs-snip-chips');
-        const bar = document.getElementById('ccs-snippet-bar');
-        if (!chipsEl) return;
+        const bar = this.$('#ccs-snippet-bar');
+        const chipsEl = this.$('#ccs-snip-chips');
+        if (!bar || !chipsEl) return;
         if (!snippets.length) { bar.style.display = 'none'; return; }
         bar.style.display = '';
         chipsEl.innerHTML = snippets.map(s =>
-            `<button class="ccs-snip-chip" data-id="${s.id}" title="${s.category}: ${s.content.substring(0,60)}">${s.name}</button>`
+            `<button class="ccs-snip-chip" data-id="${s.id}" title="${this._esc(s.category)}: ${this._esc(s.content.substring(0,60))}">${this._esc(s.name)}</button>`
         ).join('');
         chipsEl.querySelectorAll('.ccs-snip-chip').forEach(btn => {
             btn.addEventListener('click', () => {
                 const snip = memoryManager.getSnippets().find(s => s.id === btn.dataset.id);
                 if (!snip) return;
-                const input = document.getElementById('ccs-chat-input');
+                const input = this.$('#ccs-chat-input');
                 if (input) { input.value += (input.value ? '\n' : '') + snip.content; input.focus(); }
             });
         });
     }
 
-    // ── Feature actions ───────────────────────────────────────────────────────
+    // ── Feature actions ────────────────────────────────────────────────────────
 
     async _runAudit() {
         chatPanel.addSystemMessage('🔍 Running coherence audit...', 'info');
@@ -408,9 +430,9 @@ export class StudioPopup {
 
     async _handleAnnotationRequest(selectedText, action) {
         const messages = {
-            expand: `Expand on this passage: "${selectedText}" — add more detail and texture while matching the existing tone.`,
-            specific: `Make this more specific: "${selectedText}" — replace vague language with concrete, character-specific detail.`,
-            explain: `Why was this choice made in the card? "${selectedText}" — explain the creative reasoning.`,
+            expand:   `Expand on this: "${selectedText}" — add more detail while matching the existing tone.`,
+            specific: `Make this more specific: "${selectedText}" — replace vague language with concrete detail.`,
+            explain:  `Why was this choice made? "${selectedText}" — explain the creative reasoning.`,
         };
         const msg = messages[action] || `${action}: "${selectedText}"`;
         chatPanel.addMessage('user', msg);
@@ -444,12 +466,13 @@ export class StudioPopup {
         for (const e of session.lorebookLog?.acceptedEntries || []) {
             lines.push(`- [${e.category || 'General'}] **${e.comment}** — Keys: ${(e.keys || []).join(', ')}`);
         }
-
         const blob = new Blob([lines.join('\n')], { type: 'text/markdown' });
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
-        a.href = url; a.download = `${(card.name || 'character').replace(/\s+/g,'_')}_studio_log.md`;
-        a.click(); URL.revokeObjectURL(url);
+        a.href = url;
+        a.download = `${(card.name || 'character').replace(/\s+/g,'_')}_studio_log.md`;
+        a.click();
+        URL.revokeObjectURL(url);
     }
 
     _showNoCharError() {
@@ -460,9 +483,7 @@ export class StudioPopup {
         setTimeout(() => toast.remove(), 4000);
     }
 
-    _focusInput() {
-        document.getElementById('ccs-chat-input')?.focus();
-    }
+    _focusInput() { this.$('#ccs-chat-input')?.focus(); }
 }
 
 export const studioPopup = new StudioPopup();
