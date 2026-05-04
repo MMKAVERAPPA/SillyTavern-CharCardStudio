@@ -6,7 +6,7 @@ import { chatEngine } from '../core/chat.js';
 import { memoryManager } from '../core/memory.js';
 import { contextBuilder } from '../core/context-builder.js';
 import { buildBaseSystemPrompt } from '../prompts/base.js';
-import { parseConceptRating, extractPillars } from '../core/parser.js';
+import { parseConceptRating } from '../core/parser.js';
 import { auditEngine } from '../core/audit.js';
 import { chatPanel } from '../ui/chat-panel.js';
 import { ideaPanel } from '../ui/idea-panel.js';
@@ -120,11 +120,10 @@ export class IdeationPhase {
 
             // Parse rating and pillars from response
             const rating = parseConceptRating(response);
-            const pillars = extractPillars(response);
 
             this.session.ideaMemory.conceptRating = rating;
-            if (pillars.length) {
-                this.session.ideaMemory.pillars = pillars;
+            if (rating?.pillars?.length) {
+                this.session.ideaMemory.pillars = rating.pillars;
             }
             // Try to extract concept name from the response
             const nameMatch = response.match(/Concept:\s*"?([^"\n]+)"?/i);
@@ -292,7 +291,7 @@ ${pillarContext || 'No pillars established yet.'}`;
 
         for (const pillar of pending) {
             try {
-                const result = await auditEngine.checkPillarResolution(pillar.name, userMessage);
+                const result = await auditEngine.detectPillarResolution(userMessage, pillar.name, '');
                 if (result?.resolved) {
                     pillar.resolved = true;
                     pillar.answer = result.summary || '';

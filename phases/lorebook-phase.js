@@ -10,7 +10,7 @@ import { lorebookPanel } from '../ui/lorebook-panel.js';
 import { contextBuilder } from '../core/context-builder.js';
 import { buildBaseSystemPrompt } from '../prompts/base.js';
 import { CCSApiError } from '../core/api.js';
-import { parseLorebookEntries } from '../core/parser.js';
+import { parseLorebookEntriesFromResponse } from '../core/parser.js';
 
 import {
     LOREBOOK_IDEATION_PROMPT,
@@ -157,7 +157,7 @@ export class LorebookPhase {
                 onComplete: (response) => {
                     chatPanel.finalizeStream(response);
                     // Check if response contains entry data
-                    const entries = parseLorebookEntries(response);
+                    const entries = parseLorebookEntriesFromResponse(response);
                     if (entries.length) {
                         this._stageEntries(entries);
                     }
@@ -245,7 +245,7 @@ export class LorebookPhase {
 
     async _selectExternalBook() {
         try {
-            const books = await worldInfoManager.listBooks();
+            const books = await worldInfoManager.getLorebookList();
             if (!books.length) {
                 chatPanel.addSystemMessage('No external lorebooks found. Create one in SillyTavern first, or use embedded mode.', 'warning');
                 return;
@@ -263,7 +263,7 @@ export class LorebookPhase {
     // ── Stage entries ───────────────────────────────────────────────────────
 
     _stageEntriesFromResponse(response) {
-        const entries = parseLorebookEntries(response);
+        const entries = parseLorebookEntriesFromResponse(response);
         if (!entries.length) {
             chatPanel.addSystemMessage('No entries found in response. Try asking for specific entries.', 'info');
             return;
@@ -305,9 +305,9 @@ export class LorebookPhase {
         for (const entry of entries) {
             try {
                 if (loreLog.embedded) {
-                    await worldInfoManager.addEmbeddedEntries(this.cardFields, [entry]);
+                    await worldInfoManager.addEmbeddedEntries(this.session?.characterId, [entry]);
                 } else if (loreLog.targetBook) {
-                    await worldInfoManager.addExternalEntries(loreLog.targetBook, [entry]);
+                    await worldInfoManager.addEntries(loreLog.targetBook, [entry]);
                 } else {
                     chatPanel.addSystemMessage('❌ No lorebook target set. Choose embedded or external first.', 'error');
                     return;

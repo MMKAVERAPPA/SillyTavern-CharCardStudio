@@ -25,7 +25,8 @@ import {
     extractCodeBlock,
     parseMultiFieldResponse,
     detectFieldFromMessage,
-    detectBatchOperation,
+    isBatchGreetingOp,
+    isGenerateAllRequest,
 } from '../core/parser.js';
 
 const GENERATABLE_FIELDS = ['description','personality','scenario','first_mes','mes_example','system_prompt','creator_notes'];
@@ -48,10 +49,15 @@ export class GenerationPhase {
     async handleMessage(message) {
         // Detect field-specific intent
         const field = detectFieldFromMessage(message);
-        const batch = detectBatchOperation(message);
 
-        if (batch) {
-            await this._handleBatchOperation(message, batch);
+        // Check for batch operations using actual parser functions
+        if (isGenerateAllRequest(message)) {
+            await this.generateAllFields();
+            return;
+        }
+        if (isBatchGreetingOp(message)) {
+            const countMatch = message.match(/(\d+)/);
+            await this._handleBatchGreetings(countMatch ? parseInt(countMatch[1]) : 3);
             return;
         }
         if (field && /generat|write|create|make/i.test(message)) {
@@ -388,7 +394,7 @@ export class GenerationPhase {
             });
 
             // Conflict check (async, non-blocking)
-            auditEngine.checkConflictOnAccept(fieldName, content, this.cardFields).then(result => {
+            auditEngine.checkConflictOnAccept(this.session, this.cardFields, fieldName, content).then(result => {
                 if (result?.conflict) {
                     chatPanel.addSystemMessage(`⚠️ Potential conflict: ${result.details}`, 'warning');
                 }
