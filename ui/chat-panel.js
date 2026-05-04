@@ -9,7 +9,8 @@ export class ChatPanel {
         this.streamingEl = null;
         this.onSend = null;
         this.onAbort = null;
-        this.messages = [];         // [{ role, content, el, index }]
+        this.abortBtn = null;
+        this.messages = [];
     }
 
     init(containerId, onSend, onAbort) {
@@ -19,12 +20,18 @@ export class ChatPanel {
     }
 
     bindInput(inputId, sendBtnId, abortBtnId) {
-        this.inputEl   = document.getElementById(inputId);
-        this.sendBtn   = document.getElementById(sendBtnId);
-        const abortBtn = document.getElementById(abortBtnId);
+        this.inputEl  = document.getElementById(inputId);
+        this.sendBtn  = document.getElementById(sendBtnId);
+        this.abortBtn = document.getElementById(abortBtnId);
+
+        // Abort button hidden by default — shown during generation
+        if (this.abortBtn) this.abortBtn.style.display = 'none';
 
         this.sendBtn?.addEventListener('click', () => this._handleSend());
-        abortBtn?.addEventListener('click', () => this.onAbort?.());
+        this.abortBtn?.addEventListener('click', () => {
+            this.onAbort?.();
+            this.setInputEnabled(true); // re-enable immediately on stop
+        });
 
         this.inputEl?.addEventListener('keydown', (e) => {
             if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); this._handleSend(); }
@@ -48,7 +55,7 @@ export class ChatPanel {
 
     // ── Message rendering ─────────────────────────────────────────────────────
 
-    addMessage(role, content) {
+    addMessage(role, content, restoreOnly = false) {
         const index = this.messages.length;
         const el = document.createElement('div');
         el.className = `ccs-msg ccs-msg-${role}`;
@@ -78,9 +85,24 @@ export class ChatPanel {
         el.appendChild(bubble);
         el.appendChild(actions);
         this.container?.appendChild(el);
-        this.messages.push({ role, content, el, index });
-        this._scrollToBottom();
+        if (!restoreOnly) this.messages.push({ role, content, el, index });
+        if (!restoreOnly) this._scrollToBottom();
         return el;
+    }
+
+    // Replay saved session history into DOM on re-open
+    restoreHistory(conversationHistory) {
+        if (!conversationHistory?.length) return;
+        const hasSomething = conversationHistory.some(m => m.role === 'user' || m.role === 'assistant');
+        if (!hasSomething) return;
+        for (const msg of conversationHistory) {
+            if (msg.role === 'user' || msg.role === 'assistant') {
+                // restoreOnly=true: renders to DOM but doesn't push to this.messages
+                // (avoids double-counting; history is already in session.conversationHistory)
+                this.addMessage(msg.role, msg.content, true);
+            }
+        }
+        this._scrollToBottom();
     }
 
     addSystemMessage(text, type = 'info') {
@@ -291,6 +313,7 @@ export class ChatPanel {
     setInputEnabled(enabled) {
         if (this.inputEl) this.inputEl.disabled = !enabled;
         if (this.sendBtn) this.sendBtn.disabled = !enabled;
+        if (this.abortBtn) this.abortBtn.style.display = enabled ? 'none' : '';
     }
 
     clear() {
