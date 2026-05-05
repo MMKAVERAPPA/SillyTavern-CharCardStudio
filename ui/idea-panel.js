@@ -46,8 +46,28 @@ export class IdeaPanel {
                         </ul>
                     </div>
                 ` : ''}
+
+                <div class="ccs-notes-section" style="margin-top:16px;">
+                    <div class="ccs-notes-header" style="font-weight:600; color:var(--ccs-accent); margin-bottom:6px; font-size:0.85rem;">📝 Session Notes / Scratchpad</div>
+                    <textarea id="ccs-session-notes" placeholder="Jot down ideas, quotes, or snippets here..." style="width:100%; min-height:100px; background:var(--ccs-surface3); border:1px solid var(--ccs-border); color:var(--ccs-text); border-radius:var(--ccs-radius-sm); padding:8px; font-size:0.85rem; resize:vertical;">${this._esc(ideaMemory.notes || '')}</textarea>
+                </div>
             </div>
         `;
+
+        const notesArea = this.container.querySelector('#ccs-session-notes');
+        if (notesArea) {
+            notesArea.addEventListener('input', (e) => {
+                ideaMemory.notes = e.target.value;
+                // It will be saved with the next auto-save trigger, but we could explicitly save
+                if (window.memoryManager && window.memoryManager.currentSessionId) {
+                    window.memoryManager.saveSession(window.memoryManager.currentSessionId, window.memoryManager.session);
+                }
+            });
+        }
+    }
+
+    _esc(str) {
+        return String(str || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
     }
 
     updatePillar(pillars) {

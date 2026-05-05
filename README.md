@@ -4,11 +4,24 @@
 
 **Character Card Studio** is a full-screen SillyTavern extension that turns character card creation into a guided, collaborative process. Instead of filling fields manually, you have a conversation with an AI Lab Assistant that understands the SillyTavern card format deeply — it handles the craft while you handle the creative direction.
 
-**v2.5.0** — Major UI overhaul with glassmorphism design, progress tracking, welcome screen, quick edit, keyboard shortcuts, and mobile improvements.
+**v2.6.0** — Feature parity with ST-Copilot concepts: Chat Search, Ghost Mode, Raw Context Inspector, Session Notes, and Usage Statistics, building on top of the v2.5.0 UI overhaul.
 
 ---
 
-## ✨ What's New in v2.5.0
+## ✨ What's New in v2.6.0
+
+### 🔍 Search & Inspector Tools
+- **Chat Search (Ctrl+F):** Instantly filter chat messages by text, right in the chat panel header.
+- **Raw Context Inspector:** Click the 🔬 button to view the exact System Prompt, Chat History, and JSON payload sent to the LLM.
+
+### 👻 Ghost Mode & Workflow
+- **Ghost Mode (Alt+Shift+G):** Toggle Ghost Mode to make the Studio semi-transparent and click-through, letting you interact with SillyTavern underneath.
+- **Session Notes:** A persistent scratchpad at the bottom of the Idea tab to jot down snippets and concepts. Auto-saves to your session.
+- **Usage Statistics:** The Settings modal now tracks Messages, Token Usage (In/Out), Field Generations, and Variations across all your card creations.
+
+---
+
+## 🎨 UI Overhaul (from v2.5.0)
 
 ### 🎨 Visual Overhaul
 - **Glassmorphism UI** — Header and workspace panels feature frosted-glass effects with backdrop blur

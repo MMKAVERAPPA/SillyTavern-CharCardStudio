@@ -7,6 +7,7 @@ import { apiManager, CCSApiError, classifyApiError } from './api.js';
 import { contextBuilder } from './context-builder.js';
 import { buildBaseSystemPrompt } from '../prompts/base.js';
 import { COMPRESSOR_PROMPT } from '../prompts/compressor.js';
+import { statsManager } from './stats.js';
 
 export class ChatEngine {
     constructor() {
@@ -22,6 +23,7 @@ export class ChatEngine {
 
         // Add user turn to history
         const needsCompression = memoryManager.addMessage(session, 'user', userMessage);
+        statsManager.record('messages');
 
         // Build full context
         const baseSystemPrompt = buildBaseSystemPrompt(settings.customSystemPromptRules);
@@ -34,6 +36,13 @@ export class ChatEngine {
 
         this.isGenerating = true;
         this.abortController = new AbortController();
+
+        // Capture payload for the Inspector tool
+        session.lastPayload = {
+            system: systemPrompt,
+            messages: prompt,
+            generationOptions: { model: settings.primaryModel || 'default' }
+        };
 
         try {
             const result = await apiManager.generatePrimary(

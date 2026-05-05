@@ -12,6 +12,7 @@ import { cardPanel } from './card-panel.js';
 import { lorebookPanel } from './lorebook-panel.js';
 import { ideaPanel } from './idea-panel.js';
 import { settingsModal } from './settings-modal.js';
+import { statsManager } from '../core/stats.js';
 import { ideationPhase } from '../phases/ideation.js';
 import { generationPhase } from '../phases/generation.js';
 import { lorebookPhase } from '../phases/lorebook-phase.js';
@@ -142,6 +143,7 @@ export class StudioPopup {
                     <div class="ccs-header-right">
                         <button class="ccs-hdr-btn" id="ccs-resume-btn" style="display:none">📂 Resume</button>
                         <button class="ccs-hdr-btn" id="ccs-new-session-btn" title="Start fresh session">✦ New</button>
+                        <button class="ccs-hdr-btn" id="ccs-ghost-btn" title="Toggle Ghost Mode (Alt+Shift+G)">👻</button>
                         <button class="ccs-hdr-btn" id="ccs-settings-btn" title="Settings">⚙</button>
                         <button class="ccs-hdr-btn" id="ccs-shortcuts-btn" title="Keyboard shortcuts">⌨</button>
                         <button class="ccs-hdr-btn" id="ccs-minimize-studio" title="Minimize">−</button>
@@ -151,6 +153,11 @@ export class StudioPopup {
 
                 <div class="ccs-studio-body">
                     <div class="ccs-chat-col">
+                        <div class="ccs-chat-toolbar">
+                            <input type="text" id="ccs-chat-search-input" placeholder="Search chat..." autocomplete="off">
+                            <button class="ccs-chat-tbtn" id="ccs-chat-search-btn" title="Search Chat">🔍</button>
+                            <button class="ccs-chat-tbtn" id="ccs-chat-inspect-btn" title="View Raw Prompt">🔬</button>
+                        </div>
                         <div class="ccs-chat-messages" id="ccs-chat-messages"></div>
                         <div class="ccs-chat-input-area">
                             <div class="ccs-phase-tabs">
@@ -211,9 +218,9 @@ export class StudioPopup {
         );
 
         cardPanel.init('ccs-card-panel-container', this.cardFields, this.session, {
-            onGenerateField:  (f) => generationPhase.generateField(f),
-            onVariations:     (f) => generationPhase.generateVariations(f),
-            onRewriteField:   (f, action) => generationPhase.rewriteField(f, action),
+            onGenerateField:  (f) => { statsManager.record('fieldsGenerated'); generationPhase.generateField(f); },
+            onVariations:     (f) => { statsManager.record('variations'); generationPhase.generateVariations(f); },
+            onRewriteField:   (f, action) => { statsManager.record('variations'); generationPhase.rewriteField(f, action); },
             onGenerateAll:    () => generationPhase.generateAllFields(),
             onAudit:          () => this._runAudit(),
             onExport:         () => this._exportSessionLog(),
@@ -221,7 +228,7 @@ export class StudioPopup {
             onInferTags:      () => this._inferTags(),
             onRestoreVersion: (f, idx) => this._restoreVersion(f, idx),
             onAddTag:         (tag) => this._addTag(tag),
-            onQuickEdit:      (f, val) => this._handleQuickEdit(f, val),
+            onQuickEdit:      (f, val) => { statsManager.record('quickEdits'); this._handleQuickEdit(f, val); },
         });
 
         lorebookPanel.init('ccs-lorebook-panel-container', {
@@ -397,6 +404,7 @@ export class StudioPopup {
             if (!confirm('Start a new session? Current session will be saved.')) return;
             memoryManager.clearSession(this.characterId);
             this.session = memoryManager.createNewSession(this.characterId);
+            statsManager.record('sessions');
             chatPanel.clear();
             cardPanel.init('ccs-card-panel-container', this.cardFields, this.session, cardPanel.callbacks);
             this._routeToPhase(PHASE.IDEATION);
@@ -415,6 +423,22 @@ export class StudioPopup {
 
         // Shortcuts help toggle
         this.$('#ccs-shortcuts-btn')?.addEventListener('click', () => this._toggleShortcutHelp());
+
+        // Ghost Mode toggle
+        this.$('#ccs-ghost-btn')?.addEventListener('click', () => this._toggleGhostMode());
+
+        // Chat Toolbar events
+        const searchInput = this.$('#ccs-chat-search-input');
+        const searchBtn = this.$('#ccs-chat-search-btn');
+        searchBtn?.addEventListener('click', () => {
+            if (!searchInput) return;
+            searchInput.style.display = searchInput.style.display === 'block' ? 'none' : 'block';
+            if (searchInput.style.display === 'block') searchInput.focus();
+        });
+        
+        searchInput?.addEventListener('input', (e) => this._handleChatSearch(e.target.value));
+        
+        this.$('#ccs-chat-inspect-btn')?.addEventListener('click', () => this._openRawContextInspector());
 
         // Escape minimizes (not closes) to preserve session
         this._escHandler = (e) => {
@@ -435,7 +459,24 @@ export class StudioPopup {
             else if (ctrl && e.key === '2') { e.preventDefault(); this._routeToPhase(PHASE.BUILDING); }
             else if (ctrl && e.key === '3') { e.preventDefault(); this._routeToPhase(PHASE.LOREBOOK); }
             else if (ctrl && e.key === 'g') { e.preventDefault(); generationPhase.generateAllFields(); }
+            else if (ctrl && e.key === 'f') { 
+                e.preventDefault(); 
+                const searchInput = this.$('#ccs-chat-search-input');
+                if (searchInput) {
+                    searchInput.style.display = searchInput.style.display === 'block' ? 'none' : 'block';
+                    if (searchInput.style.display === 'block') searchInput.focus();
+                }
+            }
         };
+        
+        // Ghost Mode global hotkey Alt+Shift+G
+        this._ghostModeHandler = (e) => {
+            if (e.altKey && e.shiftKey && e.key === 'G') {
+                e.preventDefault();
+                this._toggleGhostMode();
+            }
+        };
+        document.addEventListener('keydown', this._ghostModeHandler);
         document.addEventListener('keydown', this._shortcutHandler);
 
         // FIX: Overlay close-on-tap — only trigger when BOTH pointerdown and click
@@ -456,6 +497,61 @@ export class StudioPopup {
             inner.addEventListener('pointerdown', (e) => e.stopPropagation());
             inner.addEventListener('click', (e) => e.stopPropagation());
         }
+    }
+
+    _toggleGhostMode() {
+        if (!this.el) return;
+        this.el.classList.toggle('ccs-ghost-mode');
+        const btn = this.$('#ccs-ghost-btn');
+        if (btn) btn.style.background = this.el.classList.contains('ccs-ghost-mode') ? 'var(--ccs-accent)' : '';
+    }
+
+    _handleChatSearch(query) {
+        const term = query.toLowerCase().trim();
+        const messages = this.el?.querySelectorAll('.ccs-msg');
+        if (!messages) return;
+        messages.forEach(msg => {
+            if (!term) {
+                msg.style.display = '';
+                return;
+            }
+            const text = msg.querySelector('.ccs-msg-bubble')?.textContent?.toLowerCase() || '';
+            msg.style.display = text.includes(term) ? '' : 'none';
+        });
+    }
+
+    _openRawContextInspector() {
+        if (!this.session.lastPayload) {
+            toastManager.show('No raw context available yet. Generate a message first.', 'warn');
+            return;
+        }
+        
+        const payload = this.session.lastPayload;
+        let content = '';
+        if (payload.system) {
+            content += `<div class="ccs-inspector-section" style="margin-bottom:8px;"><strong>System Prompt:</strong><pre style="background:var(--ccs-surface3); padding:8px; border-radius:4px; font-size:0.75rem; white-space:pre-wrap; word-wrap:break-word;">${this._esc(payload.system)}</pre></div>`;
+        }
+        if (payload.messages) {
+            content += `<div class="ccs-inspector-section" style="margin-bottom:8px;"><strong>Messages:</strong><pre style="background:var(--ccs-surface3); padding:8px; border-radius:4px; font-size:0.75rem; white-space:pre-wrap; word-wrap:break-word;">${this._esc(JSON.stringify(payload.messages, null, 2))}</pre></div>`;
+        }
+        if (payload.generationOptions) {
+            content += `<div class="ccs-inspector-section"><strong>Options:</strong><pre style="background:var(--ccs-surface3); padding:8px; border-radius:4px; font-size:0.75rem; white-space:pre-wrap; word-wrap:break-word;">${this._esc(JSON.stringify(payload.generationOptions, null, 2))}</pre></div>`;
+        }
+
+        const modal = document.createElement('div');
+        modal.className = 'ccs-shortcut-help'; // reuse the modal styling
+        modal.innerHTML = `
+            <div class="ccs-shortcut-header">
+                <div class="ccs-shortcut-title">🔬 Raw Context Inspector</div>
+                <button class="ccs-shortcut-close">✕</button>
+            </div>
+            <div class="ccs-shortcut-body" style="text-align:left; max-height: 60vh; overflow-y: auto;">
+                ${content}
+            </div>
+        `;
+        
+        modal.querySelector('.ccs-shortcut-close').addEventListener('click', () => modal.remove());
+        this.el.appendChild(modal);
     }
 
     _toggleShortcutHelp() {

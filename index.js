@@ -1,5 +1,5 @@
 // index.js
-// SillyTavern Extension entry point for Character Card Studio v2.5.0
+// SillyTavern Extension entry point for Character Card Studio v2.6.0
 // Registers the extension, injects UI entry points, handles settings panel
 
 import { studioPopup } from './ui/popup.js';
@@ -28,7 +28,7 @@ const EXT_NAME = 'CharCardStudio';
         // Register event listeners
         registerSTEvents();
 
-        console.log(`[${EXT_NAME}] v2.5.0 loaded ✓`);
+        console.log(`[${EXT_NAME}] v2.6.0 loaded ✓`);
     } catch (err) {
         console.error(`[${EXT_NAME}] Init failed:`, err);
     }
