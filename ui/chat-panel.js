@@ -59,6 +59,9 @@ export class ChatPanel {
     // ── Message rendering ─────────────────────────────────────────────────────
 
     addMessage(role, content) {
+        // Dismiss welcome screen on first message
+        this._dismissWelcome();
+
         const index = this.messages.length;
         const el = document.createElement('div');
         el.className = `ccs-msg ccs-msg-${role}`;
@@ -67,6 +70,11 @@ export class ChatPanel {
         const bubble = document.createElement('div');
         bubble.className = 'ccs-msg-bubble';
         bubble.innerHTML = this._renderMarkdown(content);
+
+        const time = document.createElement('div');
+        time.className = 'ccs-msg-time';
+        time.textContent = 'just now';
+        time.dataset.ts = Date.now();
 
         const actions = document.createElement('div');
         actions.className = 'ccs-msg-actions';
@@ -86,9 +94,10 @@ export class ChatPanel {
         }
 
         el.appendChild(bubble);
+        el.appendChild(time);
         el.appendChild(actions);
         this.container?.appendChild(el);
-        this.messages.push({ role, content, el, index });
+        this.messages.push({ role, content, el, index, ts: Date.now() });
         this._scrollToBottom();
         return el;
     }
@@ -415,6 +424,52 @@ export class ChatPanel {
 
     _escapeHtml(text) {
         return (text || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    }
+
+    // ── Welcome screen ────────────────────────────────────────────────────────
+
+    renderWelcomeScreen(callbacks = {}) {
+        if (!this.container) return;
+        this._welcomeCallbacks = callbacks;
+        const welcome = document.createElement('div');
+        welcome.className = 'ccs-welcome';
+        welcome.id = 'ccs-welcome';
+        welcome.innerHTML = `
+            <div class="ccs-welcome-title">What shall we create?</div>
+            <div class="ccs-welcome-subtitle">Start a new character or improve an existing one</div>
+            <div class="ccs-welcome-cards">
+                <div class="ccs-welcome-card" data-action="pitch">
+                    <div class="ccs-welcome-card-icon">💡</div>
+                    <div class="ccs-welcome-card-title">Pitch a Concept</div>
+                    <div class="ccs-welcome-card-desc">Describe your character idea and I'll help develop it</div>
+                </div>
+                <div class="ccs-welcome-card" data-action="surprise">
+                    <div class="ccs-welcome-card-icon">🎲</div>
+                    <div class="ccs-welcome-card-title">Surprise Me</div>
+                    <div class="ccs-welcome-card-desc">I'll generate 3 original concepts for you to choose from</div>
+                </div>
+                <div class="ccs-welcome-card" data-action="improve">
+                    <div class="ccs-welcome-card-icon">📂</div>
+                    <div class="ccs-welcome-card-title">Improve Existing</div>
+                    <div class="ccs-welcome-card-desc">Review and enhance this character's card</div>
+                </div>
+            </div>
+        `;
+        welcome.querySelectorAll('.ccs-welcome-card').forEach(card => {
+            card.addEventListener('click', () => {
+                const action = card.dataset.action;
+                this._dismissWelcome();
+                this._welcomeCallbacks?.[action]?.();
+            });
+        });
+        this.container.appendChild(welcome);
+    }
+
+    _dismissWelcome() {
+        const el = this.container?.querySelector('#ccs-welcome');
+        if (!el) return;
+        el.classList.add('ccs-welcome-fade');
+        el.addEventListener('animationend', () => el.remove(), { once: true });
     }
 }
 

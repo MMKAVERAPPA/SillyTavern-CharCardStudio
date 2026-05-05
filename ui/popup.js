@@ -16,6 +16,7 @@ import { ideationPhase } from '../phases/ideation.js';
 import { generationPhase } from '../phases/generation.js';
 import { lorebookPhase } from '../phases/lorebook-phase.js';
 import { detectPhaseSwitch } from '../core/parser.js';
+import { toastManager } from './toast.js';
 
 const PHASE = { IDEATION: 'ideation', BUILDING: 'building', LOREBOOK: 'lorebook' };
 const TAB   = { IDEA: 'idea', CARD: 'card', LOREBOOK: 'lorebook' };
@@ -72,6 +73,10 @@ export class StudioPopup {
         if (this._escHandler) {
             document.removeEventListener('keydown', this._escHandler);
             this._escHandler = null;
+        }
+        if (this._shortcutHandler) {
+            document.removeEventListener('keydown', this._shortcutHandler);
+            this._shortcutHandler = null;
         }
 
         // FIX: Clean up annotation listener to prevent memory leak
@@ -131,13 +136,15 @@ export class StudioPopup {
                         <span class="ccs-logo">🎭</span>
                         <span class="ccs-title">Card Studio</span>
                         <span class="ccs-char-name" id="ccs-char-name">${this._esc(this.cardFields.name || 'New Character')}</span>
+                        <span class="ccs-save-indicator" id="ccs-save-indicator">✓ Saved</span>
                         <span class="ccs-phase-badge" id="ccs-phase-badge">💡 Ideating</span>
                     </div>
                     <div class="ccs-header-right">
                         <button class="ccs-hdr-btn" id="ccs-resume-btn" style="display:none">📂 Resume</button>
-                        <button class="ccs-hdr-btn" id="ccs-new-session-btn" title="Start fresh session">🆕 New</button>
-                        <button class="ccs-hdr-btn" id="ccs-settings-btn" title="Settings">⚙️</button>
-                        <button class="ccs-hdr-btn" id="ccs-minimize-studio" title="Minimize (keep session)">—</button>
+                        <button class="ccs-hdr-btn" id="ccs-new-session-btn" title="Start fresh session">✦ New</button>
+                        <button class="ccs-hdr-btn" id="ccs-settings-btn" title="Settings">⚙</button>
+                        <button class="ccs-hdr-btn" id="ccs-shortcuts-btn" title="Keyboard shortcuts">⌨</button>
+                        <button class="ccs-hdr-btn" id="ccs-minimize-studio" title="Minimize">−</button>
                         <button class="ccs-hdr-btn ccs-close-btn" id="ccs-close-studio" title="Close Studio">✕</button>
                     </div>
                 </div>
@@ -214,6 +221,7 @@ export class StudioPopup {
             onInferTags:      () => this._inferTags(),
             onRestoreVersion: (f, idx) => this._restoreVersion(f, idx),
             onAddTag:         (tag) => this._addTag(tag),
+            onQuickEdit:      (f, val) => this._handleQuickEdit(f, val),
         });
 
         lorebookPanel.init('ccs-lorebook-panel-container', {
@@ -236,7 +244,22 @@ export class StudioPopup {
     // ── Restore saved session to UI on re-open ────────────────────────────────
     _restoreSessionToUI() {
         const history = this.session.conversationHistory;
-        if (!history?.length) return;
+        if (!history?.length) {
+            // No history — show welcome screen
+            chatPanel.renderWelcomeScreen({
+                pitch: () => {
+                    chatPanel.addSystemMessage('💡 Tell me about the character you want to create!', 'info');
+                    this._focusInput();
+                },
+                surprise: () => {
+                    this._handleUserMessage('Give me 3 original character concepts to choose from');
+                },
+                improve: () => {
+                    this._handleUserMessage('Review this card and suggest improvements');
+                },
+            });
+            return;
+        }
 
         // Replay messages into chat panel
         chatPanel.restoreHistory(history);
@@ -265,6 +288,24 @@ export class StudioPopup {
             `📂 Session restored — **${conceptName || 'In-progress character'}** · ${msgCount} messages · Phase: ${phase}`,
             'info'
         );
+    }
+
+    _handleQuickEdit(fieldName, value) {
+        if (!fieldName || !this.cardFields) return;
+        // Write directly to the card
+        if (fieldName === 'alternate_greetings') {
+            this.cardFields[fieldName] = value.split('\n---\n');
+        } else {
+            this.cardFields[fieldName] = value;
+        }
+        cardManager.writeField(fieldName, this.cardFields[fieldName]);
+        // Create a version in history
+        if (this.session) {
+            memoryManager.addFieldVersion(this.session, fieldName, this.cardFields[fieldName], 'Manual edit');
+        }
+        cardPanel.setFieldStatus(fieldName, 'accepted');
+        cardPanel.updateCardFields(this.cardFields);
+        this._flashSaveIndicator();
     }
 
     // ── Phase routing ──────────────────────────────────────────────────────────
@@ -372,11 +413,30 @@ export class StudioPopup {
         // Minimize button
         this.$('#ccs-minimize-studio')?.addEventListener('click', () => this.minimize());
 
+        // Shortcuts help toggle
+        this.$('#ccs-shortcuts-btn')?.addEventListener('click', () => this._toggleShortcutHelp());
+
         // Escape minimizes (not closes) to preserve session
         this._escHandler = (e) => {
-            if (e.key === 'Escape' && this.isOpen && !this.isMinimized) this.minimize();
+            if (e.key === 'Escape' && this.isOpen && !this.isMinimized) {
+                // Close shortcut help if open
+                const help = this.el?.querySelector('.ccs-shortcut-help');
+                if (help) { help.remove(); return; }
+                this.minimize();
+            }
         };
         document.addEventListener('keydown', this._escHandler);
+
+        // Keyboard shortcuts
+        this._shortcutHandler = (e) => {
+            if (!this.isOpen || this.isMinimized) return;
+            const ctrl = e.ctrlKey || e.metaKey;
+            if (ctrl && e.key === '1') { e.preventDefault(); this._routeToPhase(PHASE.IDEATION); }
+            else if (ctrl && e.key === '2') { e.preventDefault(); this._routeToPhase(PHASE.BUILDING); }
+            else if (ctrl && e.key === '3') { e.preventDefault(); this._routeToPhase(PHASE.LOREBOOK); }
+            else if (ctrl && e.key === 'g') { e.preventDefault(); generationPhase.generateAllFields(); }
+        };
+        document.addEventListener('keydown', this._shortcutHandler);
 
         // FIX: Overlay close-on-tap — only trigger when BOTH pointerdown and click
         // land on the overlay itself (not on .ccs-studio-inner or its children).
@@ -396,6 +456,31 @@ export class StudioPopup {
             inner.addEventListener('pointerdown', (e) => e.stopPropagation());
             inner.addEventListener('click', (e) => e.stopPropagation());
         }
+    }
+
+    _toggleShortcutHelp() {
+        const existing = this.el?.querySelector('.ccs-shortcut-help');
+        if (existing) { existing.remove(); return; }
+        const help = document.createElement('div');
+        help.className = 'ccs-shortcut-help';
+        help.innerHTML = `
+            <div class="ccs-shortcut-list">
+                <div class="ccs-shortcut-item"><span>Switch to Ideate</span><span class="ccs-shortcut-key">Ctrl+1</span></div>
+                <div class="ccs-shortcut-item"><span>Switch to Build</span><span class="ccs-shortcut-key">Ctrl+2</span></div>
+                <div class="ccs-shortcut-item"><span>Switch to Lore</span><span class="ccs-shortcut-key">Ctrl+3</span></div>
+                <div class="ccs-shortcut-item"><span>Generate All</span><span class="ccs-shortcut-key">Ctrl+G</span></div>
+                <div class="ccs-shortcut-item"><span>Send Message</span><span class="ccs-shortcut-key">Enter</span></div>
+                <div class="ccs-shortcut-item"><span>Minimize Studio</span><span class="ccs-shortcut-key">Esc</span></div>
+            </div>
+        `;
+        this.$('.ccs-studio-inner')?.appendChild(help);
+    }
+
+    _flashSaveIndicator() {
+        const el = document.getElementById('ccs-save-indicator');
+        if (!el) return;
+        el.classList.add('visible');
+        setTimeout(() => el.classList.remove('visible'), 2000);
     }
 
     // ── Workspace tabs — this.$$ ───────────────────────────────────────────────
@@ -581,11 +666,7 @@ export class StudioPopup {
     }
 
     _showNoCharError() {
-        const toast = document.createElement('div');
-        toast.className = 'ccs-toast ccs-toast-error';
-        toast.textContent = '⚠️ Select a character in SillyTavern first, then open the Studio.';
-        document.body.appendChild(toast);
-        setTimeout(() => toast.remove(), 4000);
+        toastManager.show('Select a character in SillyTavern first, then open the Studio.', 'error');
     }
 
     _focusInput() { this.$('#ccs-chat-input')?.focus(); }

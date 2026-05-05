@@ -4,9 +4,65 @@
 
 **Character Card Studio** is a full-screen SillyTavern extension that turns character card creation into a guided, collaborative process. Instead of filling fields manually, you have a conversation with an AI Lab Assistant that understands the SillyTavern card format deeply — it handles the craft while you handle the creative direction.
 
+**v2.5.0** — Major UI overhaul with glassmorphism design, progress tracking, welcome screen, quick edit, keyboard shortcuts, and mobile improvements.
+
 ---
 
-## ✨ Features
+## ✨ What's New in v2.5.0
+
+### 🎨 Visual Overhaul
+- **Glassmorphism UI** — Header and workspace panels feature frosted-glass effects with backdrop blur
+- **Gradient accents** — Primary buttons, title text, and send button use a blue-to-purple gradient
+- **Inter font** — Clean, modern typography with system font fallback for offline use
+- **Smooth animations** — Message entrance slide-up, field status glow transitions, progress ring animation
+- **Pill-shaped phase tabs** — Active tab has gradient background with subtle glow
+- **Circular send button** — Gradient send button with hover scale effect
+
+### 🏠 Welcome Screen
+- Opens automatically on fresh sessions (no blank chat)
+- Three quick-start cards: **Pitch a Concept**, **Surprise Me**, **Improve Existing**
+- Smoothly fades out when you start interacting
+
+### 📊 Progress Ring
+- SVG circular progress indicator showing field completion (e.g. "5/7 fields")
+- Gradient stroke from blue to purple, animated on field status changes
+- Token count and context fill percentage displayed alongside
+
+### ✏️ Quick Edit
+- Click the pencil icon (✏️) on any completed field to edit inline
+- Direct textarea edit without going through chat
+- Changes saved to card immediately with version history tracking
+
+### ⌨️ Keyboard Shortcuts
+| Shortcut | Action |
+|---|---|
+| `Ctrl+1` | Switch to Ideate phase |
+| `Ctrl+2` | Switch to Build phase |
+| `Ctrl+3` | Switch to Lore phase |
+| `Ctrl+G` | Generate All fields |
+| `Enter` | Send message |
+| `Escape` | Minimize studio |
+
+### 🔔 Toast Notifications
+- Stacking notifications in the bottom-right corner
+- Auto-dismiss with animated progress bar
+- Different styles for success/error/warning/info
+- Click to dismiss instantly
+
+### 📱 Mobile Improvements
+- Floating 🎭 button always available on mobile (CSS media query visibility)
+- Larger touch targets for all interactive elements
+- Message actions always visible on touch devices (no hover required)
+
+### 🛡️ Error Handling (from v2.0.1)
+- API error classification (rate limits, insufficient balance, server errors)
+- Automatic generation stop on critical API errors
+- Parallel API calls toggle in settings
+- Graceful streaming state cleanup on failures
+
+---
+
+## ✨ Core Features
 
 ### 💡 Guided Ideation
 - Pitch a concept and get a **5-axis rating** (Hook Strength, Longevity, Originality, RP Potential, Platform Appeal)
@@ -26,6 +82,7 @@
 - `mes_example` format auto-correction and behavioral rule detection
 - **Field Preview Drawer** — click 👁 on any field to see current content inline
 - **Revision History Timeline** — every accepted version tracked with AI-generated summaries, one-click restore
+- **Content snippet** — first 80 characters of each field shown directly on the card panel
 
 ### 📖 Lorebook Builder
 - Brainstorm all needed entries by category before generating
@@ -47,15 +104,17 @@ Load any existing card (yours or downloaded) and:
 - **Coherence Audit** — full cross-field consistency check on demand
 - **Conflict Detection** — instant background check when you accept any field
 - **Auto-Tag Inference** — AI suggests platform-appropriate tags with confidence levels
-- **Token Budget Meter** — live token count with 4k/8k/16k/32k context fill bars
+- **Token Budget Meter** — live token count with context fill percentage
 - **Platform-Aware Mode** — Chub / FictionLab / JanitorAI / Personal adjusts tag vocab, length targets, format guidance
 
 ### ⚙️ Power Features
 - **Two-tier API system** — primary API for generation, separate utility API for fast background checks (pillar detection, conflict check, tag inference). Point utility at a cheap/fast model to save cost without affecting card quality
+- **Parallel API Calls** — toggle in session settings to enable/disable concurrent API requests
 - **Voice/Tone Profile** — set POV, action format, prose density, formality register applied to every generation
 - **Snippet Library** — reusable text snippets (system prompt boilerplate, creator notes templates, etc.) inserted into any prompt with one click
 - **Export Session Log** — full markdown export of the ideation session, key decisions, all accepted fields, and lorebook index
 - **Session compression** — long conversations auto-compress to preserve context quality
+- **Auto-save indicator** — visual confirmation in the header when session state is saved
 
 ---
 
@@ -65,7 +124,7 @@ Load any existing card (yours or downloaded) and:
 1. Open SillyTavern
 2. Click the **Extensions** icon (stacked cubes) in the top bar
 3. Click **Install Extension**
-4. Paste your GitHub URL: `https://github.com/YOUR_USERNAME/CharCardStudio`
+4. Paste the GitHub URL: `https://github.com/MMKAVERAPPA/SillyTavern-CharCardStudio`
 5. Click Install — done
 
 ### Method 2 — Manual
@@ -82,15 +141,19 @@ Load any existing card (yours or downloaded) and:
 ## 🚀 Quick Start
 
 1. **Select a character** in SillyTavern (create a blank one if starting fresh)
-2. **Open the Studio** — click the ✒️ pen-nib icon in the message bar, or open the Extensions panel and click **Open Studio**, or type `/charforge` in chat
-3. **Pitch your concept** — describe the character idea in natural language
+2. **Open the Studio** — click the ✒️ pen-nib icon in the message bar, the 🎭 floating button (bottom-right), or type `/charforge` in chat
+3. **Choose a quick-start action** from the welcome screen:
+   - 💡 **Pitch a Concept** — describe your character idea
+   - 🎲 **Surprise Me** — AI generates 3 concepts for you
+   - 📂 **Improve Existing** — review and enhance the current card
 4. **Review the rating and pillars** — the AI will score your concept and ask foundational questions
 5. **Answer the pillars** one by one — be specific, the AI will offer concrete options when you're vague
 6. **Approve the Proposed Profile** — review the creative summary before writing begins
 7. **Generate fields** — click 🪄 next to any field, or use ⚡ Generate All, or ask in chat
-8. **Review and accept** each field — check the preview, accept to write to the card
-9. **Build the lorebook** — switch to Lorebook tab, brainstorm categories, generate entries
-10. **Export your session log** for documentation
+8. **Review and accept** each field — check the progress ring for completion status
+9. **Quick edit** — click ✏️ on any field to make manual adjustments
+10. **Build the lorebook** — switch to Lorebook tab (or press `Ctrl+3`), brainstorm categories, generate entries
+11. **Export your session log** for documentation
 
 ---
 
@@ -115,7 +178,7 @@ You don't need to memorize these — the AI understands natural language. But th
 
 ## ⚙️ Settings
 
-Open Settings with the ⚙️ button in the Studio header.
+Open Settings with the ⚙ button in the Studio header.
 
 ### API Tab
 | Setting | Description |
@@ -136,6 +199,7 @@ Add reusable text snippets. They appear as clickable chips above the chat input.
 
 ### Session Tab
 - **Compression Threshold**: How many messages before history auto-compresses (default: 15)
+- **Parallel API Calls**: Enable/disable concurrent API requests for faster generation
 - **Clear All Sessions**: Nuclear option — deletes all saved session data
 
 ---
@@ -177,12 +241,12 @@ Utility calls are fire-and-forget — if the utility API is unavailable, the mai
 ```
 CharCardStudio/
 ├── index.js                  # Extension entry point, toolbar injection, slash commands
-├── manifest.json             # Extension metadata
+├── manifest.json             # Extension metadata (v2.5.0)
 ├── settings.html             # ST Extensions panel UI
-├── style.css                 # Full-screen studio styles
+├── style.css                 # Full-screen studio styles (glassmorphism, animations)
 │
 ├── core/
-│   ├── api.js               # Two-tier API manager (primary + utility)
+│   ├── api.js               # Two-tier API manager (primary + utility) + error classification
 │   ├── audit.js             # Coherence audit, conflict detection, tag inference
 │   ├── card.js              # Card read/write, token counting, diff, macro validation
 │   ├── chat.js              # Generation engine (wraps generateRaw correctly)
@@ -206,12 +270,13 @@ CharCardStudio/
 │   └── utility.js           # Lightweight prompts for utility-tier calls
 │
 └── ui/
-    ├── card-panel.js        # Card status board, token meter, history, quick actions
-    ├── chat-panel.js        # Chat area, streaming, edit/resend, accept bars, variations
+    ├── card-panel.js        # Card status board, progress ring, quick edit, history
+    ├── chat-panel.js        # Chat area, welcome screen, streaming, accept bars
     ├── idea-panel.js        # Concept rating display, pillar tracker
     ├── lorebook-panel.js    # Entry index, staging, search/filter
-    ├── popup.js             # Full-screen overlay orchestrator
-    └── settings-modal.js   # Settings modal (API, tone, snippets, session)
+    ├── popup.js             # Full-screen overlay orchestrator, keyboard shortcuts
+    ├── settings-modal.js    # Settings modal (API, tone, snippets, session)
+    └── toast.js             # Stacking toast notification system (v2.5)
 ```
 
 ---
@@ -227,8 +292,19 @@ CharCardStudio/
 - Check ST's connection status — studio works with whatever API ST has active
 
 **✒️ icon doesn't appear in message bar**
-- The floating 🎭 button (bottom-right corner) is always available as fallback
-- The pen-nib icon targets ST's `#send_form` — if your ST version uses a different structure it may miss. Use the floating button or the Extensions panel button instead.
+- The floating 🎭 button (bottom-right corner) is always available as a fallback
+- On mobile, the floating button is always visible via CSS media queries
+- The pen-nib icon targets ST's `#send_form` — if your ST version uses a different structure it may miss
+
+**Mobile: can't find the Studio button**
+- v2.5.0 always creates the 🎭 floating button regardless of toolbar injection success
+- On mobile (≤768px), the floating button is force-shown via CSS `!important`
+- If still hidden, check for z-index conflicts with other extensions
+
+**API errors during generation**
+- Rate limit (429): Generation stops automatically, wait and retry
+- Insufficient balance (402): Check your API provider balance
+- Server errors (500+): Temporary — the extension will stop and show an error toast
 
 **Session data lost**
 - Sessions save automatically. If ST was force-closed mid-session, some messages at the tail may be lost but the core idea memory and accepted fields are preserved.
@@ -244,6 +320,7 @@ CharCardStudio/
 - SillyTavern **1.12.0** or later
 - Any configured AI API connection in ST (Claude, GPT, local models via Ollama/LM Studio, etc.)
 - Modern browser (Chrome/Firefox/Edge — no IE or legacy browsers)
+- Internet connection recommended (for Inter font from Google Fonts; falls back to system fonts offline)
 
 ---
 

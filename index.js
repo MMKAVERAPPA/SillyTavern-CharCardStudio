@@ -1,10 +1,11 @@
 // index.js
-// SillyTavern Extension entry point for Character Card Studio v2.0.0
+// SillyTavern Extension entry point for Character Card Studio v2.5.0
 // Registers the extension, injects UI entry points, handles settings panel
 
 import { studioPopup } from './ui/popup.js';
 import { memoryManager } from './core/memory.js';
 import { apiManager } from './core/api.js';
+import { toastManager } from './ui/toast.js';
 
 const EXT_NAME = 'CharCardStudio';
 
@@ -27,7 +28,7 @@ const EXT_NAME = 'CharCardStudio';
         // Register event listeners
         registerSTEvents();
 
-        console.log(`[${EXT_NAME}] v2.0.0 loaded ✓`);
+        console.log(`[${EXT_NAME}] v2.5.0 loaded ✓`);
     } catch (err) {
         console.error(`[${EXT_NAME}] Init failed:`, err);
     }
@@ -55,23 +56,24 @@ function injectToolbarButton() {
         }
     }
 
-    // FIX: Only create floating button as a fallback when toolbar injection fails
     if (!injected) {
-        // Remove any existing floating button first (avoid duplicates on re-inject)
-        document.getElementById('ccs-float-btn')?.remove();
-
-        const fallback = document.createElement('div');
-        fallback.id = 'ccs-float-btn';
-        fallback.className = 'ccs-float-btn';
-        fallback.innerHTML = '🎭';
-        fallback.title = 'Character Card Studio';
-        fallback.style.touchAction = 'manipulation'; // FIX: reliable mobile taps
-        fallback.addEventListener('click', openStudio);
-        fallback.addEventListener('pointerdown', (e) => e.stopPropagation()); // prevent ST catching it
-        document.body.appendChild(fallback);
-
-        console.warn(`[${EXT_NAME}] Could not find toolbar target — floating button active`);
+        console.warn(`[${EXT_NAME}] Could not find toolbar target — floating button only`);
     }
+
+    // v2.5: Always create floating button (CSS handles mobile/desktop visibility)
+    // On mobile, toolbar button may exist but be invisible due to ST layout
+    document.getElementById('ccs-float-btn')?.remove();
+    const fallback = document.createElement('div');
+    fallback.id = 'ccs-float-btn';
+    fallback.className = 'ccs-float-btn';
+    fallback.innerHTML = '🎭';
+    fallback.title = 'Character Card Studio';
+    fallback.style.touchAction = 'manipulation';
+    // Hide on desktop if toolbar injection succeeded
+    if (injected) fallback.style.display = 'none';
+    fallback.addEventListener('click', openStudio);
+    fallback.addEventListener('pointerdown', (e) => e.stopPropagation());
+    document.body.appendChild(fallback);
 }
 
 function createToolbarBtn() {
@@ -175,22 +177,12 @@ function openStudio() {
     // Check API support first
     const support = apiManager.checkApiSupport();
     if (!support.generateRaw) {
-        showToast('⚠️ Character Card Studio requires SillyTavern 1.12+. Please update.', 'error');
+        toastManager.show('Character Card Studio requires SillyTavern 1.12+. Please update.', 'error');
         return;
     }
     if (!support.isConnected) {
-        showToast('⚠️ No API connection detected. Connect an API in ST first.', 'warning');
+        toastManager.show('No API connection detected. Connect an API in ST first.', 'warning');
         // Still open — user might connect after
     }
     studioPopup.open();
-}
-
-// ── Utilities ─────────────────────────────────────────────────────────────────
-
-function showToast(message, type = 'info') {
-    const toast = document.createElement('div');
-    toast.className = `ccs-toast ccs-toast-${type}`;
-    toast.textContent = message;
-    document.body.appendChild(toast);
-    setTimeout(() => toast.remove(), 4000);
 }
