@@ -371,8 +371,7 @@
 .ccs-token-badge { background: var(--ccs-surface3); color: var(--ccs-text3); font-size: 0.7rem; padding: 2px 8px; border-radius: 12px; }
 .ccs-field-snippet { font-size: 0.72rem; color: var(--ccs-text3); padding: 0 12px 8px 44px; line-height: 1.4; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
-.ccs-field-btns { display: flex; gap: 4px; opacity: 0; transition: opacity var(--ccs-anim-fast); }
-.ccs-field-row:hover .ccs-field-btns { opacity: 1; }
+.ccs-field-btns { display: flex; gap: 4px; }
 .ccs-field-btn {
     background: transparent; border: 1px solid transparent; color: var(--ccs-text3);
     padding: 4px 8px; border-radius: var(--ccs-radius-sm); font-size: 0.8rem; cursor: pointer;

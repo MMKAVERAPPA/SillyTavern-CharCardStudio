@@ -81,7 +81,7 @@ export class CardPanel {
                     </div>
                     <div class="ccs-progress-info">
                         <div class="ccs-progress-title">Card Progress</div>
-                        <div class="ccs-progress-subtitle">${budget.tokens.toLocaleString()} tokens · ${budget.pct8k}% of 8k context</div>
+                        <div class="ccs-progress-subtitle">${budget.tokens.toLocaleString()} tokens total</div>
                     </div>
                 </div>
 
@@ -158,8 +158,8 @@ export class CardPanel {
                     <div class="ccs-field-btns">
                         <button class="ccs-field-btn ccs-gen-field-btn" data-field="${fieldName}" title="Generate">🪄</button>
                         <button class="ccs-field-btn ccs-var-field-btn" data-field="${fieldName}" title="Variations">🎲</button>
-                        ${hasContent ? `<button class="ccs-field-btn ccs-edit-field-btn" data-field="${fieldName}" title="Quick Edit">✏️</button>` : ''}
-                        ${hasContent ? `<button class="ccs-field-btn ccs-preview-field-btn" data-field="${fieldName}" title="Preview">👁</button>` : ''}
+                        <button class="ccs-field-btn ccs-edit-field-btn" data-field="${fieldName}" title="Quick Edit">✏️</button>
+                        <button class="ccs-field-btn ccs-preview-field-btn" data-field="${fieldName}" title="Preview">👁</button>
                         ${versions.length > 1 ? `<button class="ccs-field-btn ccs-history-btn" data-field="${fieldName}" title="History (${versions.length})">🕐</button>` : ''}
                     </div>
                 </div>
