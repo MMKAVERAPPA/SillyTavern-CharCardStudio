@@ -16,8 +16,8 @@ const EXT_NAME = 'CharCardStudio';
         // Init memory/settings
         memoryManager.init();
 
-        // Inject toolbar button (message bar)
-        injectToolbarButton();
+        // Inject all UI entry points
+        injectAllButtons();
 
         // Bind the settings.html "Open Studio" button
         bindSettingsPanelButton();
@@ -34,10 +34,18 @@ const EXT_NAME = 'CharCardStudio';
     }
 })();
 
-// ── Toolbar button injection ───────────────────────────────────────────────────
+// ── Button injection — all three entry points ──────────────────────────────────
 
+function injectAllButtons() {
+    injectToolbarButton();
+    injectExtensionsMenuEntry();
+    injectFloatingButton();
+}
+
+// 1. Toolbar button (pen-nib in the send form — desktop primary)
 function injectToolbarButton() {
-    // Try primary injection target: the send form area
+    if (document.getElementById('ccs-toolbar-btn')) return;
+
     const injectTargets = [
         '#send_form',
         '#rightSendForm',
@@ -45,66 +53,95 @@ function injectToolbarButton() {
         '#chat_input_area',
     ];
 
-    let injected = false;
     for (const selector of injectTargets) {
         const target = document.querySelector(selector);
         if (target) {
-            const btn = createToolbarBtn();
+            const btn = document.createElement('div');
+            btn.id = 'ccs-toolbar-btn';
+            btn.className = 'ccs-toolbar-btn fa-solid fa-pen-nib';
+            btn.title = 'Character Card Studio';
+            btn.setAttribute('tabindex', '0');
+            btn.setAttribute('role', 'button');
+            btn.style.touchAction = 'manipulation';
+            // Use only 'click' — touchend causes double-fire race conditions on mobile
+            btn.addEventListener('click', (e) => { e.stopPropagation(); openStudio(); });
+            btn.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') openStudio(); });
             target.appendChild(btn);
-            injected = true;
-            break;
+            console.log(`[${EXT_NAME}] Toolbar button injected into ${selector}`);
+            return;
         }
     }
-
-    if (!injected) {
-        console.warn(`[${EXT_NAME}] Could not find toolbar target — floating button only`);
-    }
-
-    // v2.5: Always create floating button (CSS handles mobile/desktop visibility)
-    // On mobile, toolbar button may exist but be invisible due to ST layout
-    document.getElementById('ccs-float-btn')?.remove();
-    const fallback = document.createElement('div');
-    fallback.id = 'ccs-float-btn';
-    fallback.className = 'ccs-float-btn';
-    fallback.innerHTML = '🎭';
-    fallback.title = 'Character Card Studio';
-    fallback.style.touchAction = 'manipulation';
-    // Hide on desktop if toolbar injection succeeded
-    if (injected) fallback.style.display = 'none';
-    fallback.addEventListener('click', (e) => { e.preventDefault(); e.stopPropagation(); openStudio(); });
-    fallback.addEventListener('touchend', (e) => { e.preventDefault(); e.stopPropagation(); openStudio(); }, { passive: false });
-    document.body.appendChild(fallback);
+    console.warn(`[${EXT_NAME}] Could not find toolbar target`);
 }
 
-function createToolbarBtn() {
+// 2. Extensions menu entry (ST hamburger menu — the ONLY reliable mobile entry point)
+// Pattern from SillyTavern-Tracker: append a .list-group-item to #extensionsMenu
+function injectExtensionsMenuEntry() {
+    if (document.getElementById('ccs-ext-menu-item')) return;
+
+    const menu = document.getElementById('extensionsMenu');
+    if (!menu) {
+        // ST hasn't rendered the menu yet — observe and retry
+        const observer = new MutationObserver(() => {
+            if (document.getElementById('extensionsMenu')) {
+                observer.disconnect();
+                injectExtensionsMenuEntry();
+            }
+        });
+        observer.observe(document.body, { childList: true, subtree: true });
+        return;
+    }
+
+    const container = document.createElement('div');
+    container.className = 'extension_container interactable';
+    container.id = 'ccs-ext-menu-container';
+    container.setAttribute('tabindex', '0');
+
+    const item = document.createElement('div');
+    item.id = 'ccs-ext-menu-item';
+    item.className = 'list-group-item flex-container flexGap5 interactable';
+    item.title = 'Open Character Card Studio';
+    item.setAttribute('tabindex', '0');
+
+    const icon = document.createElement('div');
+    icon.className = 'extensionsMenuExtensionButton fa-solid fa-pen-nib';
+
+    const label = document.createElement('span');
+    label.textContent = 'Card Studio';
+
+    item.appendChild(icon);
+    item.appendChild(label);
+    container.appendChild(item);
+    menu.appendChild(container);
+
+    // Use only 'click' — works on both mobile tap and desktop click
+    item.addEventListener('click', () => openStudio());
+    console.log(`[${EXT_NAME}] Extensions menu entry injected`);
+}
+
+// 3. Floating action button (visible on mobile only via CSS, fallback if menu injection fails)
+function injectFloatingButton() {
+    if (document.getElementById('ccs-float-btn')) return;
+
     const btn = document.createElement('div');
-    btn.id = 'ccs-toolbar-btn';
-    btn.className = 'ccs-toolbar-btn fa-solid fa-pen-nib';
-    btn.title = 'Character Card Studio (✒️)';
-    btn.setAttribute('tabindex', '0');
+    btn.id = 'ccs-float-btn';
+    // CSS class handles position/visibility — do NOT set display:none inline
+    // (inline styles override media queries and would hide it on mobile too)
+    btn.className = 'ccs-float-btn';
+    btn.innerHTML = '🎭';
+    btn.title = 'Character Card Studio';
     btn.setAttribute('role', 'button');
-    btn.style.touchAction = 'manipulation'; // FIX: reliable mobile taps
-    btn.addEventListener('click', (e) => { e.preventDefault(); e.stopPropagation(); openStudio(); });
-    btn.addEventListener('touchend', (e) => { e.preventDefault(); e.stopPropagation(); openStudio(); }, { passive: false });
-    btn.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') openStudio(); });
-    return btn;
+    btn.setAttribute('tabindex', '0');
+    btn.style.touchAction = 'manipulation';
+    // Use only 'click' — no touchend
+    btn.addEventListener('click', (e) => { e.stopPropagation(); openStudio(); });
+    document.body.appendChild(btn);
 }
 
 // ── Settings panel button (CSP-safe) ─────────────────────────────────────────
 
 function bindSettingsPanelButton() {
     // ST renders settings.html into the extensions panel — we need to wait for it
-    const tryBind = () => {
-        const btn = document.getElementById('ccs-open-studio-btn');
-        if (btn) {
-            btn.addEventListener('click', openStudio);
-        }
-    };
-
-    // Immediate attempt
-    tryBind();
-
-    // Also observe DOM changes in case ST renders the panel late
     const observer = new MutationObserver(() => {
         const btn = document.getElementById('ccs-open-studio-btn');
         if (btn && !btn.dataset.bound) {
@@ -113,13 +150,20 @@ function bindSettingsPanelButton() {
         }
     });
     observer.observe(document.body, { childList: true, subtree: true });
+
+    // Also try immediately
+    const btn = document.getElementById('ccs-open-studio-btn');
+    if (btn && !btn.dataset.bound) {
+        btn.dataset.bound = '1';
+        btn.addEventListener('click', openStudio);
+    }
 }
 
 // ── Slash command ─────────────────────────────────────────────────────────────
 
 function registerSlashCommand() {
     try {
-        const { SlashCommandParser, SlashCommand, SlashCommandClosure } = SillyTavern.modules ?? {};
+        const { SlashCommandParser, SlashCommand } = SillyTavern.modules ?? {};
 
         // ST 1.12+ slash command registration
         if (SlashCommandParser?.addCommandObject && SlashCommand) {
@@ -153,9 +197,10 @@ function registerSTEvents() {
         const { eventSource, event_types } = SillyTavern.getContext();
         if (!eventSource || !event_types) return;
 
-        // Re-inject toolbar if ST re-renders the chat area
+        // Re-inject all buttons if ST re-renders the chat area
         eventSource.on(event_types.APP_READY, () => {
-            if (!document.getElementById('ccs-toolbar-btn')) injectToolbarButton();
+            injectToolbarButton();
+            injectExtensionsMenuEntry();
         });
 
         // Update character name in studio header if character changes while studio is open
