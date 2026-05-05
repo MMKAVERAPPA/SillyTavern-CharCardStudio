@@ -5,7 +5,7 @@ import { memoryManager } from './memory.js';
 
 class StatsManager {
     constructor() {
-        this._initGlobalStats();
+        // Initialization is deferred until first use to ensure memoryManager is ready
     }
 
     _initGlobalStats() {

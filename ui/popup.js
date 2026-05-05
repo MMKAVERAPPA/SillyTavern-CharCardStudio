@@ -440,6 +440,11 @@ export class StudioPopup {
         
         this.$('#ccs-chat-inspect-btn')?.addEventListener('click', () => this._openRawContextInspector());
 
+        // Clean up any existing global listeners before attaching
+        if (this._escHandler) document.removeEventListener('keydown', this._escHandler);
+        if (this._shortcutHandler) document.removeEventListener('keydown', this._shortcutHandler);
+        if (this._ghostModeHandler) document.removeEventListener('keydown', this._ghostModeHandler);
+
         // Escape minimizes (not closes) to preserve session
         this._escHandler = (e) => {
             if (e.key === 'Escape' && this.isOpen && !this.isMinimized) {
@@ -449,8 +454,7 @@ export class StudioPopup {
                 this.minimize();
             }
         };
-        document.addEventListener('keydown', this._escHandler);
-
+        
         // Keyboard shortcuts
         this._shortcutHandler = (e) => {
             if (!this.isOpen || this.isMinimized) return;
@@ -476,6 +480,8 @@ export class StudioPopup {
                 this._toggleGhostMode();
             }
         };
+
+        document.addEventListener('keydown', this._escHandler);
         document.addEventListener('keydown', this._ghostModeHandler);
         document.addEventListener('keydown', this._shortcutHandler);
 
