@@ -219,15 +219,17 @@ function registerSTEvents() {
 // ── Open studio ───────────────────────────────────────────────────────────────
 
 function openStudio() {
-    // Check API support first
-    const support = apiManager.checkApiSupport();
-    if (!support.generateRaw) {
-        toastManager.show('Character Card Studio requires SillyTavern 1.12+. Please update.', 'error');
-        return;
+    try {
+        const support = apiManager.checkApiSupport();
+        if (!support.generateRaw) {
+            // Show warning but still open — ST may not be fully loaded yet on mobile
+            toastManager.show('⚠️ SillyTavern 1.12+ required for generation. Studio opened in read-only mode.', 'warning');
+        } else if (!support.isConnected) {
+            toastManager.show('⚠️ No API connected. Connect one in ST to generate.', 'warning');
+        }
+    } catch (err) {
+        console.warn(`[${EXT_NAME}] API check failed:`, err);
     }
-    if (!support.isConnected) {
-        toastManager.show('No API connection detected. Connect an API in ST first.', 'warning');
-        // Still open — user might connect after
-    }
+    // Always open — let the user decide
     studioPopup.open();
 }

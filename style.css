@@ -43,12 +43,17 @@
     inset: 0;
     background: rgba(0,0,0,0.85);
     backdrop-filter: blur(4px);
-    z-index: 99999;
+    -webkit-backdrop-filter: blur(4px);
+    /* Max safe z-index — must be above ALL SillyTavern UI layers on mobile */
+    z-index: 2147483640;
     display: flex;
     align-items: stretch;
     justify-content: stretch;
     animation: ccs-fade-in 0.2s ease;
+    touch-action: auto;
+    -webkit-overflow-scrolling: touch;
 }
+
 
 /* ── Ghost Mode ─────────────────────────────────────────────── */
 .ccs-ghost-mode {
