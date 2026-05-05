@@ -720,6 +720,21 @@ export class StudioPopup {
         chatPanel.addSystemMessage(`↩ Restored ${fieldName} to v${idx + 1}`, 'info');
     }
 
+    async _handleQuickEdit(fieldName, newVal) {
+        if (!this.cardFields) return;
+        
+        await cardManager.writeField(fieldName, newVal);
+        this.cardFields[fieldName] = newVal;
+        
+        // Log it as a manual edit
+        memoryManager.logFieldGeneration(this.session, fieldName, newVal, 'Manual Quick Edit');
+        
+        cardPanel.setFieldStatus(fieldName, 'accepted');
+        cardPanel.updateCardFields(this.cardFields);
+        this._flashSaveIndicator();
+        toastManager.show(`Saved manual edit for ${fieldName}`, 'success');
+    }
+
     async _handleAnnotationRequest(selectedText, action) {
         const messages = {
             expand:   `Expand on this: "${selectedText}" — add more detail while matching the existing tone.`,
