@@ -71,8 +71,8 @@ function injectToolbarButton() {
     fallback.style.touchAction = 'manipulation';
     // Hide on desktop if toolbar injection succeeded
     if (injected) fallback.style.display = 'none';
-    fallback.addEventListener('click', openStudio);
-    fallback.addEventListener('pointerdown', (e) => e.stopPropagation());
+    fallback.addEventListener('click', (e) => { e.preventDefault(); e.stopPropagation(); openStudio(); });
+    fallback.addEventListener('touchend', (e) => { e.preventDefault(); e.stopPropagation(); openStudio(); }, { passive: false });
     document.body.appendChild(fallback);
 }
 
@@ -84,8 +84,8 @@ function createToolbarBtn() {
     btn.setAttribute('tabindex', '0');
     btn.setAttribute('role', 'button');
     btn.style.touchAction = 'manipulation'; // FIX: reliable mobile taps
-    btn.addEventListener('click', (e) => { e.stopPropagation(); openStudio(); });
-    btn.addEventListener('pointerdown', (e) => e.stopPropagation()); // prevent ST from swallowing the event
+    btn.addEventListener('click', (e) => { e.preventDefault(); e.stopPropagation(); openStudio(); });
+    btn.addEventListener('touchend', (e) => { e.preventDefault(); e.stopPropagation(); openStudio(); }, { passive: false });
     btn.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') openStudio(); });
     return btn;
 }

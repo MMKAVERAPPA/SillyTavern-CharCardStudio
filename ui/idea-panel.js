@@ -1,6 +1,8 @@
 // ui/idea-panel.js
 // Idea/concept panel: concept rating display, pillar tracker, key decisions
 
+import { memoryManager } from '../core/memory.js';
+
 export class IdeaPanel {
     constructor() {
         this.container = null;
@@ -58,10 +60,7 @@ export class IdeaPanel {
         if (notesArea) {
             notesArea.addEventListener('input', (e) => {
                 ideaMemory.notes = e.target.value;
-                // It will be saved with the next auto-save trigger, but we could explicitly save
-                if (window.memoryManager && window.memoryManager.currentSessionId) {
-                    window.memoryManager.saveSession(window.memoryManager.currentSessionId, window.memoryManager.session);
-                }
+                memoryManager.save();
             });
         }
     }

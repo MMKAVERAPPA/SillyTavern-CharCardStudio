@@ -782,10 +782,31 @@
     z-index: 10;
 }
 
-/* FIX: Float button — ensure visibility on mobile */
+/* FIX: Float button — ensure visibility and positioning on mobile */
 .ccs-float-btn {
+    position: fixed;
+    bottom: 80px;
+    right: 20px;
+    width: 50px;
+    height: 50px;
+    border-radius: 25px;
+    background: var(--ccs-accent);
+    color: #fff;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.5rem;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.5);
+    cursor: pointer;
+    z-index: 10000;
     touch-action: manipulation;
     -webkit-tap-highlight-color: transparent;
+    transition: transform 0.2s;
+}
+.ccs-float-btn:active { transform: scale(0.9); }
+
+@media (min-width: 769px) {
+    .ccs-float-btn { display: none !important; }
 }
 
 /* FIX: Studio inner captures pointer events to prevent overlay-close misfire on mobile */
