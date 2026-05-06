@@ -100,11 +100,13 @@ export class IdeationPhase {
         chatPanel.setInputEnabled(false);
 
         try {
-            const response = await chatEngine.generateBackground(
-                systemPrompt,
-                taskPrompt
+            // BUG-6: Use generateWithContext so greeting has session context
+            const response = await chatEngine.generateWithContext(
+                this.session, this.cardFields,
+                systemPrompt, taskPrompt,
+                { phase: 'ideation', task: 'greeting' }
             );
-
+            if (!response) return; // aborted
             chatPanel.finalizeStream(response);
             memoryManager.addMessage(this.session, 'assistant', response);
         } catch (err) {
@@ -121,43 +123,39 @@ export class IdeationPhase {
         const systemPrompt = this._buildSystemPrompt('concept_rating');
         const taskPrompt = skillRouter.getIdeationPrompt('concept_rating');
 
-        // FIX: Add user message to history (was missing before)
         memoryManager.addMessage(this.session, 'user', userMessage);
 
         chatPanel.startStreaming();
         chatPanel.setInputEnabled(false);
 
         try {
-            const response = await chatEngine.generateBackground(
+            // BUG-6: Include history so AI knows what was said before
+            const response = await chatEngine.generateWithContext(
+                this.session, this.cardFields,
                 systemPrompt,
-                `${taskPrompt}\n\nUser's concept pitch:\n${userMessage}`
+                `${taskPrompt}\n\nUser's concept pitch:\n${userMessage}`,
+                { phase: 'ideation', task: 'concept_rating' }
             );
-
+            if (!response) return; // aborted
             chatPanel.finalizeStream(response);
             memoryManager.addMessage(this.session, 'assistant', response);
 
-            // Parse rating and pillars from response
             const rating = parseConceptRating(response);
-
             this.session.ideaMemory.conceptRating = rating;
             if (rating?.pillars?.length) {
                 this.session.ideaMemory.pillars = rating.pillars;
             }
-            // Try to extract concept name
             const nameMatch = response.match(/Concept:\s*"?([^"\n]+)"?/i);
             if (nameMatch) {
                 this.session.ideaMemory.conceptName = nameMatch[1].trim();
             } else {
                 this.session.ideaMemory.conceptName = userMessage.substring(0, 60);
             }
-
-            // v3.0: Try to extract card type from response
             const typeMatch = response.match(/Card Type:\s*([ABC])/i);
             if (typeMatch) {
                 const typeMap = { 'A': 'single', 'B': 'multi', 'C': 'scenario' };
                 this.session.ideaMemory.cardType = typeMap[typeMatch[1].toUpperCase()] || 'single';
             }
-
             ideaPanel.render(this.session.ideaMemory);
         } catch (err) {
             chatPanel.cancelStreaming();
@@ -172,19 +170,17 @@ export class IdeationPhase {
     async _generateIdeas(userMessage) {
         const systemPrompt = this._buildSystemPrompt('generate_ideas');
         const taskPrompt = skillRouter.getIdeationPrompt('generate_ideas');
-
-        // FIX: Add user message to history (was missing before)
         memoryManager.addMessage(this.session, 'user', userMessage);
-
         chatPanel.startStreaming();
         chatPanel.setInputEnabled(false);
-
         try {
-            const response = await chatEngine.generateBackground(
-                systemPrompt,
-                taskPrompt
+            // BUG-6: Include history context
+            const response = await chatEngine.generateWithContext(
+                this.session, this.cardFields,
+                systemPrompt, taskPrompt,
+                { phase: 'ideation', task: 'generate_ideas' }
             );
-
+            if (!response) return;
             chatPanel.finalizeStream(response);
             memoryManager.addMessage(this.session, 'assistant', response);
         } catch (err) {
@@ -200,27 +196,24 @@ export class IdeationPhase {
     async _loadExistingCard(userMessage) {
         const systemPrompt = this._buildSystemPrompt('load_existing');
         const taskPrompt = skillRouter.getIdeationPrompt('load_existing');
-
-        // FIX: Add user message to history
         memoryManager.addMessage(this.session, 'user', userMessage);
-
         chatPanel.startStreaming();
         chatPanel.setInputEnabled(false);
-
         try {
             const cardSummary = Object.entries(this.cardFields || {})
                 .filter(([k, v]) => typeof v === 'string' && v.trim())
                 .map(([k, v]) => `### ${k}\n${v.substring(0, 500)}`)
                 .join('\n\n');
-
-            const response = await chatEngine.generateBackground(
+            // BUG-6: Include history context
+            const response = await chatEngine.generateWithContext(
+                this.session, this.cardFields,
                 systemPrompt,
-                `${taskPrompt}\n\n---\nExisting card fields:\n${cardSummary}`
+                `${taskPrompt}\n\n---\nExisting card fields:\n${cardSummary}`,
+                { phase: 'ideation', task: 'load_existing' }
             );
-
+            if (!response) return;
             chatPanel.finalizeStream(response);
             memoryManager.addMessage(this.session, 'assistant', response);
-
             this.session.reviewMode = true;
         } catch (err) {
             chatPanel.cancelStreaming();
@@ -283,7 +276,6 @@ ${pillarContext || 'No pillars established yet.'}`;
     async _voiceCalibration(userMessage) {
         const idea = this.session.ideaMemory;
 
-        // If the user's message looks like voice feedback/approval, save it
         if (this._isApproval(userMessage) && idea._pendingVoiceSamples) {
             idea.voiceProfile = idea._pendingVoiceDescription || 'Voice confirmed via calibration';
             idea.voiceSamples = idea._pendingVoiceSamples || [];
@@ -291,42 +283,35 @@ ${pillarContext || 'No pillars established yet.'}`;
             delete idea._pendingVoiceDescription;
             chatPanel.addSystemMessage('🎤 Voice calibrated! Generating proposed profile...', 'info');
             ideaPanel.render(idea);
-            // Now generate the proposed profile
             await this._offerProposedProfile(userMessage);
             return;
         }
 
-        // Generate voice samples
         const systemPrompt = this._buildSystemPrompt('voice_calibration');
         const taskPrompt = skillRouter.getIdeationPrompt('voice_calibration');
-
         const pillarSummary = (idea.pillars || []).map(p =>
             `- ${p.name}: ${p.answer || 'Not yet decided'}`
         ).join('\n');
-
         memoryManager.addMessage(this.session, 'user', userMessage);
-
         chatPanel.startStreaming();
         chatPanel.setInputEnabled(false);
-
         try {
-            const response = await chatEngine.generateBackground(
+            // BUG-6: Include history context
+            const response = await chatEngine.generateWithContext(
+                this.session, this.cardFields,
                 systemPrompt,
-                `${taskPrompt}\n\nConcept: ${idea.conceptName || 'Unknown'}\nResolved pillars:\n${pillarSummary}`
+                `${taskPrompt}\n\nConcept: ${idea.conceptName || 'Unknown'}\nResolved pillars:\n${pillarSummary}`,
+                { phase: 'ideation', task: 'voice_calibration' }
             );
-
+            if (!response) return;
             chatPanel.finalizeStream(response);
             memoryManager.addMessage(this.session, 'assistant', response);
-
-            // Store pending voice data for approval on next message
             idea._pendingVoiceSamples = this._extractVoiceSamples(response);
             idea._pendingVoiceDescription = this._extractVoiceDescription(response);
-
             ideaPanel.render(idea);
         } catch (err) {
             chatPanel.cancelStreaming();
             this._showError(err, 'Voice calibration failed');
-            // Fall through to proposed profile even if voice cal fails
             idea.voiceProfile = 'Voice calibration skipped';
         } finally {
             chatPanel.setInputEnabled(true);
@@ -338,40 +323,29 @@ ${pillarContext || 'No pillars established yet.'}`;
     async _offerProposedProfile(userMessage) {
         const systemPrompt = this._buildSystemPrompt('proposed_profile');
         const taskPrompt = skillRouter.getIdeationPrompt('proposed_profile');
-
         const idea = this.session.ideaMemory;
         const pillarSummary = (idea.pillars || []).map(p =>
             `- ${p.name}: ${p.answer || 'Not yet decided'}`
         ).join('\n');
-
-        // FIX: Add user message to history
         memoryManager.addMessage(this.session, 'user', userMessage);
-
         chatPanel.startStreaming();
         chatPanel.setInputEnabled(false);
-
         try {
             let profileContext = `${taskPrompt}\n\nResolved pillars:\n${pillarSummary}\n\nConcept: ${idea.conceptName || 'Not named'}`;
             profileContext += `\nCard Type: ${idea.cardType || 'single'}`;
             profileContext += `\nFormat: ${idea.format || 'prose'}`;
-            if (idea.voiceProfile) {
-                profileContext += `\nVoice Profile: ${idea.voiceProfile}`;
-            }
-            if (idea.voiceSamples?.length) {
-                profileContext += `\n\nConfirmed Voice Samples:\n${idea.voiceSamples.join('\n---\n')}`;
-            }
-
-            const response = await chatEngine.generateBackground(
-                systemPrompt,
-                profileContext
+            if (idea.voiceProfile) profileContext += `\nVoice Profile: ${idea.voiceProfile}`;
+            if (idea.voiceSamples?.length) profileContext += `\n\nConfirmed Voice Samples:\n${idea.voiceSamples.join('\n---\n')}`;
+            // BUG-6: Include history context
+            const response = await chatEngine.generateWithContext(
+                this.session, this.cardFields,
+                systemPrompt, profileContext,
+                { phase: 'ideation', task: 'proposed_profile' }
             );
-
+            if (!response) return;
             chatPanel.finalizeStream(response);
             memoryManager.addMessage(this.session, 'assistant', response);
-
-            // v3.0: Try to extract psychological profile from response
             this._extractPsychProfile(response, idea);
-
             idea.proposedProfileGenerated = true;
             ideaPanel.render(idea);
         } catch (err) {

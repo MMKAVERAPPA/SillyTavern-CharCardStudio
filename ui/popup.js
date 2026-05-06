@@ -41,6 +41,8 @@ export class StudioPopup {
     $$(sel) { return this.el ? [...this.el.querySelectorAll(sel)] : []; }
 
     open() {
+        // BUG-1 FIX: If minimized, restore instead of silently doing nothing
+        if (this.isOpen && this.isMinimized) { this.restore(); return; }
         if (this.isOpen) { this._focusInput(); return; }
 
         const ctx = SillyTavern.getContext();
@@ -353,7 +355,7 @@ export class StudioPopup {
         );
     }
 
-    _handleQuickEdit(fieldName, value) {
+    async _handleQuickEdit(fieldName, value) {
         if (!fieldName || !this.cardFields) return;
         // Write directly to the card
         if (fieldName === 'alternate_greetings') {
@@ -361,7 +363,7 @@ export class StudioPopup {
         } else {
             this.cardFields[fieldName] = value;
         }
-        cardManager.writeField(fieldName, this.cardFields[fieldName]);
+        await cardManager.writeField(fieldName, this.cardFields[fieldName]);
         // Create a version in history
         if (this.session) {
             memoryManager.addFieldVersion(this.session, fieldName, this.cardFields[fieldName], 'Manual edit');
@@ -437,7 +439,7 @@ export class StudioPopup {
             return;
         }
         if (switchTo === 'build_start' && this.currentPhase === PHASE.IDEATION) {
-            await ideationPhase.handleMessage(message);
+            this._routeToPhase(PHASE.BUILDING);
             return;
         }
 
@@ -454,7 +456,9 @@ export class StudioPopup {
     _bindHeaderEvents() {
         this.$('#ccs-close-studio')?.addEventListener('click', () => this.close());
 
-        this.$('#ccs-settings-btn')?.addEventListener('click', () => settingsModal.open());
+        // BUG-2 FIX: Pass studio element so settings modal appends inside the overlay
+        // (correct stacking context — z-index works properly inside our isolated layer)
+        this.$('#ccs-settings-btn')?.addEventListener('click', () => settingsModal.open(this.el));
 
         this.$('#ccs-new-session-btn')?.addEventListener('click', () => {
             if (!confirm('Start a new session? Current session will be saved.')) return;

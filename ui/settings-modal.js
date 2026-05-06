@@ -11,10 +11,11 @@ export class SettingsModal {
         this.snippetEditId = null;
     }
 
-    open() {
+    open(container = null) {
         document.getElementById('ccs-settings-modal')?.remove();
+        this._container = container || document.body;
         this._build();
-        document.body.appendChild(this.el);
+        this._container.appendChild(this.el);
         this._bind();
         this._renderStats();
     }
