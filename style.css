@@ -683,12 +683,37 @@
 .ccs-shortcut-item { display: flex; justify-content: space-between; gap: 16px; padding: 4px 0; font-size: 0.78rem; color: var(--ccs-text2); }
 .ccs-shortcut-key { font-family: monospace; background: var(--ccs-surface3); padding: 1px 6px; border-radius: 3px; font-size: 0.72rem; color: var(--ccs-text); }
 
-/* ── Responsive ───────────────────────────────────────────────── */
-@media (max-width: 700px) {
-    .ccs-studio-body { flex-direction: column; }
-    .ccs-chat-col, .ccs-workspace-col { width: 100%; border-right: none; }
-    .ccs-chat-col { flex: 1; }
-    .ccs-workspace-col { height: 40vh; }
+/* ── Drawer handle (mobile-only pull-up tab) ─────────────────────────────────── */
+.ccs-drawer-handle {
+    display: none; /* hidden on desktop; enabled via @media below */
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    height: 44px;
+    min-height: 44px;
+    flex-shrink: 0;
+    background: var(--ccs-glass);
+    border-bottom: 1px solid var(--ccs-border);
+    cursor: pointer;
+    touch-action: manipulation;
+    -webkit-tap-highlight-color: transparent;
+    user-select: none;
+    transition: background var(--ccs-anim);
+}
+.ccs-drawer-handle:hover,
+.ccs-drawer-handle:active { background: var(--ccs-surface3); }
+.ccs-drawer-pill {
+    width: 36px; height: 4px;
+    background: var(--ccs-border2);
+    border-radius: 2px;
+    flex-shrink: 0;
+}
+.ccs-drawer-tab-name {
+    font-size: 0.82rem; font-weight: 600; color: var(--ccs-text2);
+}
+.ccs-drawer-chevron {
+    font-size: 0.75rem; color: var(--ccs-text3);
+    transition: transform var(--ccs-anim);
 }
 
 /* ── Minimize bar ─────────────────────────────────────────────────────────── */
@@ -739,44 +764,105 @@
 }
 
 /* Send button disabled state */
-.ccs-send-btn:disabled {
-    opacity: 0.35;
-    cursor: not-allowed;
-}
+.ccs-send-btn:disabled { opacity: 0.35; cursor: not-allowed; }
 
-/* ── Mobile improvements ──────────────────────────────────────────────────── */
 @media (max-width: 768px) {
+    /* Chat column fills the full studio body */
     .ccs-studio-body {
         flex-direction: column;
+        position: relative;
+        overflow: hidden;
     }
     .ccs-chat-col {
         width: 100%;
+        height: 100%;
+        flex: 1;
         border-right: none;
-        border-bottom: 1px solid var(--ccs-border);
-        min-height: 55vh;
-        max-height: 55vh;
+        min-height: 0;
+        /* Leave room for collapsed drawer handle (44px) */
+        padding-bottom: 44px;
     }
-    .ccs-workspace-col {
-        width: 100%;
-        min-height: 35vh;
-        max-height: 35vh;
+
+    /* Workspace column becomes a fixed bottom drawer */
+    #ccs-workspace-col {
+        position: absolute;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        /* Expanded = 56% of studio height; collapsed = only handle visible */
+        height: 56%;
+        /* Collapsed: only the 44px handle peeks above the bottom */
+        transform: translateY(calc(100% - 44px));
+        transition: transform 0.32s cubic-bezier(0.4, 0, 0.2, 1);
+        border-top: 1px solid var(--ccs-border2);
+        border-right: none;
+        background: var(--ccs-surface);
+        z-index: 10;
+        display: flex;
+        flex-direction: column;
+        /* Round top corners for drawer look */
+        border-radius: var(--ccs-radius) var(--ccs-radius) 0 0;
+        box-shadow: 0 -4px 24px rgba(0,0,0,0.4);
+        /* Ensure inner content clips to rounded corners */
+        overflow: hidden;
+        min-height: 0;
     }
-    .ccs-title { display: none; } /* save header space on mobile */
+    /* Expanded state */
+    #ccs-workspace-col.expanded {
+        transform: translateY(0);
+    }
+    /* When drawer is expanded, shrink chat to give drawer room */
+    #ccs-workspace-col.expanded ~ * { /* fallback — not needed with absolute */ }
+    .ccs-studio-body:has(#ccs-workspace-col.expanded) .ccs-chat-col {
+        padding-bottom: 56%;
+    }
+
+    /* Show the drawer handle only on mobile */
+    .ccs-drawer-handle {
+        display: flex !important;
+    }
+
+    /* Workspace tabs always visible inside drawer */
+    .ccs-workspace-tabs {
+        flex-shrink: 0;
+    }
+    .ccs-workspace-panel {
+        flex: 1;
+        min-height: 0;
+        overflow-y: auto;
+        padding: 8px;
+    }
+
+    /* Hide desktop-only header buttons */
+    #ccs-ghost-btn,
+    #ccs-shortcuts-btn {
+        display: none !important;
+    }
+    /* Compact header */
+    .ccs-title { display: none; }
     .ccs-hdr-btn { padding: 4px 8px; font-size: 0.78rem; }
     .ccs-phase-badge { display: none; }
-    .ccs-workspace-panel { padding: 8px; }
-    .ccs-field-row-main { flex-wrap: wrap; }
+    .ccs-char-name { max-width: 120px; font-size: 0.75rem; }
+
+    /* Minimize bar full-width on mobile */
     .ccs-min-bar { left: 0; right: 0; transform: none; width: 100%; border-radius: 0; }
+
+    /* Slightly larger input area elements */
+    .ccs-chat-textarea { font-size: 0.9rem; }
+    .ccs-ptab { padding: 5px 10px; font-size: 0.76rem; }
 }
 
 @media (max-width: 480px) {
-    .ccs-chat-col { min-height: 50vh; max-height: 50vh; }
-    .ccs-workspace-col { min-height: 40vh; max-height: 40vh; }
     .ccs-studio-header { padding: 0 8px; gap: 6px; }
     .ccs-input-row { gap: 4px; }
     .ccs-phase-tabs { gap: 2px; }
     .ccs-ptab { padding: 3px 8px; font-size: 0.74rem; }
+    #ccs-workspace-col { height: 60%; }
+    .ccs-studio-body:has(#ccs-workspace-col.expanded) .ccs-chat-col {
+        padding-bottom: 60%;
+    }
 }
+
 
 /* Touch device: larger tap targets */
 @media (hover: none) and (pointer: coarse) {

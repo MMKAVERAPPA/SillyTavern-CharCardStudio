@@ -228,7 +228,13 @@ export class StudioPopup {
                         </div>
                     </div>
 
-                    <div class="ccs-workspace-col">
+                    <div class="ccs-workspace-col" id="ccs-workspace-col">
+                        <!-- Mobile-only drawer handle (hidden on desktop via CSS) -->
+                        <div class="ccs-drawer-handle" id="ccs-drawer-handle">
+                            <div class="ccs-drawer-pill"></div>
+                            <span class="ccs-drawer-tab-name" id="ccs-drawer-tab-name">📋 Card</span>
+                            <span class="ccs-drawer-chevron" id="ccs-drawer-chevron">▲</span>
+                        </div>
                         <div class="ccs-workspace-tabs">
                             <button class="ccs-wtab active" data-tab="${TAB.CARD}">📋 Card</button>
                             <button class="ccs-wtab" data-tab="${TAB.LOREBOOK}">📖 Lore</button>
@@ -248,6 +254,7 @@ export class StudioPopup {
         this._bindHeaderEvents();
         this._bindWorkspaceTabs();
         this._bindPhaseTabs();
+        this._bindDrawerHandle();
     }
 
     _esc(str) {
@@ -651,6 +658,17 @@ export class StudioPopup {
 
         if (tabName === TAB.LOREBOOK) lorebookPanel.render(this.session.lorebookLog.acceptedEntries, lorebookPhase.pendingEntries);
         if (tabName === TAB.IDEA) ideaPanel.render(this.session.ideaMemory);
+
+        // Update drawer handle label (mobile)
+        const tabLabels = { [TAB.CARD]: '📋 Card', [TAB.LOREBOOK]: '📖 Lore', [TAB.IDEA]: '💡 Concept' };
+        const labelEl = this.$('#ccs-drawer-tab-name');
+        if (labelEl) labelEl.textContent = tabLabels[tabName] || tabName;
+
+        // Auto-expand drawer on mobile when a tab is tapped
+        const workspaceCol = this.$('#ccs-workspace-col');
+        if (workspaceCol && window.matchMedia('(max-width: 768px)').matches) {
+            this._setDrawerExpanded(workspaceCol, true);
+        }
     }
 
     // ── Phase tabs — this.$$ ──────────────────────────────────────────────────
@@ -681,6 +699,41 @@ export class StudioPopup {
         const labels = { ideation:'💡 Ideating', building:'📝 Building', lorebook:'📖 Lorebook' };
         badge.textContent = labels[phase] || phase;
         badge.className = `ccs-phase-badge ccs-phase-${phase}`;
+    }
+
+    // ── Mobile bottom drawer ───────────────────────────────────────────
+
+    _bindDrawerHandle() {
+        const handle = this.$('#ccs-drawer-handle');
+        if (!handle) return;
+
+        // Tap handle to toggle
+        handle.addEventListener('click', () => {
+            const col = this.$('#ccs-workspace-col');
+            if (!col) return;
+            const isExpanded = col.classList.contains('expanded');
+            this._setDrawerExpanded(col, !isExpanded);
+        });
+
+        // Swipe up on workspace column = expand; swipe down = collapse
+        const col = this.$('#ccs-workspace-col');
+        if (!col) return;
+        let touchStartY = 0;
+        col.addEventListener('touchstart', (e) => {
+            touchStartY = e.touches[0].clientY;
+        }, { passive: true });
+        col.addEventListener('touchend', (e) => {
+            const dy = touchStartY - e.changedTouches[0].clientY;
+            if (Math.abs(dy) < 30) return;  // ignore micro-swipes
+            if (dy > 0) this._setDrawerExpanded(col, true);   // swipe up → expand
+            else        this._setDrawerExpanded(col, false);  // swipe down → collapse
+        }, { passive: true });
+    }
+
+    _setDrawerExpanded(col, expanded) {
+        col.classList.toggle('expanded', expanded);
+        const chevron = this.$('#ccs-drawer-chevron');
+        if (chevron) chevron.textContent = expanded ? '▼' : '▲';
     }
 
     // ── Snippets ───────────────────────────────────────────────────────────────
