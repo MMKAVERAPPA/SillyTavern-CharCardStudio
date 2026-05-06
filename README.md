@@ -4,7 +4,7 @@
 
 **Character Card Studio** is a full-screen SillyTavern extension that turns character card creation into a guided, collaborative process. Instead of filling fields manually, you have a conversation with an AI Lab Assistant that understands the SillyTavern card format deeply — it handles the craft while you handle the creative direction.
 
-**v3.0.0** — The **Skill Engine** update. A complete architectural overhaul of the AI generation pipeline. The extension now loads specialized expert knowledge dynamically based on what you're doing — card type, format, phase, and field — producing dramatically higher-quality output with voice calibration, psychological profiling, chain-of-thought reasoning, and full World Info spec support.
+**v3.1.0** — The **Mobile UI** update. Full mobile compatibility: the studio now opens reliably on any screen size via the 🪄 Extensions wand menu. The workspace panel becomes a collapsible bottom drawer on mobile — chat takes the full screen by default, and a tap on the drawer handle slides the Card/Lore/Concept workspace up. Swipe gestures supported.
 
 ---
 
@@ -166,7 +166,7 @@ Load any existing card (yours or downloaded) and:
 - **Ghost Mode (Alt+Shift+G)** — semi-transparent click-through overlay
 - **Session Notes** — persistent scratchpad at the bottom of the Idea tab
 - **Toast Notifications** — stacking auto-dismiss notifications
-- **Mobile support** — floating 🎭 button with large touch targets
+- **Mobile-first** — opens via 🪄 Extensions wand on any screen size; workspace is a collapsible bottom drawer on mobile with swipe-gesture support
 
 ### ⚙️ Power Features
 - **Two-tier API system** — primary API for generation, separate utility API for fast background checks. Point utility at a cheap/fast model to save cost
@@ -203,8 +203,8 @@ Load any existing card (yours or downloaded) and:
 
 ### First Time Setup
 1. **Select a character** in SillyTavern (create a blank one if starting fresh)
-2. **Open the Studio** — click the ✒️ pen-nib icon in the message bar, the 🎭 floating button (bottom-right), or type `/charforge` in chat
-3. **Configure API** (optional) — open Settings ⚙ and set up a utility API for faster background checks
+2. **Open the Studio** — click **🪄 Extensions (wand)** in the send bar, or type `/charforge` in chat
+3. **On mobile** — the workspace panel starts collapsed at the bottom; tap the handle bar (showing "📋 Card ▲") to expand it
 
 ### Creating a Character
 
@@ -428,20 +428,16 @@ CharCardStudio/
 ## 🐛 Troubleshooting
 
 **Studio doesn't open**
-- Make sure a character is selected in SillyTavern first
-- Check that you have an API connection active
+- Use the **🪄 Extensions (wand)** menu or type `/charforge` in ST chat
+- The studio now opens even without a character selected — it shows a prompt to pick one first
 
-**Nothing generates**
-- Requires SillyTavern 1.12+ (`generateRaw` API)
-- Check ST's connection status — studio works with whatever API ST has active
+**✒️ pen-nib icon missing from message bar**
+- This is expected in v3.1.0 — the toolbar button was removed for mobile compatibility
+- Use the **🪄 Extensions (wand)** menu instead; it works on both desktop and mobile
 
-**✒️ icon doesn't appear in message bar**
-- The floating 🎭 button (bottom-right corner) is always available as a fallback
-- On mobile, the floating button is always visible via CSS media queries
-
-**Mobile: can't find the Studio button**
-- v3.0 always creates the 🎭 floating button regardless of toolbar injection success
-- On mobile (≤768px), the floating button is force-shown via CSS `!important`
+**Mobile: workspace panel doesn't show**
+- Tap the **handle bar** at the bottom of the studio (shows "📋 Card ▲") to slide it up
+- Or swipe up anywhere on the workspace area to expand it
 
 **API errors during generation**
 - Rate limit (429): Generation stops automatically, wait and retry
@@ -474,6 +470,7 @@ CharCardStudio/
 
 | Version | Highlights |
 |---------|-----------|
+| **v3.1.0** | Mobile UI overhaul — collapsible bottom drawer, swipe gestures, wand-menu only entry point, no-character screen, reliable mobile rendering |
 | **v3.0.0** | Skill Engine architecture, voice calibration, psychological profiling, chain-of-thought generation, smart context sizing, character test drive, full World Info spec, format flexibility |
 | **v2.6.0** | Chat search (Ctrl+F), Raw Context Inspector, Ghost Mode, Session Notes, Usage Statistics |
 | **v2.5.0** | Glassmorphism UI overhaul, Welcome Screen, Progress Ring, Quick Edit, keyboard shortcuts, toast notifications, mobile improvements |

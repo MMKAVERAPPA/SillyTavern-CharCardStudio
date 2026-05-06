@@ -42,12 +42,28 @@ export class StudioPopup {
 
     open() {
         if (this.isOpen) { this._focusInput(); return; }
-        const { characterId } = SillyTavern.getContext();
-        if (characterId === undefined || characterId < 0) { this._showNoCharError(); return; }
+
+        const ctx = SillyTavern.getContext();
+        const characterId = ctx?.characterId;
+        const hasCharacter = characterId !== undefined && characterId !== null && characterId >= 0;
+
+        if (!hasCharacter) {
+            // Open studio in "no character" mode — show a friendly prompt instead of blocking
+            this._buildNoCharDOM();
+            document.body.appendChild(this.el);
+            this.isOpen = true;
+            return;
+        }
 
         this.characterId = characterId;
         this.cardFields = cardManager.readCurrentCard();
-        if (!this.cardFields) { this._showNoCharError(); return; }
+        if (!this.cardFields) {
+            // Character ID exists but card read failed — open in no-char mode
+            this._buildNoCharDOM();
+            document.body.appendChild(this.el);
+            this.isOpen = true;
+            return;
+        }
         this.session = memoryManager.loadSession(characterId);
 
         this._buildDOM();               // binds all events via this.$() before DOM insert
@@ -60,10 +76,45 @@ export class StudioPopup {
         this._restoreSessionToUI();
 
         this._routeToPhase(this.session.currentPhase || PHASE.IDEATION);
+    }
 
-        // Lock body scroll on mobile
-        document.body.style.overflow = 'hidden';
-        document.documentElement.style.overflow = 'hidden';
+    // ── No-character landing screen ────────────────────────────────────────────
+    _buildNoCharDOM() {
+        this.el = document.createElement('div');
+        this.el.id = 'ccs-studio';
+        this.el.className = 'ccs-studio-overlay';
+        this.el.innerHTML = `
+            <div class="ccs-studio-inner ccs-no-char-screen">
+                <div class="ccs-studio-header">
+                    <div class="ccs-header-left">
+                        <span class="ccs-logo">🎭</span>
+                        <span class="ccs-title">Card Studio</span>
+                    </div>
+                    <div class="ccs-header-right">
+                        <button class="ccs-hdr-btn ccs-close-btn" id="ccs-close-studio" title="Close">✕</button>
+                    </div>
+                </div>
+                <div class="ccs-no-char-body">
+                    <div class="ccs-no-char-icon">🎭</div>
+                    <h2 class="ccs-no-char-title">Select a Character First</h2>
+                    <p class="ccs-no-char-desc">Open or create a character card in SillyTavern, then come back here to start building.</p>
+                    <button class="ccs-no-char-close menu_button" id="ccs-no-char-close-btn">Close Studio</button>
+                </div>
+            </div>
+        `;
+        this.el.querySelector('#ccs-close-studio')?.addEventListener('click', () => this.close());
+        this.el.querySelector('#ccs-no-char-close-btn')?.addEventListener('click', () => this.close());
+
+        // Close on backdrop click
+        let _ptr = null;
+        this.el.addEventListener('pointerdown', (e) => { _ptr = e.target; });
+        this.el.addEventListener('click', (e) => {
+            if (e.target === this.el && _ptr === this.el) this.close();
+        });
+
+        if (this._escHandler) document.removeEventListener('keydown', this._escHandler);
+        this._escHandler = (e) => { if (e.key === 'Escape') this.close(); };
+        document.addEventListener('keydown', this._escHandler);
     }
 
     close() {
@@ -89,8 +140,6 @@ export class StudioPopup {
         this._minBar = null;
         this.isOpen = false;
         this.isMinimized = false;
-        document.body.style.overflow = '';
-        document.documentElement.style.overflow = '';
     }
 
     minimize() {
@@ -179,7 +228,13 @@ export class StudioPopup {
                         </div>
                     </div>
 
-                    <div class="ccs-workspace-col">
+                    <div class="ccs-workspace-col" id="ccs-workspace-col">
+                        <!-- Mobile-only drawer handle (hidden on desktop via CSS) -->
+                        <div class="ccs-drawer-handle" id="ccs-drawer-handle">
+                            <div class="ccs-drawer-pill"></div>
+                            <span class="ccs-drawer-tab-name" id="ccs-drawer-tab-name">📋 Card</span>
+                            <span class="ccs-drawer-chevron" id="ccs-drawer-chevron">▲</span>
+                        </div>
                         <div class="ccs-workspace-tabs">
                             <button class="ccs-wtab active" data-tab="${TAB.CARD}">📋 Card</button>
                             <button class="ccs-wtab" data-tab="${TAB.LOREBOOK}">📖 Lore</button>
@@ -199,6 +254,7 @@ export class StudioPopup {
         this._bindHeaderEvents();
         this._bindWorkspaceTabs();
         this._bindPhaseTabs();
+        this._bindDrawerHandle();
     }
 
     _esc(str) {
@@ -602,6 +658,17 @@ export class StudioPopup {
 
         if (tabName === TAB.LOREBOOK) lorebookPanel.render(this.session.lorebookLog.acceptedEntries, lorebookPhase.pendingEntries);
         if (tabName === TAB.IDEA) ideaPanel.render(this.session.ideaMemory);
+
+        // Update drawer handle label (mobile)
+        const tabLabels = { [TAB.CARD]: '📋 Card', [TAB.LOREBOOK]: '📖 Lore', [TAB.IDEA]: '💡 Concept' };
+        const labelEl = this.$('#ccs-drawer-tab-name');
+        if (labelEl) labelEl.textContent = tabLabels[tabName] || tabName;
+
+        // Auto-expand drawer on mobile when a tab is tapped
+        const workspaceCol = this.$('#ccs-workspace-col');
+        if (workspaceCol && window.matchMedia('(max-width: 768px)').matches) {
+            this._setDrawerExpanded(workspaceCol, true);
+        }
     }
 
     // ── Phase tabs — this.$$ ──────────────────────────────────────────────────
@@ -632,6 +699,41 @@ export class StudioPopup {
         const labels = { ideation:'💡 Ideating', building:'📝 Building', lorebook:'📖 Lorebook' };
         badge.textContent = labels[phase] || phase;
         badge.className = `ccs-phase-badge ccs-phase-${phase}`;
+    }
+
+    // ── Mobile bottom drawer ───────────────────────────────────────────
+
+    _bindDrawerHandle() {
+        const handle = this.$('#ccs-drawer-handle');
+        if (!handle) return;
+
+        // Tap handle to toggle
+        handle.addEventListener('click', () => {
+            const col = this.$('#ccs-workspace-col');
+            if (!col) return;
+            const isExpanded = col.classList.contains('expanded');
+            this._setDrawerExpanded(col, !isExpanded);
+        });
+
+        // Swipe up on workspace column = expand; swipe down = collapse
+        const col = this.$('#ccs-workspace-col');
+        if (!col) return;
+        let touchStartY = 0;
+        col.addEventListener('touchstart', (e) => {
+            touchStartY = e.touches[0].clientY;
+        }, { passive: true });
+        col.addEventListener('touchend', (e) => {
+            const dy = touchStartY - e.changedTouches[0].clientY;
+            if (Math.abs(dy) < 30) return;  // ignore micro-swipes
+            if (dy > 0) this._setDrawerExpanded(col, true);   // swipe up → expand
+            else        this._setDrawerExpanded(col, false);  // swipe down → collapse
+        }, { passive: true });
+    }
+
+    _setDrawerExpanded(col, expanded) {
+        col.classList.toggle('expanded', expanded);
+        const chevron = this.$('#ccs-drawer-chevron');
+        if (chevron) chevron.textContent = expanded ? '▼' : '▲';
     }
 
     // ── Snippets ───────────────────────────────────────────────────────────────
@@ -783,6 +885,7 @@ export class StudioPopup {
     }
 
     _showNoCharError() {
+        // Kept for compatibility — open() now uses _buildNoCharDOM() instead
         toastManager.show('Select a character in SillyTavern first, then open the Studio.', 'error');
     }
 
