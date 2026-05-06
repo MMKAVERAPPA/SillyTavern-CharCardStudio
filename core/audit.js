@@ -5,9 +5,9 @@ import { chatEngine } from './chat.js';
 import { memoryManager } from './memory.js';
 import { contextBuilder } from './context-builder.js';
 import { buildBaseSystemPrompt } from '../prompts/base.js';
-import { COHERENCE_AUDIT_PROMPT, SMART_SUGGESTION_CHECK_PROMPT, MES_EXAMPLE_AUDIT_PROMPT } from '../prompts/audit.js';
+import { COHERENCE_AUDIT_PROMPT, SMART_SUGGESTION_CHECK_PROMPT, MES_EXAMPLE_AUDIT_PROMPT, CONFLICT_CHECK_PROMPT, CARD_REVIEW_PROMPT } from '../prompts/audit.js';
 import { KEYWORD_QUALITY_CHECK_PROMPT } from '../prompts/lorebook.js';
-import { AUTO_TAG_PROMPT, CONFLICT_CHECK_PROMPT, PILLAR_RESOLUTION_PROMPT, CARD_REVIEW_PROMPT } from '../prompts/utility.js';
+import { AUTO_TAG_PROMPT, PILLAR_RESOLUTION_PROMPT, VERSION_SUMMARY_PROMPT } from '../prompts/utility.js';
 import { parseCardReview } from './parser.js';
 
 export class AuditEngine {

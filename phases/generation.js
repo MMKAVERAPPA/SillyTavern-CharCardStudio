@@ -1,5 +1,5 @@
 // phases/generation.js
-// Card field generation, variations, batch operations, rewrite instructions
+// v3.0 — Card field generation with skill-router, chain-of-thought, and character simulation
 // FIX: try-catch all gen calls, parallel toggle, proper error cleanup
 
 import { chatEngine } from '../core/chat.js';
@@ -9,16 +9,13 @@ import { auditEngine } from '../core/audit.js';
 import { chatPanel } from '../ui/chat-panel.js';
 import { cardPanel, FIELD_STATUS } from '../ui/card-panel.js';
 import { contextBuilder } from '../core/context-builder.js';
-import { buildBaseSystemPrompt } from '../prompts/base.js';
+import { skillRouter } from '../core/skill-router.js';
 import { CCSApiError, apiManager } from '../core/api.js';
 
 import {
-    buildFieldGenerationPrompt,
-    GENERATE_ALL_FIELDS_PROMPT,
+    DETAIL_LEVELS,
     BATCH_OPERATION_PROMPT,
-    REWRITE_INSTRUCTIONS,
     MES_EXAMPLE_WARNING,
-    FIELD_SPECIFIC_INSTRUCTIONS,
 } from '../prompts/generation.js';
 
 import {
@@ -46,9 +43,41 @@ export class GenerationPhase {
         this.callbacks = callbacks;
     }
 
+    // ── Build skill-based system prompt ──────────────────────────────────────
+
+    _buildSystemPrompt(field = '', task = '') {
+        const settings = memoryManager.getGlobalSettings();
+        const idea = this.session?.ideaMemory || {};
+        return skillRouter.buildSystemPrompt({
+            phase: task === 'simulation' ? 'audit' : 'generation',
+            task,
+            field,
+            cardType: idea.cardType || 'single',
+            format: idea.format || 'prose',
+            nsfw: this._detectNSFW(),
+            customRules: settings.customSystemPromptRules,
+        });
+    }
+
+    _detectNSFW() {
+        const idea = this.session?.ideaMemory || {};
+        // Check pillars and key decisions for NSFW indicators
+        const allText = [
+            ...(idea.pillars || []).map(p => p.answer || ''),
+            ...(idea.keyDecisions || []).map(d => d.decision || ''),
+        ].join(' ').toLowerCase();
+        return /nsfw|adult|explicit|sexual|mature|erotic/i.test(allText);
+    }
+
     async handleMessage(message) {
         // Detect field-specific intent
         const field = detectFieldFromMessage(message);
+
+        // v3.0: Character simulation / test drive
+        if (/test.?drive|simulat|test.?character|test.?card/i.test(message)) {
+            await this._characterSimulation(message);
+            return;
+        }
 
         // Check for batch operations using actual parser functions
         if (isGenerateAllRequest(message)) {
@@ -68,7 +97,7 @@ export class GenerationPhase {
             await this.generateVariations(field);
             return;
         }
-        if (field && /rewrite|shorten|lengthen|darker|specific|elevate|fix/i.test(message)) {
+        if (field && /rewrite|shorten|lengthen|darker|specific|elevate|fix|voice/i.test(message)) {
             const action = this._detectRewriteAction(message);
             if (action) { await this.rewriteField(field, action); return; }
         }
@@ -80,7 +109,18 @@ export class GenerationPhase {
 
     async generateField(fieldName) {
         const detailLevel = document.getElementById('ccs-detail-level')?.value || 'standard';
-        const genPrompt = buildFieldGenerationPrompt(fieldName, this.cardFields, this.session.ideaMemory, detailLevel);
+        const tokens = DETAIL_LEVELS[detailLevel]?.[fieldName] || '300-500t';
+        const fieldInstruction = skillRouter.getFieldInstruction(fieldName);
+
+        const genPrompt = `Generate the **${fieldName}** field for this character card.
+
+${fieldInstruction}
+
+Target length: ${tokens}
+
+Put the COMPLETE generated content inside a triple-backtick code block. After the block, add a brief note on key choices made.
+
+If you have ONE critical question that would significantly change output, ask it first. Otherwise, generate now based on the ideation decisions.`;
 
         cardPanel.setFieldStatus(fieldName, FIELD_STATUS.IN_PROGRESS);
         chatPanel.startStreaming();
@@ -92,6 +132,13 @@ export class GenerationPhase {
                 session: this.session,
                 cardFields: this.cardFields,
                 extraInstruction: genPrompt,
+                skillOptions: {
+                    phase: 'generation',
+                    field: fieldName,
+                    cardType: this.session?.ideaMemory?.cardType || 'single',
+                    format: this.session?.ideaMemory?.format || 'prose',
+                    nsfw: this._detectNSFW(),
+                },
                 onComplete: (response) => {
                     chatPanel.finalizeStream(response);
                     this._processGeneratedField(fieldName, response);
@@ -115,9 +162,8 @@ export class GenerationPhase {
 
     async generateVariations(fieldName) {
         const detailLevel = document.getElementById('ccs-detail-level')?.value || 'standard';
-        const settings = memoryManager.getGlobalSettings();
-        const systemPrompt = buildBaseSystemPrompt(settings.customSystemPromptRules);
-        const fieldInstruction = FIELD_SPECIFIC_INSTRUCTIONS[fieldName] || '';
+        const systemPrompt = this._buildSystemPrompt(fieldName);
+        const fieldInstruction = skillRouter.getFieldInstruction(fieldName);
 
         chatPanel.addSystemMessage(`🎲 Generating 3 variations for ${fieldName}...`, 'info');
         chatPanel.setInputEnabled(false);
@@ -150,7 +196,7 @@ export class GenerationPhase {
             chatPanel.addSystemMessage(`No content in ${fieldName} to rewrite.`, 'warning');
             return;
         }
-        const instruction = REWRITE_INSTRUCTIONS[action];
+        const instruction = skillRouter.getRewriteInstruction(action);
         if (!instruction) return;
 
         cardPanel.setFieldStatus(fieldName, FIELD_STATUS.IN_PROGRESS);
@@ -163,6 +209,12 @@ export class GenerationPhase {
                 session: this.session,
                 cardFields: this.cardFields,
                 extraInstruction: `${instruction}\n\nCurrent content to rewrite:\n\`\`\`\n${currentContent}\n\`\`\`\n\nPut the rewritten version in a code block.`,
+                skillOptions: {
+                    phase: 'generation',
+                    field: fieldName,
+                    cardType: this.session?.ideaMemory?.cardType || 'single',
+                    format: this.session?.ideaMemory?.format || 'prose',
+                },
                 onComplete: (response) => {
                     chatPanel.finalizeStream(response);
                     this._processGeneratedField(fieldName, response);
@@ -191,12 +243,21 @@ export class GenerationPhase {
 
         GENERATABLE_FIELDS.forEach(f => cardPanel.setFieldStatus(f, FIELD_STATUS.IN_PROGRESS));
 
+        const generateAllPrompt = skillRouter.getGenerateAllPrompt();
+
         try {
             await chatEngine.chat({
                 userMessage: 'Generate all card fields now.',
                 session: this.session,
                 cardFields: this.cardFields,
-                extraInstruction: GENERATE_ALL_FIELDS_PROMPT,
+                extraInstruction: generateAllPrompt,
+                skillOptions: {
+                    phase: 'generation',
+                    field: 'description', // Load description-level skills (most comprehensive)
+                    cardType: this.session?.ideaMemory?.cardType || 'single',
+                    format: this.session?.ideaMemory?.format || 'prose',
+                    nsfw: this._detectNSFW(),
+                },
                 onComplete: (response) => {
                     chatPanel.finalizeStream(response);
                     this._processMultiFieldResponse(response);
@@ -211,6 +272,40 @@ export class GenerationPhase {
             chatPanel.cancelStreaming();
             GENERATABLE_FIELDS.forEach(f => cardPanel.setFieldStatus(f, FIELD_STATUS.EMPTY));
             this._showError(err, 'Failed to generate all fields');
+        } finally {
+            chatPanel.setInputEnabled(true);
+        }
+    }
+
+    // ── v3.0: Character Simulation / Test Drive ─────────────────────────────
+
+    async _characterSimulation(userMessage) {
+        const systemPrompt = this._buildSystemPrompt('', 'simulation');
+        const taskPrompt = skillRouter.getAuditPrompt('simulation');
+
+        // Build full card state for simulation
+        const cardSummary = Object.entries(this.cardFields || {})
+            .filter(([k, v]) => typeof v === 'string' && v.trim())
+            .map(([k, v]) => `### ${k}\n${v}`)
+            .join('\n\n');
+
+        memoryManager.addMessage(this.session, 'user', userMessage);
+
+        chatPanel.addSystemMessage('🎭 Starting character test drive...', 'info');
+        chatPanel.startStreaming();
+        chatPanel.setInputEnabled(false);
+
+        try {
+            const response = await chatEngine.generateBackground(
+                systemPrompt,
+                `${taskPrompt}\n\n---\nFull Card Content:\n${cardSummary}\n\n---\nUser request: ${userMessage}`
+            );
+
+            chatPanel.finalizeStream(response);
+            memoryManager.addMessage(this.session, 'assistant', response);
+        } catch (err) {
+            chatPanel.cancelStreaming();
+            this._showError(err, 'Character simulation failed');
         } finally {
             chatPanel.setInputEnabled(true);
         }
@@ -250,9 +345,8 @@ export class GenerationPhase {
     }
 
     async _handleBatchGreetings(count) {
-        const settings = memoryManager.getGlobalSettings();
-        const systemPrompt = buildBaseSystemPrompt(settings.customSystemPromptRules);
-        const fieldInstruction = FIELD_SPECIFIC_INSTRUCTIONS['alternate_greeting'] || '';
+        const systemPrompt = this._buildSystemPrompt('alternate_greeting');
+        const fieldInstruction = skillRouter.getFieldInstruction('alternate_greeting');
 
         chatPanel.addSystemMessage(`⚡ Generating ${count} alternate greetings...`, 'info');
         chatPanel.setInputEnabled(false);
@@ -316,6 +410,11 @@ export class GenerationPhase {
                 userMessage: message,
                 session: this.session,
                 cardFields: this.cardFields,
+                skillOptions: {
+                    phase: 'generation',
+                    cardType: this.session?.ideaMemory?.cardType || 'single',
+                    format: this.session?.ideaMemory?.format || 'prose',
+                },
                 onComplete: (response) => {
                     chatPanel.finalizeStream(response);
                     // Check if response contains a field suggestion
@@ -395,8 +494,8 @@ export class GenerationPhase {
 
             // Conflict check (async, non-blocking)
             auditEngine.checkConflictOnAccept(this.session, this.cardFields, fieldName, content).then(result => {
-                if (result?.conflict) {
-                    chatPanel.addSystemMessage(`⚠️ Potential conflict: ${result.details}`, 'warning');
+                if (result && typeof result === 'string') {
+                    chatPanel.addSystemMessage(`⚠️ Potential conflict: ${result}`, 'warning');
                 }
             }).catch(() => {});
 
@@ -423,7 +522,8 @@ export class GenerationPhase {
 
     _detectRewriteAction(message) {
         const lower = message.toLowerCase();
-        for (const [action, _] of Object.entries(REWRITE_INSTRUCTIONS)) {
+        const actions = ['shorten', 'lengthen', 'darker', 'specific', 'fixformat', 'elevate', 'voice'];
+        for (const action of actions) {
             if (lower.includes(action)) return action;
         }
         return null;

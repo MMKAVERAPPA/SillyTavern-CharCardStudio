@@ -1,14 +1,15 @@
 // core/context-builder.js
+// v3.0 — Smart context sizing with field dependency graph
 // Assembles system prompt + conversation prompt for every AI call
 
 import { memoryManager } from './memory.js';
+import { skillRouter } from './skill-router.js';
 
 export class ContextBuilder {
 
     /**
      * Build context for a conversational chat turn.
-     * Returns { systemPrompt, prompt } where prompt is the full message history
-     * formatted as a single string for generateRaw.
+     * Returns { systemPrompt, prompt } where prompt is the full message history.
      */
     buildContext({ session, cardFields, baseSystemPrompt, extraInstruction = '' }) {
         let systemPrompt = baseSystemPrompt || '';
@@ -21,14 +22,15 @@ export class ContextBuilder {
         const platformHint = memoryManager.getPlatformPrompt();
         if (platformHint) systemPrompt += '\n\n' + platformHint;
 
-        // Idea memory
+        // Idea memory (includes card type, format, voice profile, psych profile)
         if (session) {
             const ideaSummary = memoryManager.buildIdeaMemorySummary(session);
             if (ideaSummary) systemPrompt += '\n\n' + ideaSummary;
         }
 
-        // Card state
-        const cardState = this._buildCardState(cardFields, session);
+        // Card state — use smart sizing if a field is being generated
+        const targetField = this._extractTargetField(extraInstruction);
+        const cardState = this._buildCardState(cardFields, session, targetField);
         if (cardState) systemPrompt += '\n\n' + cardState;
 
         // Lorebook index
@@ -42,7 +44,7 @@ export class ContextBuilder {
             systemPrompt += '\n\n[CURRENT_TASK]\n' + extraInstruction + '\n[/CURRENT_TASK]';
         }
 
-        // ── Build prompt from conversation history ──────────────────────────
+        // ── Build prompt from conversation history ──────────────────────
         const parts = [];
 
         // Session briefs
@@ -70,7 +72,7 @@ export class ContextBuilder {
      */
     buildBackgroundContext({ session, cardFields, baseSystemPrompt }) {
         let systemPrompt = baseSystemPrompt || '';
-        const cardState = this._buildCardState(cardFields, session);
+        const cardState = this._buildCardState(cardFields, session, null);
         if (cardState) systemPrompt += '\n\n' + cardState;
         if (session) {
             const lbIndex = memoryManager.buildLorebookIndex(session);
@@ -81,9 +83,19 @@ export class ContextBuilder {
         return { systemPrompt, prompt: '' };
     }
 
-    _buildCardState(cardFields, session) {
+    /**
+     * Build card state with smart context sizing.
+     * When generating a specific field, its dependencies get FULL content,
+     * while other fields get short previews.
+     */
+    _buildCardState(cardFields, session, targetField) {
         if (!cardFields) return '';
         const fieldLog = session?.fieldLog || {};
+
+        // Get dependencies for the target field (if generating)
+        const fullContentFields = targetField
+            ? skillRouter.getFieldDependencies(targetField)
+            : [];
 
         let state = '[CARD_STATE — Character card currently being built]\n';
         state += '[STUDIO_NOTE: You are the author/collaborator. Do NOT roleplay as the character.]\n\n';
@@ -101,9 +113,28 @@ export class ContextBuilder {
 
             if (hasContent) {
                 const label = accepted ? '✅ ACCEPTED' : '📋 CURRENT';
-                const preview = typeof value === 'string'
-                    ? (value.length > 200 ? value.substring(0, 200) + '... [truncated]' : value)
-                    : JSON.stringify(value).substring(0, 200);
+
+                // Smart sizing: full content for dependencies, preview for others
+                const showFull = fullContentFields.includes(field);
+                let preview;
+
+                if (typeof value === 'string') {
+                    if (showFull) {
+                        // Full content for dependency fields (max 2000 chars to prevent extreme cases)
+                        preview = value.length > 2000
+                            ? value.substring(0, 2000) + '... [truncated at 2000 chars]'
+                            : value;
+                    } else {
+                        // Short preview for non-dependency fields
+                        const previewLen = field === 'description' ? 400 : 200;
+                        preview = value.length > previewLen
+                            ? value.substring(0, previewLen) + '... [truncated]'
+                            : value;
+                    }
+                } else {
+                    preview = JSON.stringify(value).substring(0, 200);
+                }
+
                 state += `[FIELD: ${field}] ${label}\n${preview}\n[/FIELD]\n\n`;
             } else {
                 state += `[FIELD: ${field}] 🔲 EMPTY\n\n`;
@@ -114,7 +145,9 @@ export class ContextBuilder {
         if (greetings.length) {
             state += `[FIELD: alternate_greetings] ✅ ${greetings.length} greeting(s)\n`;
             greetings.forEach((g, i) => {
-                state += `  [${i}]: ${g.substring(0, 80)}${g.length > 80 ? '...' : ''}\n`;
+                const showFull = fullContentFields.includes('alternate_greeting');
+                const len = showFull ? 300 : 80;
+                state += `  [${i}]: ${g.substring(0, len)}${g.length > len ? '...' : ''}\n`;
             });
             state += '\n';
         } else {
@@ -123,6 +156,18 @@ export class ContextBuilder {
 
         state += '[/CARD_STATE]';
         return state;
+    }
+
+    /**
+     * Try to extract target field name from the extra instruction text.
+     * Used for smart context sizing.
+     */
+    _extractTargetField(instruction) {
+        if (!instruction) return null;
+        const match = instruction.match(/Generating:\s*(\w+)/i)
+            || instruction.match(/Generate the \*\*(\w+)\*\*/i)
+            || instruction.match(/field[:\s]*["']?(\w+)["']?/i);
+        return match ? match[1].toLowerCase() : null;
     }
 }
 

@@ -1,5 +1,5 @@
 // phases/lorebook-phase.js
-// Lorebook creation: brainstorming, entry generation, staging, insertion
+// v3.0 — Lorebook creation with full WI spec via skill-router
 // FIX: try-catch all gen calls, proper error cleanup
 
 import { chatEngine } from '../core/chat.js';
@@ -8,16 +8,9 @@ import { worldInfoManager } from '../core/worldinfo.js';
 import { chatPanel } from '../ui/chat-panel.js';
 import { lorebookPanel } from '../ui/lorebook-panel.js';
 import { contextBuilder } from '../core/context-builder.js';
-import { buildBaseSystemPrompt } from '../prompts/base.js';
+import { skillRouter } from '../core/skill-router.js';
 import { CCSApiError } from '../core/api.js';
 import { parseLorebookEntriesFromResponse } from '../core/parser.js';
-
-import {
-    LOREBOOK_IDEATION_PROMPT,
-    LOREBOOK_ENTRY_PROMPT,
-    KEYWORD_QUALITY_CHECK_PROMPT,
-    LOREBOOK_ORGANIZE_PROMPT,
-} from '../prompts/lorebook.js';
 
 export class LorebookPhase {
     constructor() {
@@ -34,6 +27,20 @@ export class LorebookPhase {
 
         // Restore pending entries from session
         this.pendingEntries = session.lorebookLog.pendingEntries || [];
+    }
+
+    // ── Build skill-based system prompt ──────────────────────────────────────
+
+    _buildSystemPrompt(task = '') {
+        const settings = memoryManager.getGlobalSettings();
+        const idea = this.session?.ideaMemory || {};
+        return skillRouter.buildSystemPrompt({
+            phase: 'lorebook',
+            task,
+            cardType: idea.cardType || 'single',
+            format: idea.format || 'prose',
+            customRules: settings.customSystemPromptRules,
+        });
     }
 
     async handleMessage(message) {
@@ -79,8 +86,10 @@ export class LorebookPhase {
     async _brainstormEntries(userMessage) {
         const cardSummary = Object.entries(this.cardFields || {})
             .filter(([k, v]) => typeof v === 'string' && v.trim())
-            .map(([k, v]) => `### ${k}\n${v.substring(0, 200)}`)
+            .map(([k, v]) => `### ${k}\n${v.substring(0, 500)}`)
             .join('\n\n');
+
+        const taskPrompt = skillRouter.getLorebookPrompt('brainstorm');
 
         chatPanel.startStreaming();
         chatPanel.setInputEnabled(false);
@@ -90,10 +99,10 @@ export class LorebookPhase {
                 userMessage,
                 session: this.session,
                 cardFields: this.cardFields,
-                extraInstruction: `${LOREBOOK_IDEATION_PROMPT}\n\n--- Card Summary ---\n${cardSummary}`,
+                extraInstruction: `${taskPrompt}\n\n--- Card Summary ---\n${cardSummary}`,
+                skillOptions: { phase: 'lorebook', task: 'brainstorm' },
                 onComplete: (response) => {
                     chatPanel.finalizeStream(response);
-                    // Parse entry list and store
                     this._parseEntryList(response);
                 },
                 onError: (err) => {
@@ -114,8 +123,10 @@ export class LorebookPhase {
     async _generateEntries(userMessage) {
         const cardSummary = Object.entries(this.cardFields || {})
             .filter(([k, v]) => typeof v === 'string' && v.trim())
-            .map(([k, v]) => `### ${k}\n${v.substring(0, 200)}`)
+            .map(([k, v]) => `### ${k}\n${v.substring(0, 500)}`)
             .join('\n\n');
+
+        const taskPrompt = skillRouter.getLorebookPrompt('generate');
 
         chatPanel.startStreaming();
         chatPanel.setInputEnabled(false);
@@ -125,7 +136,8 @@ export class LorebookPhase {
                 userMessage,
                 session: this.session,
                 cardFields: this.cardFields,
-                extraInstruction: `${LOREBOOK_ENTRY_PROMPT}\n\n--- Card Summary ---\n${cardSummary}`,
+                extraInstruction: `${taskPrompt}\n\n--- Card Summary ---\n${cardSummary}`,
+                skillOptions: { phase: 'lorebook', task: 'generate' },
                 onComplete: (response) => {
                     chatPanel.finalizeStream(response);
                     this._stageEntriesFromResponse(response);
@@ -154,6 +166,7 @@ export class LorebookPhase {
                 userMessage: message,
                 session: this.session,
                 cardFields: this.cardFields,
+                skillOptions: { phase: 'lorebook' },
                 onComplete: (response) => {
                     chatPanel.finalizeStream(response);
                     // Check if response contains entry data
@@ -188,6 +201,8 @@ export class LorebookPhase {
             `Entry: ${e.comment}\nKeys: ${(e.keys || []).join(', ')}\nSecondary: ${(e.secondary_keys || []).join(', ')}`
         ).join('\n\n');
 
+        const taskPrompt = skillRouter.getLorebookPrompt('keyword_check');
+
         chatPanel.startStreaming();
         chatPanel.setInputEnabled(false);
 
@@ -196,7 +211,8 @@ export class LorebookPhase {
                 userMessage: 'Check keyword quality for all entries.',
                 session: this.session,
                 cardFields: this.cardFields,
-                extraInstruction: `${KEYWORD_QUALITY_CHECK_PROMPT}\n\n--- Entries ---\n${entrySummary}`,
+                extraInstruction: `${taskPrompt}\n\n--- Entries ---\n${entrySummary}`,
+                skillOptions: { phase: 'lorebook', task: 'keyword_check' },
                 onComplete: (response) => {
                     chatPanel.finalizeStream(response);
                 },
@@ -216,6 +232,8 @@ export class LorebookPhase {
     // ── Organize ────────────────────────────────────────────────────────────
 
     async _organizeEntries() {
+        const taskPrompt = skillRouter.getLorebookPrompt('organize');
+
         chatPanel.startStreaming();
         chatPanel.setInputEnabled(false);
 
@@ -224,7 +242,8 @@ export class LorebookPhase {
                 userMessage: 'Organize and sort my lorebook entries.',
                 session: this.session,
                 cardFields: this.cardFields,
-                extraInstruction: LOREBOOK_ORGANIZE_PROMPT,
+                extraInstruction: taskPrompt,
+                skillOptions: { phase: 'lorebook', task: 'organize' },
                 onComplete: (response) => {
                     chatPanel.finalizeStream(response);
                 },

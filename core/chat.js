@@ -18,15 +18,18 @@ export class ChatEngine {
     // ── Main conversational chat ────────────────────────────────────────────
 
     async chat(options) {
-        const { userMessage, session, cardFields, onComplete, onError, extraInstruction } = options;
+        const { userMessage, session, cardFields, onComplete, onError, extraInstruction, skillOptions } = options;
         const settings = memoryManager.getGlobalSettings();
 
         // Add user turn to history
         const needsCompression = memoryManager.addMessage(session, 'user', userMessage);
         statsManager.record('messages');
 
-        // Build full context
-        const baseSystemPrompt = buildBaseSystemPrompt(settings.customSystemPromptRules);
+        // Build full context — use skill-router if skillOptions provided
+        const baseSystemPrompt = buildBaseSystemPrompt(
+            settings.customSystemPromptRules,
+            skillOptions || {}
+        );
         const { systemPrompt, prompt } = contextBuilder.buildContext({
             session,
             cardFields,

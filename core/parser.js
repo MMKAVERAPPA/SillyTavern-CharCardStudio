@@ -63,6 +63,7 @@ export function parseLorebookEntryBlock(text) {
 
     const primaryKeysRaw  = extract(/\*\*Primary Keys:\*\*\s*(.+)/);
     const secondaryKeysRaw = extract(/\*\*Secondary Keys:\*\*\s*(.+)/);
+    const filterRaw       = extract(/\*\*Optional Filter:\*\*\s*(.+)/);
     const positionStr     = extract(/\*\*Position:\*\*\s*(.+)/);
     const depthStr        = extract(/\*\*Depth:\*\*\s*(\d+)/);
     const orderStr        = extract(/\*\*Insertion Order:\*\*\s*(\d+)/);
@@ -71,6 +72,11 @@ export function parseLorebookEntryBlock(text) {
     const isConstant      = extractBool(/\*\*Constant:\*\*\s*(.+)/);
     const caseSensitive   = extractBool(/\*\*Case Sensitive:\*\*\s*(.+)/);
     const excludeRecursion = extractBool(/\*\*Exclude from Recursion:\*\*\s*(.+)/);
+    const preventRecursion = extractBool(/\*\*Prevent Further Recursion:\*\*\s*(.+)/);
+    const stickyStr       = extract(/\*\*Sticky:\*\*\s*(\d+)/);
+    const cooldownStr     = extract(/\*\*Cooldown:\*\*\s*(\d+)/);
+    const delayStr        = extract(/\*\*Delay:\*\*\s*(\d+)/);
+    const groupStr        = extract(/\*\*Inclusion Group:\*\*\s*(.+)/);
 
     const contentMatch = text.match(/```(?:\w+)?\n?([\s\S]*?)```/);
     const content = contentMatch ? contentMatch[1].trim() : '';
@@ -92,11 +98,29 @@ export function parseLorebookEntryBlock(text) {
         return raw.split(',').map(k => k.trim()).filter(Boolean);
     };
 
+    const parsedKeys = parseKeys(primaryKeysRaw);
+    const parsedSecondaryKeys = parseKeys(secondaryKeysRaw);
+
+    let filterLogic = 0; // AND ANY
+    let filterKeys = [];
+    if (filterRaw && !['none','n/a',''].includes(filterRaw.toLowerCase().trim())) {
+        const parts = filterRaw.split(':');
+        if (parts.length > 1) {
+            const logicStr = parts[0].trim().toUpperCase();
+            if (logicStr === 'AND ALL') filterLogic = 3;
+            else if (logicStr === 'NOT ANY') filterLogic = 1;
+            else if (logicStr === 'NOT ALL') filterLogic = 2;
+            filterKeys = parseKeys(parts.slice(1).join(':'));
+        } else {
+            filterKeys = parseKeys(filterRaw);
+        }
+    }
+
     return {
         _tempId: Date.now() + Math.random(),
         comment,
-        keys: parseKeys(primaryKeysRaw),
-        secondary_keys: parseKeys(secondaryKeysRaw),
+        keys: parsedKeys,
+        secondary_keys: parsedSecondaryKeys,
         content,
         position,
         depth: parseInt(depthStr) || 4,
@@ -105,8 +129,15 @@ export function parseLorebookEntryBlock(text) {
         probability: parseInt(probabilityStr) || 100,
         case_sensitive: caseSensitive,
         excludeRecursion,
-        selective: false,
+        preventRecursion,
+        selective: parsedSecondaryKeys.length > 0,
         selectiveLogic: 0,
+        filterLogic,
+        filterKeys,
+        sticky: parseInt(stickyStr) || 0,
+        cooldown: parseInt(cooldownStr) || 0,
+        delay: parseInt(delayStr) || 0,
+        group: (!groupStr || ['none','n/a',''].includes(groupStr.toLowerCase().trim())) ? '' : groupStr.trim(),
         enabled: true,
         category: categoryStr || 'General',
     };
