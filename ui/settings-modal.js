@@ -3,6 +3,7 @@
 
 import { memoryManager } from '../core/memory.js';
 import { apiManager } from '../core/api.js';
+import { statsManager } from '../core/stats.js';
 
 export class SettingsModal {
     constructor() {
@@ -15,6 +16,32 @@ export class SettingsModal {
         this._build();
         document.body.appendChild(this.el);
         this._bind();
+        this._renderStats();
+    }
+
+    _renderStats() {
+        const stats = statsManager.getStats();
+        const t = stats.totals || {};
+        const grid = this.el.querySelector('#ccs-stats-grid');
+        if (!grid) return;
+        
+        const cards = [
+            { label: 'Messages Sent', value: t.messages || 0, icon: '💬' },
+            { label: 'Fields Generated', value: t.fieldsGenerated || 0, icon: '✨' },
+            { label: 'Variations Made', value: t.variations || 0, icon: '🎲' },
+            { label: 'Quick Edits', value: t.quickEdits || 0, icon: '✏️' },
+            { label: 'Sessions Created', value: t.sessions || 0, icon: '📂' },
+            { label: 'Tokens In', value: (t.tokensIn || 0).toLocaleString(), icon: '📥' },
+            { label: 'Tokens Out', value: (t.tokensOut || 0).toLocaleString(), icon: '📤' }
+        ];
+        
+        grid.innerHTML = cards.map(c => `
+            <div style="background:var(--ccs-surface3); padding:12px; border-radius:var(--ccs-radius-sm); border:1px solid var(--ccs-border); display:flex; flex-direction:column; align-items:center; text-align:center;">
+                <div style="font-size:1.5rem; margin-bottom:4px;">${c.icon}</div>
+                <div style="font-size:1.2rem; font-weight:700; color:var(--ccs-text);">${c.value}</div>
+                <div style="font-size:0.75rem; color:var(--ccs-text3); text-transform:uppercase; letter-spacing:0.5px;">${c.label}</div>
+            </div>
+        `).join('');
     }
 
     _build() {
@@ -39,6 +66,7 @@ export class SettingsModal {
                         <button class="ccs-stab" data-tab="tone">🎨 Tone</button>
                         <button class="ccs-stab" data-tab="snippets">📌 Snippets</button>
                         <button class="ccs-stab" data-tab="session">🔧 Session</button>
+                        <button class="ccs-stab" data-tab="stats">📊 Stats</button>
                     </div>
 
                     <!-- API Tab -->
@@ -141,6 +169,16 @@ export class SettingsModal {
                         <div class="ccs-setting-section">
                             <div class="ccs-setting-label">Danger Zone</div>
                             <button class="ccs-btn ccs-btn-danger" id="ccs-clear-all-sessions-btn">🗑 Clear All Sessions</button>
+                        </div>
+                    </div>
+
+                    <!-- Stats Tab -->
+                    <div class="ccs-stab-panel" id="ccs-tab-panel-stats">
+                        <div class="ccs-setting-section">
+                            <div class="ccs-setting-label">Usage Statistics</div>
+                            <div class="ccs-stats-grid" style="display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-top:10px;" id="ccs-stats-grid">
+                                <!-- Stats injected here -->
+                            </div>
                         </div>
                     </div>
 

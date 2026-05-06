@@ -1,6 +1,8 @@
 // ui/idea-panel.js
 // Idea/concept panel: concept rating display, pillar tracker, key decisions
 
+import { memoryManager } from '../core/memory.js';
+
 export class IdeaPanel {
     constructor() {
         this.container = null;
@@ -46,8 +48,25 @@ export class IdeaPanel {
                         </ul>
                     </div>
                 ` : ''}
+
+                <div class="ccs-notes-section" style="margin-top:16px;">
+                    <div class="ccs-notes-header" style="font-weight:600; color:var(--ccs-accent); margin-bottom:6px; font-size:0.85rem;">📝 Session Notes / Scratchpad</div>
+                    <textarea id="ccs-session-notes" placeholder="Jot down ideas, quotes, or snippets here..." style="width:100%; min-height:100px; background:var(--ccs-surface3); border:1px solid var(--ccs-border); color:var(--ccs-text); border-radius:var(--ccs-radius-sm); padding:8px; font-size:0.85rem; resize:vertical;">${this._esc(ideaMemory.notes || '')}</textarea>
+                </div>
             </div>
         `;
+
+        const notesArea = this.container.querySelector('#ccs-session-notes');
+        if (notesArea) {
+            notesArea.addEventListener('input', (e) => {
+                ideaMemory.notes = e.target.value;
+                memoryManager.save();
+            });
+        }
+    }
+
+    _esc(str) {
+        return String(str || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
     }
 
     updatePillar(pillars) {

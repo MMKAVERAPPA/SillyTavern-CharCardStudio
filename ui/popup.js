@@ -12,10 +12,12 @@ import { cardPanel } from './card-panel.js';
 import { lorebookPanel } from './lorebook-panel.js';
 import { ideaPanel } from './idea-panel.js';
 import { settingsModal } from './settings-modal.js';
+import { statsManager } from '../core/stats.js';
 import { ideationPhase } from '../phases/ideation.js';
 import { generationPhase } from '../phases/generation.js';
 import { lorebookPhase } from '../phases/lorebook-phase.js';
 import { detectPhaseSwitch } from '../core/parser.js';
+import { toastManager } from './toast.js';
 
 const PHASE = { IDEATION: 'ideation', BUILDING: 'building', LOREBOOK: 'lorebook' };
 const TAB   = { IDEA: 'idea', CARD: 'card', LOREBOOK: 'lorebook' };
@@ -72,6 +74,10 @@ export class StudioPopup {
         if (this._escHandler) {
             document.removeEventListener('keydown', this._escHandler);
             this._escHandler = null;
+        }
+        if (this._shortcutHandler) {
+            document.removeEventListener('keydown', this._shortcutHandler);
+            this._shortcutHandler = null;
         }
 
         // FIX: Clean up annotation listener to prevent memory leak
@@ -131,19 +137,27 @@ export class StudioPopup {
                         <span class="ccs-logo">🎭</span>
                         <span class="ccs-title">Card Studio</span>
                         <span class="ccs-char-name" id="ccs-char-name">${this._esc(this.cardFields.name || 'New Character')}</span>
+                        <span class="ccs-save-indicator" id="ccs-save-indicator">✓ Saved</span>
                         <span class="ccs-phase-badge" id="ccs-phase-badge">💡 Ideating</span>
                     </div>
                     <div class="ccs-header-right">
                         <button class="ccs-hdr-btn" id="ccs-resume-btn" style="display:none">📂 Resume</button>
-                        <button class="ccs-hdr-btn" id="ccs-new-session-btn" title="Start fresh session">🆕 New</button>
-                        <button class="ccs-hdr-btn" id="ccs-settings-btn" title="Settings">⚙️</button>
-                        <button class="ccs-hdr-btn" id="ccs-minimize-studio" title="Minimize (keep session)">—</button>
+                        <button class="ccs-hdr-btn" id="ccs-new-session-btn" title="Start fresh session">✦ New</button>
+                        <button class="ccs-hdr-btn" id="ccs-ghost-btn" title="Toggle Ghost Mode (Alt+Shift+G)">👻</button>
+                        <button class="ccs-hdr-btn" id="ccs-settings-btn" title="Settings">⚙</button>
+                        <button class="ccs-hdr-btn" id="ccs-shortcuts-btn" title="Keyboard shortcuts">⌨</button>
+                        <button class="ccs-hdr-btn" id="ccs-minimize-studio" title="Minimize">−</button>
                         <button class="ccs-hdr-btn ccs-close-btn" id="ccs-close-studio" title="Close Studio">✕</button>
                     </div>
                 </div>
 
                 <div class="ccs-studio-body">
                     <div class="ccs-chat-col">
+                        <div class="ccs-chat-toolbar">
+                            <input type="text" id="ccs-chat-search-input" placeholder="Search chat..." autocomplete="off">
+                            <button class="ccs-chat-tbtn" id="ccs-chat-search-btn" title="Search Chat">🔍</button>
+                            <button class="ccs-chat-tbtn" id="ccs-chat-inspect-btn" title="View Raw Prompt">🔬</button>
+                        </div>
                         <div class="ccs-chat-messages" id="ccs-chat-messages"></div>
                         <div class="ccs-chat-input-area">
                             <div class="ccs-phase-tabs">
@@ -204,9 +218,9 @@ export class StudioPopup {
         );
 
         cardPanel.init('ccs-card-panel-container', this.cardFields, this.session, {
-            onGenerateField:  (f) => generationPhase.generateField(f),
-            onVariations:     (f) => generationPhase.generateVariations(f),
-            onRewriteField:   (f, action) => generationPhase.rewriteField(f, action),
+            onGenerateField:  (f) => { statsManager.record('fieldsGenerated'); generationPhase.generateField(f); },
+            onVariations:     (f) => { statsManager.record('variations'); generationPhase.generateVariations(f); },
+            onRewriteField:   (f, action) => { statsManager.record('variations'); generationPhase.rewriteField(f, action); },
             onGenerateAll:    () => generationPhase.generateAllFields(),
             onAudit:          () => this._runAudit(),
             onExport:         () => this._exportSessionLog(),
@@ -214,6 +228,7 @@ export class StudioPopup {
             onInferTags:      () => this._inferTags(),
             onRestoreVersion: (f, idx) => this._restoreVersion(f, idx),
             onAddTag:         (tag) => this._addTag(tag),
+            onQuickEdit:      (f, val) => { statsManager.record('quickEdits'); this._handleQuickEdit(f, val); },
         });
 
         lorebookPanel.init('ccs-lorebook-panel-container', {
@@ -236,7 +251,22 @@ export class StudioPopup {
     // ── Restore saved session to UI on re-open ────────────────────────────────
     _restoreSessionToUI() {
         const history = this.session.conversationHistory;
-        if (!history?.length) return;
+        if (!history?.length) {
+            // No history — show welcome screen
+            chatPanel.renderWelcomeScreen({
+                pitch: () => {
+                    chatPanel.addSystemMessage('💡 Tell me about the character you want to create!', 'info');
+                    this._focusInput();
+                },
+                surprise: () => {
+                    this._handleUserMessage('Give me 3 original character concepts to choose from');
+                },
+                improve: () => {
+                    this._handleUserMessage('Review this card and suggest improvements');
+                },
+            });
+            return;
+        }
 
         // Replay messages into chat panel
         chatPanel.restoreHistory(history);
@@ -265,6 +295,24 @@ export class StudioPopup {
             `📂 Session restored — **${conceptName || 'In-progress character'}** · ${msgCount} messages · Phase: ${phase}`,
             'info'
         );
+    }
+
+    _handleQuickEdit(fieldName, value) {
+        if (!fieldName || !this.cardFields) return;
+        // Write directly to the card
+        if (fieldName === 'alternate_greetings') {
+            this.cardFields[fieldName] = value.split('\n---\n');
+        } else {
+            this.cardFields[fieldName] = value;
+        }
+        cardManager.writeField(fieldName, this.cardFields[fieldName]);
+        // Create a version in history
+        if (this.session) {
+            memoryManager.addFieldVersion(this.session, fieldName, this.cardFields[fieldName], 'Manual edit');
+        }
+        cardPanel.setFieldStatus(fieldName, 'accepted');
+        cardPanel.updateCardFields(this.cardFields);
+        this._flashSaveIndicator();
     }
 
     // ── Phase routing ──────────────────────────────────────────────────────────
@@ -356,6 +404,7 @@ export class StudioPopup {
             if (!confirm('Start a new session? Current session will be saved.')) return;
             memoryManager.clearSession(this.characterId);
             this.session = memoryManager.createNewSession(this.characterId);
+            statsManager.record('sessions');
             chatPanel.clear();
             cardPanel.init('ccs-card-panel-container', this.cardFields, this.session, cardPanel.callbacks);
             this._routeToPhase(PHASE.IDEATION);
@@ -372,11 +421,69 @@ export class StudioPopup {
         // Minimize button
         this.$('#ccs-minimize-studio')?.addEventListener('click', () => this.minimize());
 
+        // Shortcuts help toggle
+        this.$('#ccs-shortcuts-btn')?.addEventListener('click', () => this._toggleShortcutHelp());
+
+        // Ghost Mode toggle
+        this.$('#ccs-ghost-btn')?.addEventListener('click', () => this._toggleGhostMode());
+
+        // Chat Toolbar events
+        const searchInput = this.$('#ccs-chat-search-input');
+        const searchBtn = this.$('#ccs-chat-search-btn');
+        searchBtn?.addEventListener('click', () => {
+            if (!searchInput) return;
+            searchInput.style.display = searchInput.style.display === 'block' ? 'none' : 'block';
+            if (searchInput.style.display === 'block') searchInput.focus();
+        });
+        
+        searchInput?.addEventListener('input', (e) => this._handleChatSearch(e.target.value));
+        
+        this.$('#ccs-chat-inspect-btn')?.addEventListener('click', () => this._openRawContextInspector());
+
+        // Clean up any existing global listeners before attaching
+        if (this._escHandler) document.removeEventListener('keydown', this._escHandler);
+        if (this._shortcutHandler) document.removeEventListener('keydown', this._shortcutHandler);
+        if (this._ghostModeHandler) document.removeEventListener('keydown', this._ghostModeHandler);
+
         // Escape minimizes (not closes) to preserve session
         this._escHandler = (e) => {
-            if (e.key === 'Escape' && this.isOpen && !this.isMinimized) this.minimize();
+            if (e.key === 'Escape' && this.isOpen && !this.isMinimized) {
+                // Close shortcut help if open
+                const help = this.el?.querySelector('.ccs-shortcut-help');
+                if (help) { help.remove(); return; }
+                this.minimize();
+            }
         };
+        
+        // Keyboard shortcuts
+        this._shortcutHandler = (e) => {
+            if (!this.isOpen || this.isMinimized) return;
+            const ctrl = e.ctrlKey || e.metaKey;
+            if (ctrl && e.key === '1') { e.preventDefault(); this._routeToPhase(PHASE.IDEATION); }
+            else if (ctrl && e.key === '2') { e.preventDefault(); this._routeToPhase(PHASE.BUILDING); }
+            else if (ctrl && e.key === '3') { e.preventDefault(); this._routeToPhase(PHASE.LOREBOOK); }
+            else if (ctrl && e.key === 'g') { e.preventDefault(); generationPhase.generateAllFields(); }
+            else if (ctrl && e.key === 'f') { 
+                e.preventDefault(); 
+                const searchInput = this.$('#ccs-chat-search-input');
+                if (searchInput) {
+                    searchInput.style.display = searchInput.style.display === 'block' ? 'none' : 'block';
+                    if (searchInput.style.display === 'block') searchInput.focus();
+                }
+            }
+        };
+        
+        // Ghost Mode global hotkey Alt+Shift+G
+        this._ghostModeHandler = (e) => {
+            if (e.altKey && e.shiftKey && e.key === 'G') {
+                e.preventDefault();
+                this._toggleGhostMode();
+            }
+        };
+
         document.addEventListener('keydown', this._escHandler);
+        document.addEventListener('keydown', this._ghostModeHandler);
+        document.addEventListener('keydown', this._shortcutHandler);
 
         // FIX: Overlay close-on-tap — only trigger when BOTH pointerdown and click
         // land on the overlay itself (not on .ccs-studio-inner or its children).
@@ -396,6 +503,86 @@ export class StudioPopup {
             inner.addEventListener('pointerdown', (e) => e.stopPropagation());
             inner.addEventListener('click', (e) => e.stopPropagation());
         }
+    }
+
+    _toggleGhostMode() {
+        if (!this.el) return;
+        this.el.classList.toggle('ccs-ghost-mode');
+        const btn = this.$('#ccs-ghost-btn');
+        if (btn) btn.style.background = this.el.classList.contains('ccs-ghost-mode') ? 'var(--ccs-accent)' : '';
+    }
+
+    _handleChatSearch(query) {
+        const term = query.toLowerCase().trim();
+        const messages = this.el?.querySelectorAll('.ccs-msg');
+        if (!messages) return;
+        messages.forEach(msg => {
+            if (!term) {
+                msg.style.display = '';
+                return;
+            }
+            const text = msg.querySelector('.ccs-msg-bubble')?.textContent?.toLowerCase() || '';
+            msg.style.display = text.includes(term) ? '' : 'none';
+        });
+    }
+
+    _openRawContextInspector() {
+        if (!this.session.lastPayload) {
+            toastManager.show('No raw context available yet. Generate a message first.', 'warn');
+            return;
+        }
+        
+        const payload = this.session.lastPayload;
+        let content = '';
+        if (payload.system) {
+            content += `<div class="ccs-inspector-section" style="margin-bottom:8px;"><strong>System Prompt:</strong><pre style="background:var(--ccs-surface3); padding:8px; border-radius:4px; font-size:0.75rem; white-space:pre-wrap; word-wrap:break-word;">${this._esc(payload.system)}</pre></div>`;
+        }
+        if (payload.messages) {
+            content += `<div class="ccs-inspector-section" style="margin-bottom:8px;"><strong>Messages:</strong><pre style="background:var(--ccs-surface3); padding:8px; border-radius:4px; font-size:0.75rem; white-space:pre-wrap; word-wrap:break-word;">${this._esc(JSON.stringify(payload.messages, null, 2))}</pre></div>`;
+        }
+        if (payload.generationOptions) {
+            content += `<div class="ccs-inspector-section"><strong>Options:</strong><pre style="background:var(--ccs-surface3); padding:8px; border-radius:4px; font-size:0.75rem; white-space:pre-wrap; word-wrap:break-word;">${this._esc(JSON.stringify(payload.generationOptions, null, 2))}</pre></div>`;
+        }
+
+        const modal = document.createElement('div');
+        modal.className = 'ccs-shortcut-help'; // reuse the modal styling
+        modal.innerHTML = `
+            <div class="ccs-shortcut-header">
+                <div class="ccs-shortcut-title">🔬 Raw Context Inspector</div>
+                <button class="ccs-shortcut-close">✕</button>
+            </div>
+            <div class="ccs-shortcut-body" style="text-align:left; max-height: 60vh; overflow-y: auto;">
+                ${content}
+            </div>
+        `;
+        
+        modal.querySelector('.ccs-shortcut-close').addEventListener('click', () => modal.remove());
+        this.el.appendChild(modal);
+    }
+
+    _toggleShortcutHelp() {
+        const existing = this.el?.querySelector('.ccs-shortcut-help');
+        if (existing) { existing.remove(); return; }
+        const help = document.createElement('div');
+        help.className = 'ccs-shortcut-help';
+        help.innerHTML = `
+            <div class="ccs-shortcut-list">
+                <div class="ccs-shortcut-item"><span>Switch to Ideate</span><span class="ccs-shortcut-key">Ctrl+1</span></div>
+                <div class="ccs-shortcut-item"><span>Switch to Build</span><span class="ccs-shortcut-key">Ctrl+2</span></div>
+                <div class="ccs-shortcut-item"><span>Switch to Lore</span><span class="ccs-shortcut-key">Ctrl+3</span></div>
+                <div class="ccs-shortcut-item"><span>Generate All</span><span class="ccs-shortcut-key">Ctrl+G</span></div>
+                <div class="ccs-shortcut-item"><span>Send Message</span><span class="ccs-shortcut-key">Enter</span></div>
+                <div class="ccs-shortcut-item"><span>Minimize Studio</span><span class="ccs-shortcut-key">Esc</span></div>
+            </div>
+        `;
+        this.$('.ccs-studio-inner')?.appendChild(help);
+    }
+
+    _flashSaveIndicator() {
+        const el = document.getElementById('ccs-save-indicator');
+        if (!el) return;
+        el.classList.add('visible');
+        setTimeout(() => el.classList.remove('visible'), 2000);
     }
 
     // ── Workspace tabs — this.$$ ───────────────────────────────────────────────
@@ -533,6 +720,21 @@ export class StudioPopup {
         chatPanel.addSystemMessage(`↩ Restored ${fieldName} to v${idx + 1}`, 'info');
     }
 
+    async _handleQuickEdit(fieldName, newVal) {
+        if (!this.cardFields) return;
+        
+        await cardManager.writeField(fieldName, newVal);
+        this.cardFields[fieldName] = newVal;
+        
+        // Log it as a manual edit
+        memoryManager.logFieldGeneration(this.session, fieldName, newVal, 'Manual Quick Edit');
+        
+        cardPanel.setFieldStatus(fieldName, 'accepted');
+        cardPanel.updateCardFields(this.cardFields);
+        this._flashSaveIndicator();
+        toastManager.show(`Saved manual edit for ${fieldName}`, 'success');
+    }
+
     async _handleAnnotationRequest(selectedText, action) {
         const messages = {
             expand:   `Expand on this: "${selectedText}" — add more detail while matching the existing tone.`,
@@ -581,11 +783,7 @@ export class StudioPopup {
     }
 
     _showNoCharError() {
-        const toast = document.createElement('div');
-        toast.className = 'ccs-toast ccs-toast-error';
-        toast.textContent = '⚠️ Select a character in SillyTavern first, then open the Studio.';
-        document.body.appendChild(toast);
-        setTimeout(() => toast.remove(), 4000);
+        toastManager.show('Select a character in SillyTavern first, then open the Studio.', 'error');
     }
 
     _focusInput() { this.$('#ccs-chat-input')?.focus(); }

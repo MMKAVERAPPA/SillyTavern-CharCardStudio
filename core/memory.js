@@ -126,8 +126,24 @@ export class MemoryManager {
                 pillars: [],
                 keyDecisions: [],
                 proposedProfileApproved: false,
+                proposedProfileGenerated: false,
                 distributionStrategy: {},
                 platformTarget: this.settings.globalSettings.platformTarget,
+                // v3.0 additions
+                cardType: 'single',       // 'single' | 'multi' | 'scenario'
+                format: 'prose',          // 'prose' | 'plist_alichat'
+                voiceProfile: '',         // Confirmed voice description from calibration
+                voiceSamples: [],         // Array of confirmed voice sample strings
+                psychProfile: {           // Psychological depth profile
+                    coreMotivation: '',
+                    primaryFear: '',
+                    hiddenDesire: '',
+                    centralContradiction: '',
+                    theWound: '',
+                    stressBehavior: '',
+                    socialMask: '',
+                    emotionalTriggers: [],
+                },
             },
             fieldLog: this._emptyFieldLog(),
             lorebookLog: {
@@ -247,6 +263,8 @@ export class MemoryManager {
         if (!idea.conceptName && !idea.pillars.length) return '';
         let s = '[IDEA_MEMORY]\n';
         if (idea.conceptName) s += `Concept: ${idea.conceptName}\n`;
+        if (idea.cardType) s += `Card Type: ${idea.cardType}\n`;
+        if (idea.format) s += `Format: ${idea.format}\n`;
         const resolved = idea.pillars.filter(p => p.resolved);
         const pending = idea.pillars.filter(p => !p.resolved);
         if (resolved.length) {
@@ -260,6 +278,22 @@ export class MemoryManager {
         if (idea.keyDecisions.length) {
             s += '\nKey Decisions:\n';
             for (const d of idea.keyDecisions.slice(-5)) s += `  - ${d.decision}\n`;
+        }
+        // v3.0: Voice profile
+        if (idea.voiceProfile) {
+            s += `\nVoice Profile: ${idea.voiceProfile}\n`;
+        }
+        // v3.0: Psychological profile summary
+        const psych = idea.psychProfile;
+        if (psych && (psych.coreMotivation || psych.centralContradiction)) {
+            s += '\nPsychological Profile:\n';
+            if (psych.coreMotivation) s += `  Core Motivation: ${psych.coreMotivation}\n`;
+            if (psych.primaryFear) s += `  Primary Fear: ${psych.primaryFear}\n`;
+            if (psych.hiddenDesire) s += `  Hidden Desire: ${psych.hiddenDesire}\n`;
+            if (psych.centralContradiction) s += `  Central Contradiction: ${psych.centralContradiction}\n`;
+            if (psych.theWound) s += `  The Wound: ${psych.theWound}\n`;
+            if (psych.stressBehavior) s += `  Stress Behavior: ${psych.stressBehavior}\n`;
+            if (psych.socialMask) s += `  Social Mask: ${psych.socialMask}\n`;
         }
         s += '[/IDEA_MEMORY]';
         return s;

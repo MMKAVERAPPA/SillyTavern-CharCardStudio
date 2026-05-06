@@ -7,6 +7,7 @@ import { apiManager, CCSApiError, classifyApiError } from './api.js';
 import { contextBuilder } from './context-builder.js';
 import { buildBaseSystemPrompt } from '../prompts/base.js';
 import { COMPRESSOR_PROMPT } from '../prompts/compressor.js';
+import { statsManager } from './stats.js';
 
 export class ChatEngine {
     constructor() {
@@ -17,14 +18,18 @@ export class ChatEngine {
     // ── Main conversational chat ────────────────────────────────────────────
 
     async chat(options) {
-        const { userMessage, session, cardFields, onComplete, onError, extraInstruction } = options;
+        const { userMessage, session, cardFields, onComplete, onError, extraInstruction, skillOptions } = options;
         const settings = memoryManager.getGlobalSettings();
 
         // Add user turn to history
         const needsCompression = memoryManager.addMessage(session, 'user', userMessage);
+        statsManager.record('messages');
 
-        // Build full context
-        const baseSystemPrompt = buildBaseSystemPrompt(settings.customSystemPromptRules);
+        // Build full context — use skill-router if skillOptions provided
+        const baseSystemPrompt = buildBaseSystemPrompt(
+            settings.customSystemPromptRules,
+            skillOptions || {}
+        );
         const { systemPrompt, prompt } = contextBuilder.buildContext({
             session,
             cardFields,
@@ -34,6 +39,13 @@ export class ChatEngine {
 
         this.isGenerating = true;
         this.abortController = new AbortController();
+
+        // Capture payload for the Inspector tool
+        session.lastPayload = {
+            system: systemPrompt,
+            messages: prompt,
+            generationOptions: { model: settings.primaryModel || 'default' }
+        };
 
         try {
             const result = await apiManager.generatePrimary(

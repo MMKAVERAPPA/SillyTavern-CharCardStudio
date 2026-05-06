@@ -3,6 +3,7 @@
 // FIX: Added CCSApiError, classifyApiError, parallel toggle support
 
 import { memoryManager } from './memory.js';
+import { statsManager } from './stats.js';
 
 // ── Typed API error class ───────────────────────────────────────────────────
 export class CCSApiError extends Error {
@@ -167,14 +168,22 @@ export class ApiManager {
         const settings = memoryManager.getGlobalSettings();
 
         try {
-            // Profile mode: temporarily switch profile
+            let result;
             if (settings.apiMode === 'profile' && settings.selectedProfile) {
-                return await this.withProfile(settings.selectedProfile, () =>
+                result = await this.withProfile(settings.selectedProfile, () =>
                     generateRaw(prompt, undefined, false, false, systemPrompt, signal)
                 );
+            } else {
+                result = await generateRaw(prompt, undefined, false, false, systemPrompt, signal);
             }
 
-            return await generateRaw(prompt, undefined, false, false, systemPrompt, signal);
+            // Estimate tokens (approx 4 chars per token)
+            const inputChars = (systemPrompt?.length || 0) + (prompt?.length || 0);
+            const outputChars = result?.length || 0;
+            statsManager.record('tokensIn', Math.round(inputChars / 4));
+            statsManager.record('tokensOut', Math.round(outputChars / 4));
+
+            return result;
         } catch (err) {
             throw classifyApiError(err, 'Generation');
         }

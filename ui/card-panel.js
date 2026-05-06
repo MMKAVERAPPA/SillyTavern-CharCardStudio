@@ -62,30 +62,26 @@ export class CardPanel {
         if (!this.container) return;
         const tokenCounts = cardManager.getTokenCounts(this.cardFields || {});
         const budget = cardManager.getBudgetAssessment(tokenCounts._total || 0);
+        const filled = BOARD_FIELDS.filter(f => this.fieldStatuses[f] === FIELD_STATUS.ACCEPTED || this.fieldStatuses[f] === FIELD_STATUS.GENERATED).length;
+        const total = BOARD_FIELDS.length;
+        const pct = total ? Math.round((filled / total) * 100) : 0;
+        const circumference = 2 * Math.PI * 26;
+        const dashoffset = circumference - (circumference * pct / 100);
 
         this.container.innerHTML = `
             <div class="ccs-card-panel">
-                <div class="ccs-token-budget ${budget.status}" id="ccs-token-budget">
-                    <div class="ccs-budget-label">
-                        <span>📊 Token Budget</span>
-                        <span class="ccs-budget-total">${budget.tokens.toLocaleString()}t</span>
+                <div class="ccs-progress-section">
+                    <div class="ccs-progress-ring-wrap">
+                        <svg viewBox="0 0 64 64">
+                            <defs><linearGradient id="ccs-ring-grad" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#7aa2f7"/><stop offset="100%" stop-color="#bb9af7"/></linearGradient></defs>
+                            <circle class="ccs-progress-ring-bg" cx="32" cy="32" r="26"/>
+                            <circle class="ccs-progress-ring-fill" cx="32" cy="32" r="26" stroke-dasharray="${circumference}" stroke-dashoffset="${dashoffset}"/>
+                        </svg>
+                        <div class="ccs-progress-label">${filled}/${total}<small>fields</small></div>
                     </div>
-                    <div class="ccs-budget-bars">
-                        <div class="ccs-budget-row">
-                            <span>4k ctx</span>
-                            <div class="ccs-budget-track"><div class="ccs-budget-fill" style="width:${Math.min(budget.pct4k,100)}%"></div></div>
-                            <span>${budget.pct4k}%</span>
-                        </div>
-                        <div class="ccs-budget-row">
-                            <span>8k ctx</span>
-                            <div class="ccs-budget-track"><div class="ccs-budget-fill" style="width:${Math.min(budget.pct8k,100)}%"></div></div>
-                            <span>${budget.pct8k}%</span>
-                        </div>
-                        <div class="ccs-budget-row">
-                            <span>16k ctx</span>
-                            <div class="ccs-budget-track"><div class="ccs-budget-fill" style="width:${Math.min(budget.pct16k,100)}%"></div></div>
-                            <span>${budget.pct16k}%</span>
-                        </div>
+                    <div class="ccs-progress-info">
+                        <div class="ccs-progress-title">Card Progress</div>
+                        <div class="ccs-progress-subtitle">${budget.tokens.toLocaleString()} tokens total</div>
                     </div>
                 </div>
 
@@ -140,9 +136,18 @@ export class CardPanel {
         const label = FIELD_LABELS[fieldName] || fieldName;
         const versions = this.session ? memoryManager.getFieldVersions(this.session, fieldName) : [];
 
-        const statusIcon = { empty:'🔲', in_progress:'⏳', generated:'📋', accepted:'✅' }[status] || '🔲';
+        const statusIcon = { empty:'○', in_progress:'◔', generated:'◑', accepted:'●' }[status] || '○';
         const statusClass = `ccs-field-status-${status}`;
         const hasContent = status === FIELD_STATUS.ACCEPTED || status === FIELD_STATUS.GENERATED;
+
+        // Content snippet (first 80 chars)
+        let snippet = '';
+        if (hasContent && this.cardFields) {
+            const val = this.cardFields[fieldName];
+            const raw = Array.isArray(val) ? (val[0] || '').substring(0, 80) : (typeof val === 'string' ? val.substring(0, 80) : '');
+            snippet = raw.replace(/\n/g, ' ').trim();
+            if (snippet && (Array.isArray(val) ? val[0]?.length > 80 : val?.length > 80)) snippet += '…';
+        }
 
         return `
             <div class="ccs-field-row ${statusClass}" id="ccs-field-row-${fieldName}" data-field="${fieldName}">
@@ -153,10 +158,12 @@ export class CardPanel {
                     <div class="ccs-field-btns">
                         <button class="ccs-field-btn ccs-gen-field-btn" data-field="${fieldName}" title="Generate">🪄</button>
                         <button class="ccs-field-btn ccs-var-field-btn" data-field="${fieldName}" title="Variations">🎲</button>
-                        ${hasContent ? `<button class="ccs-field-btn ccs-preview-field-btn" data-field="${fieldName}" title="Preview">👁</button>` : ''}
+                        <button class="ccs-field-btn ccs-edit-field-btn" data-field="${fieldName}" title="Quick Edit">✏️</button>
+                        <button class="ccs-field-btn ccs-preview-field-btn" data-field="${fieldName}" title="Preview">👁</button>
                         ${versions.length > 1 ? `<button class="ccs-field-btn ccs-history-btn" data-field="${fieldName}" title="History (${versions.length})">🕐</button>` : ''}
                     </div>
                 </div>
+                ${snippet ? `<div class="ccs-field-snippet">${this._escHtml(snippet)}</div>` : ''}
                 <div class="ccs-field-preview-drawer" id="ccs-preview-${fieldName}" style="display:none;"></div>
                 <div class="ccs-field-history-drawer" id="ccs-history-${fieldName}" style="display:none;"></div>
             </div>
@@ -221,6 +228,9 @@ export class CardPanel {
         });
         row.querySelector('.ccs-preview-field-btn')?.addEventListener('click', (e) => {
             this._togglePreview(e.currentTarget.dataset.field);
+        });
+        row.querySelector('.ccs-edit-field-btn')?.addEventListener('click', (e) => {
+            this._openQuickEdit(e.currentTarget.dataset.field);
         });
         row.querySelector('.ccs-history-btn')?.addEventListener('click', (e) => {
             this._toggleHistory(e.currentTarget.dataset.field);
@@ -314,6 +324,33 @@ export class CardPanel {
         }
     }
 
+    // ── Quick edit ──────────────────────────────────────────────────────────
+
+    _openQuickEdit(fieldName) {
+        const row = document.getElementById(`ccs-field-row-${fieldName}`);
+        if (!row || row.querySelector('.ccs-quick-edit-wrap')) return;
+        const content = this.cardFields?.[fieldName] || '';
+        const val = Array.isArray(content) ? content.join('\n---\n') : String(content);
+
+        const wrap = document.createElement('div');
+        wrap.className = 'ccs-quick-edit-wrap';
+        wrap.innerHTML = `
+            <textarea class="ccs-quick-edit-textarea">${this._escHtml(val)}</textarea>
+            <div class="ccs-quick-edit-btns">
+                <button class="ccs-btn ccs-btn-sm ccs-btn-ghost ccs-qe-cancel">Cancel</button>
+                <button class="ccs-btn ccs-btn-sm ccs-btn-primary ccs-qe-save">Save</button>
+            </div>
+        `;
+        wrap.querySelector('.ccs-qe-cancel').addEventListener('click', () => wrap.remove());
+        wrap.querySelector('.ccs-qe-save').addEventListener('click', () => {
+            const newVal = wrap.querySelector('textarea').value;
+            this.callbacks.onQuickEdit?.(fieldName, newVal);
+            wrap.remove();
+        });
+        row.appendChild(wrap);
+        wrap.querySelector('textarea').focus();
+    }
+
     showTagSuggestions(suggestedTags, onAccept) {
         const section = document.getElementById('ccs-tag-section');
         if (!section) return;
@@ -336,6 +373,10 @@ export class CardPanel {
             sugg.innerHTML = '<span>✅ All tags added</span>';
         });
         section.appendChild(sugg);
+    }
+
+    _escHtml(str) {
+        return String(str || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
     }
 }
 
