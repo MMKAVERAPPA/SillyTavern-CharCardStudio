@@ -40,10 +40,17 @@
 /* ── Overlay ────────────────────────────────────────────────── */
 .ccs-studio-overlay {
     position: fixed;
-    inset: 0;
-    background: rgba(0,0,0,0.85);
-    backdrop-filter: blur(4px);
-    -webkit-backdrop-filter: blur(4px);
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    width: 100%;
+    height: 100%;
+    /* Fallback for browsers that don't support dvh */
+    height: 100vh;
+    /* Use dynamic viewport height on mobile (accounts for browser chrome) */
+    height: 100dvh;
+    background: rgba(0,0,0,0.92);
     /* Max safe z-index — must be above ALL SillyTavern UI layers on mobile */
     z-index: 2147483640;
     display: flex;
@@ -51,7 +58,10 @@
     justify-content: stretch;
     animation: ccs-fade-in 0.2s ease;
     touch-action: auto;
-    -webkit-overflow-scrolling: touch;
+    /* Critical: isolate stacking context so transforms in ST don't affect us */
+    isolation: isolate;
+    /* Prevent iOS rubber-band scrolling on the overlay background */
+    overscroll-behavior: contain;
 }
 
 

@@ -52,8 +52,6 @@ export class StudioPopup {
             this._buildNoCharDOM();
             document.body.appendChild(this.el);
             this.isOpen = true;
-            document.body.style.overflow = 'hidden';
-            document.documentElement.style.overflow = 'hidden';
             return;
         }
 
@@ -64,8 +62,6 @@ export class StudioPopup {
             this._buildNoCharDOM();
             document.body.appendChild(this.el);
             this.isOpen = true;
-            document.body.style.overflow = 'hidden';
-            document.documentElement.style.overflow = 'hidden';
             return;
         }
         this.session = memoryManager.loadSession(characterId);
@@ -80,10 +76,6 @@ export class StudioPopup {
         this._restoreSessionToUI();
 
         this._routeToPhase(this.session.currentPhase || PHASE.IDEATION);
-
-        // Lock body scroll on mobile
-        document.body.style.overflow = 'hidden';
-        document.documentElement.style.overflow = 'hidden';
     }
 
     // ── No-character landing screen ────────────────────────────────────────────
@@ -148,8 +140,6 @@ export class StudioPopup {
         this._minBar = null;
         this.isOpen = false;
         this.isMinimized = false;
-        document.body.style.overflow = '';
-        document.documentElement.style.overflow = '';
     }
 
     minimize() {
