@@ -862,3 +862,44 @@
     accent-color: var(--ccs-accent);
 }
 
+/* ── No-character landing screen ────────────────────────────────────────────── */
+.ccs-no-char-screen {
+    justify-content: flex-start;
+}
+.ccs-no-char-body {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    flex: 1;
+    padding: 40px 24px;
+    text-align: center;
+    gap: 16px;
+    animation: ccs-fade-in 0.3s ease;
+}
+.ccs-no-char-icon {
+    font-size: 4rem;
+    line-height: 1;
+    filter: drop-shadow(0 0 24px rgba(122,162,247,0.3));
+}
+.ccs-no-char-title {
+    font-size: 1.5rem;
+    font-weight: 700;
+    margin: 0;
+    background: var(--ccs-gradient);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+}
+.ccs-no-char-desc {
+    font-size: 0.95rem;
+    color: var(--ccs-text2);
+    max-width: 360px;
+    line-height: 1.6;
+    margin: 0;
+}
+.ccs-no-char-close {
+    margin-top: 8px;
+    min-width: 140px;
+}
+

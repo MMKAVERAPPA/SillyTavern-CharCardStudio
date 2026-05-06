@@ -42,12 +42,32 @@ export class StudioPopup {
 
     open() {
         if (this.isOpen) { this._focusInput(); return; }
-        const { characterId } = SillyTavern.getContext();
-        if (characterId === undefined || characterId < 0) { this._showNoCharError(); return; }
+
+        const ctx = SillyTavern.getContext();
+        const characterId = ctx?.characterId;
+        const hasCharacter = characterId !== undefined && characterId !== null && characterId >= 0;
+
+        if (!hasCharacter) {
+            // Open studio in "no character" mode — show a friendly prompt instead of blocking
+            this._buildNoCharDOM();
+            document.body.appendChild(this.el);
+            this.isOpen = true;
+            document.body.style.overflow = 'hidden';
+            document.documentElement.style.overflow = 'hidden';
+            return;
+        }
 
         this.characterId = characterId;
         this.cardFields = cardManager.readCurrentCard();
-        if (!this.cardFields) { this._showNoCharError(); return; }
+        if (!this.cardFields) {
+            // Character ID exists but card read failed — open in no-char mode
+            this._buildNoCharDOM();
+            document.body.appendChild(this.el);
+            this.isOpen = true;
+            document.body.style.overflow = 'hidden';
+            document.documentElement.style.overflow = 'hidden';
+            return;
+        }
         this.session = memoryManager.loadSession(characterId);
 
         this._buildDOM();               // binds all events via this.$() before DOM insert
@@ -64,6 +84,45 @@ export class StudioPopup {
         // Lock body scroll on mobile
         document.body.style.overflow = 'hidden';
         document.documentElement.style.overflow = 'hidden';
+    }
+
+    // ── No-character landing screen ────────────────────────────────────────────
+    _buildNoCharDOM() {
+        this.el = document.createElement('div');
+        this.el.id = 'ccs-studio';
+        this.el.className = 'ccs-studio-overlay';
+        this.el.innerHTML = `
+            <div class="ccs-studio-inner ccs-no-char-screen">
+                <div class="ccs-studio-header">
+                    <div class="ccs-header-left">
+                        <span class="ccs-logo">🎭</span>
+                        <span class="ccs-title">Card Studio</span>
+                    </div>
+                    <div class="ccs-header-right">
+                        <button class="ccs-hdr-btn ccs-close-btn" id="ccs-close-studio" title="Close">✕</button>
+                    </div>
+                </div>
+                <div class="ccs-no-char-body">
+                    <div class="ccs-no-char-icon">🎭</div>
+                    <h2 class="ccs-no-char-title">Select a Character First</h2>
+                    <p class="ccs-no-char-desc">Open or create a character card in SillyTavern, then come back here to start building.</p>
+                    <button class="ccs-no-char-close menu_button" id="ccs-no-char-close-btn">Close Studio</button>
+                </div>
+            </div>
+        `;
+        this.el.querySelector('#ccs-close-studio')?.addEventListener('click', () => this.close());
+        this.el.querySelector('#ccs-no-char-close-btn')?.addEventListener('click', () => this.close());
+
+        // Close on backdrop click
+        let _ptr = null;
+        this.el.addEventListener('pointerdown', (e) => { _ptr = e.target; });
+        this.el.addEventListener('click', (e) => {
+            if (e.target === this.el && _ptr === this.el) this.close();
+        });
+
+        if (this._escHandler) document.removeEventListener('keydown', this._escHandler);
+        this._escHandler = (e) => { if (e.key === 'Escape') this.close(); };
+        document.addEventListener('keydown', this._escHandler);
     }
 
     close() {
@@ -783,6 +842,7 @@ export class StudioPopup {
     }
 
     _showNoCharError() {
+        // Kept for compatibility — open() now uses _buildNoCharDOM() instead
         toastManager.show('Select a character in SillyTavern first, then open the Studio.', 'error');
     }
 

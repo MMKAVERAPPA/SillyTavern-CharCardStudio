@@ -79,6 +79,9 @@ function createUI() {
 
 $(document).on('click', SELECTORS.menuItem, () => openStudio());
 
+// Settings panel "Open Studio" button (injected by ST from settings.html)
+$(document).on('click', '#ccs-open-studio-btn', () => openStudio());
+
 // ── Slash command ─────────────────────────────────────────────────────────────
 
 function registerSlashCommand() {
