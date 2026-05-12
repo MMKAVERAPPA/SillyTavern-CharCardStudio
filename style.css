@@ -531,7 +531,8 @@
 .ccs-book-label { font-size: 0.85rem; color: var(--ccs-text2); }
 
 /* ── Settings modal ──────────────────────────────────────────── */
-.ccs-modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.7); z-index: 100002; display: flex; align-items: center; justify-content: center; }
+/* BUG-001 FIX: z-index must be > studio overlay (2147483640) to appear on mobile */
+.ccs-modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.7); z-index: 2147483647; display: flex; align-items: center; justify-content: center; }
 .ccs-modal { background: var(--ccs-surface); border: 1px solid var(--ccs-border2); border-radius: var(--ccs-radius); width: min(640px, 95vw); max-height: 85vh; display: flex; flex-direction: column; box-shadow: var(--ccs-shadow); }
 .ccs-settings-modal-inner { }
 .ccs-modal-header { display: flex; align-items: center; justify-content: space-between; padding: 14px 16px; border-bottom: 1px solid var(--ccs-border); font-weight: 700; color: var(--ccs-text); }

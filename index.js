@@ -7,7 +7,9 @@ import { SlashCommandParser } from '../../../slash-commands/SlashCommandParser.j
 import { SlashCommand } from '../../../slash-commands/SlashCommand.js';
 
 import { studioPopup } from './ui/popup.js';
+import { settingsModal } from './ui/settings-modal.js';
 import { memoryManager } from './core/memory.js';
+import { cardManager } from './core/card.js';
 import { apiManager } from './core/api.js';
 import { toastManager } from './ui/toast.js';
 
@@ -28,6 +30,18 @@ async function init() {
     // Guard: only run once
     if (window._ccsInitialized) return;
     window._ccsInitialized = true;
+
+    // DEBUG: Expose modules to window for console testing
+    if (!window._ccsModules) {
+        window._ccsModules = {
+            studioPopup,
+            settingsModal,
+            memoryManager,
+            cardManager,
+            apiManager,
+            toastManager,
+        };
+    }
 
     // Init memory/settings
     try { memoryManager.init(); } catch (e) { console.warn(`[${EXT_NAME}] memoryManager.init failed:`, e); }
