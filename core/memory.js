@@ -217,6 +217,12 @@ export class MemoryManager {
         log.acceptedAt = Date.now();
     }
 
+    // BUG-009 FIX: alias so popup.js and any other caller using the old name still works
+    addFieldVersion(session, fieldName, content, summary = '') {
+        return this.saveFieldVersion(session, fieldName, content, summary);
+    }
+
+
     getFieldVersions(session, fieldName) {
         return session.fieldLog[fieldName]?.versions || [];
     }

@@ -110,18 +110,17 @@ function registerSTEvents() {
         // Re-inject menu entry if ST re-renders the UI
         eventSource.on(event_types.APP_READY, () => createUI());
 
-        // Update character name in studio header if character changes while open
+        // BUG-032 FIX: Refresh the studio's full card field cache when the user
+        // edits the character externally in ST while the studio is open.
+        // Previously this only updated the name label, leaving cardFields stale.
         eventSource.on(event_types.CHARACTER_EDITED, () => {
-            if (studioPopup.isOpen) {
-                const nameEl = document.getElementById('ccs-char-name');
-                const fields = studioPopup.cardFields;
-                if (nameEl && fields) nameEl.textContent = fields.name || 'Character';
-            }
+            studioPopup.refreshCardFields();
         });
     } catch (err) {
         console.warn(`[${EXT_NAME}] Event registration failed:`, err);
     }
 }
+
 
 // ── Open studio ───────────────────────────────────────────────────────────────
 

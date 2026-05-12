@@ -306,8 +306,21 @@ ${pillarContext || 'No pillars established yet.'}`;
             if (!response) return;
             chatPanel.finalizeStream(response);
             memoryManager.addMessage(this.session, 'assistant', response);
-            idea._pendingVoiceSamples = this._extractVoiceSamples(response);
-            idea._pendingVoiceDescription = this._extractVoiceDescription(response);
+            // BUG-018 FIX: Save to permanent fields immediately so they survive a
+            // session exit before the user clicks approve. The _pending prefix was
+            // causing data loss. We keep _pending as a flag for the approval check
+            // but also write to the real voiceSamples / voiceProfile fields.
+            const samples = this._extractVoiceSamples(response);
+            const description = this._extractVoiceDescription(response);
+            if (samples.length) {
+                idea.voiceSamples = samples;              // permanent save immediately
+                idea._pendingVoiceSamples = samples;      // flag for approval gate
+            }
+            if (description) {
+                idea.voiceProfile = description;          // permanent save immediately
+                idea._pendingVoiceDescription = description;
+            }
+            memoryManager.saveSession(this.session.characterId, this.session);
             ideaPanel.render(idea);
         } catch (err) {
             chatPanel.cancelStreaming();

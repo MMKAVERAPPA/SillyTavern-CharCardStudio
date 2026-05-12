@@ -13,7 +13,11 @@ export class SettingsModal {
 
     open(container = null) {
         document.getElementById('ccs-settings-modal')?.remove();
-        this._container = container || document.body;
+        // BUG-001 FIX: Always append to document.body — NOT inside the studio overlay.
+        // The studio uses `isolation: isolate` which scopes `position:fixed` children
+        // to the studio element only, breaking full-screen coverage on mobile.
+        // We give this modal the maximum possible z-index instead.
+        this._container = document.body;
         this._build();
         this._container.appendChild(this.el);
         this._bind();
@@ -245,7 +249,12 @@ export class SettingsModal {
         // Close
         document.getElementById('ccs-settings-close')?.addEventListener('click', () => this.close());
         document.getElementById('ccs-settings-cancel')?.addEventListener('click', () => this.close());
-        this.el.addEventListener('click', (e) => { if (e.target === this.el) this.close(); });
+        // BUG-008 FIX: iOS Safari doesn't reliably fire 'click' on non-interactive elements.
+        // Add both click and touchend on the overlay backdrop so tapping outside dismisses on mobile.
+        const backdropClose = (e) => { if (e.target === this.el) this.close(); };
+        this.el.addEventListener('click', backdropClose);
+        this.el.addEventListener('touchend', backdropClose, { passive: true });
+
 
         // Save
         document.getElementById('ccs-settings-save')?.addEventListener('click', () => this._save());

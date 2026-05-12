@@ -453,11 +453,20 @@ If you have ONE critical question that would significantly change output, ask it
 
     _processMultiFieldResponse(response) {
         const fields = parseMultiFieldResponse(response);
+        let parsed = 0;
         for (const [fieldName, content] of Object.entries(fields)) {
             if (content && GENERATABLE_FIELDS.includes(fieldName)) {
                 cardPanel.setFieldStatus(fieldName, FIELD_STATUS.GENERATED);
+                // BUG-020 FIX: Update the progress ring for each parsed field so the
+                // ring animates incrementally during the generate-all response.
+                // setFieldStatus already triggers _updateFieldRow + _updateTokenBudget.
                 chatPanel.addAcceptBar(fieldName, content, (f, c) => this._acceptField(f, c));
+                parsed++;
             }
+        }
+        if (!parsed) {
+            chatPanel.addSystemMessage('⚠️ No field blocks found in response. Try asking for individual fields.', 'warning');
+            GENERATABLE_FIELDS.forEach(f => cardPanel.setFieldStatus(f, FIELD_STATUS.EMPTY));
         }
     }
 
@@ -480,6 +489,9 @@ If you have ONE critical question that would significantly change output, ask it
             await cardManager.writeField(fieldName, content);
             this.cardFields[fieldName] = content;
             cardPanel.setFieldStatus(fieldName, FIELD_STATUS.ACCEPTED);
+            // BUG-014 FIX: Refresh the field row and token budget immediately after write
+            cardPanel._updateFieldRow(fieldName);
+            cardPanel._updateTokenBudget();
             this.callbacks.onCardUpdated?.();
 
             // Save version (generate summary in background)

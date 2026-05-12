@@ -293,9 +293,16 @@ export class LorebookPhase {
     _stageEntries(entries) {
         let added = 0;
         for (const entry of entries) {
-            // Dedup by title
-            const isDupe = this.pendingEntries.some(p => p.comment === entry.comment) ||
-                           (this.session.lorebookLog.acceptedEntries || []).some(a => a.comment === entry.comment);
+            // BUG-027 FIX: Dedup on comment+keys together, not just comment alone.
+            // Two entries can have the same title but different content/keys legitimately.
+            const entryKeyStr = (entry.keys || []).sort().join(',');
+            const isDupe = this.pendingEntries.some(p => {
+                const pKeyStr = (p.keys || []).sort().join(',');
+                return p.comment === entry.comment && pKeyStr === entryKeyStr;
+            }) || (this.session.lorebookLog.acceptedEntries || []).some(a => {
+                const aKeyStr = (a.keys || []).sort().join(',');
+                return a.comment === entry.comment && aKeyStr === entryKeyStr;
+            });
             if (isDupe) continue;
 
             entry._tempId = Date.now() + Math.random();

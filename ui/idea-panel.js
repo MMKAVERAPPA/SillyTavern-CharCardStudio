@@ -49,6 +49,23 @@ export class IdeaPanel {
                     </div>
                 ` : ''}
 
+                ${ideaMemory.voiceProfile ? `
+                    <div class="ccs-decisions-section" style="margin-top:8px;">
+                        <div class="ccs-decisions-header">🎤 Voice Profile</div>
+                        <div style="font-size:0.82rem; color:var(--ccs-text2); padding:4px 0;">${this._esc(ideaMemory.voiceProfile)}</div>
+                        ${(ideaMemory.voiceSamples || []).length ? `
+                            <details style="margin-top:4px;">
+                                <summary style="font-size:0.78rem; color:var(--ccs-text3); cursor:pointer;">
+                                    ${ideaMemory.voiceSamples.length} sample(s) — click to preview
+                                </summary>
+                                ${ideaMemory.voiceSamples.map((s, i) => `
+                                    <pre style="background:var(--ccs-surface3); border-radius:var(--ccs-radius-sm); padding:6px; font-size:0.78rem; margin-top:4px; white-space:pre-wrap; word-break:break-word;">${this._esc(s.substring(0, 200))}${s.length > 200 ? '…' : ''}</pre>
+                                `).join('')}
+                            </details>
+                        ` : ''}
+                    </div>
+                ` : ''}
+
                 <div class="ccs-notes-section" style="margin-top:16px;">
                     <div class="ccs-notes-header" style="font-weight:600; color:var(--ccs-accent); margin-bottom:6px; font-size:0.85rem;">📝 Session Notes / Scratchpad</div>
                     <textarea id="ccs-session-notes" placeholder="Jot down ideas, quotes, or snippets here..." style="width:100%; min-height:100px; background:var(--ccs-surface3); border:1px solid var(--ccs-border); color:var(--ccs-text); border-radius:var(--ccs-radius-sm); padding:8px; font-size:0.85rem; resize:vertical;">${this._esc(ideaMemory.notes || '')}</textarea>

@@ -716,39 +716,10 @@
     transition: transform var(--ccs-anim);
 }
 
-/* ── Minimize bar ─────────────────────────────────────────────────────────── */
-.ccs-min-bar {
-    position: fixed;
-    bottom: 0;
-    left: 50%;
-    transform: translateX(-50%);
-    z-index: 99998;
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    background: var(--ccs-surface);
-    border: 1px solid var(--ccs-border2);
-    border-bottom: none;
-    border-radius: var(--ccs-radius) var(--ccs-radius) 0 0;
-    padding: 8px 16px;
-    box-shadow: 0 -4px 24px rgba(0,0,0,0.4);
-    min-width: 280px;
-    max-width: 90vw;
-}
-.ccs-min-bar-icon { font-size: 1.1rem; }
-.ccs-min-bar-label { flex: 1; font-size: 0.85rem; color: var(--ccs-text); font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.ccs-min-bar-phase { font-size: 0.72rem; color: var(--ccs-text3); background: var(--ccs-surface3); padding: 2px 8px; border-radius: 10px; }
-.ccs-min-bar-restore {
-    background: var(--ccs-accent); color: #fff; border: none;
-    border-radius: var(--ccs-radius-sm); padding: 4px 12px;
-    font-size: 0.8rem; cursor: pointer; white-space: nowrap;
-}
-.ccs-min-bar-restore:hover { background: #8ab4f8; }
-.ccs-min-bar-close {
-    background: transparent; border: none; color: var(--ccs-text3);
-    font-size: 0.9rem; cursor: pointer; padding: 2px 6px;
-}
-.ccs-min-bar-close:hover { color: var(--ccs-red); }
+/* ── Minimize bar — see comprehensive definition near end of file ──────────── */
+/* BUG-029 FIX: Old duplicate block removed. Full definition with correct z-index
+   (2147483646), mobile rules, and touch targets is at the bottom of this file. */
+
 
 /* ── Abort button visible state ───────────────────────────────────────────── */
 .ccs-abort-btn {
@@ -873,7 +844,12 @@
     .ccs-msg-btn { padding: 4px 8px; }
     /* FIX: Show message actions always on touch (no hover) */
     .ccs-msg .ccs-msg-actions { opacity: 1; }
+    /* BUG-007 FIX: Field action buttons are hover-only on desktop.
+       Force them always visible on touch screens so users can tap them. */
+    .ccs-field-btns { opacity: 1 !important; visibility: visible !important; }
+    .ccs-field-btn { opacity: 1 !important; pointer-events: auto !important; }
 }
+
 
 /* FIX: Toolbar button — prevent being clipped by parent overflow */
 .ccs-toolbar-btn {
@@ -1000,10 +976,8 @@
 }
 
 /* ══════════════════════════════════════════════════════════════════════════════
-   BUG-2 FIX: Modal overlay — was completely missing from CSS, causing settings
-   and other modals to render behind the studio overlay (z-index 2147483640).
-   Now appended INSIDE the studio element so they inherit the correct context,
-   but we still need this class to exist for full-screen coverage.
+   BUG-001 FIX: Modal overlay — appended to document.body now.
+   Must use z-index higher than SillyTavern's entire UI stack.
    ══════════════════════════════════════════════════════════════════════════════ */
 .ccs-modal-overlay {
     position: fixed;
@@ -1012,9 +986,8 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    /* When appended inside .ccs-studio-overlay (isolation:isolate), this z-index
-       only needs to be above sibling studio children — not the whole page */
-    z-index: 100;
+    /* Must exceed studio overlay (2147483640) and ALL ST UI layers */
+    z-index: 2147483647;
     animation: ccs-fade-in 0.15s ease;
     backdrop-filter: blur(4px);
     -webkit-backdrop-filter: blur(4px);
@@ -1173,3 +1146,112 @@
     }
 }
 
+/* ══════════════════════════════════════════════════════════════════════════════
+   BUG-002 FIX: .ccs-min-bar — was COMPLETELY MISSING from CSS.
+   The JS creates this element but it had no visibility styles at all.
+   ══════════════════════════════════════════════════════════════════════════════ */
+.ccs-min-bar {
+    position: fixed;
+    bottom: 0;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 2147483646; /* Just below the modal overlay */
+    background: var(--ccs-surface2);
+    border: 1px solid var(--ccs-border2);
+    border-bottom: none;
+    border-radius: var(--ccs-radius) var(--ccs-radius) 0 0;
+    box-shadow: 0 -4px 20px rgba(0,0,0,0.4);
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 16px;
+    min-width: 280px;
+    max-width: 90vw;
+    color: var(--ccs-text);
+    font-family: var(--ccs-font);
+    font-size: 0.85rem;
+    animation: ccs-min-bar-in 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+    touch-action: manipulation;
+}
+@keyframes ccs-min-bar-in {
+    from { transform: translateX(-50%) translateY(100%); opacity: 0; }
+    to   { transform: translateX(-50%) translateY(0);   opacity: 1; }
+}
+.ccs-min-bar-icon { font-size: 1.1rem; flex-shrink: 0; }
+.ccs-min-bar-label {
+    flex: 1;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    font-weight: 500;
+    color: var(--ccs-text);
+}
+.ccs-min-bar-phase {
+    font-size: 0.75rem;
+    color: var(--ccs-accent);
+    background: rgba(122,162,247,0.15);
+    border: 1px solid rgba(122,162,247,0.3);
+    border-radius: 20px;
+    padding: 2px 8px;
+    flex-shrink: 0;
+    text-transform: capitalize;
+}
+.ccs-min-bar-restore {
+    background: var(--ccs-accent);
+    color: #fff;
+    border: none;
+    border-radius: var(--ccs-radius-sm);
+    padding: 6px 12px;
+    font-size: 0.8rem;
+    font-weight: 600;
+    cursor: pointer;
+    flex-shrink: 0;
+    touch-action: manipulation;
+    -webkit-tap-highlight-color: transparent;
+    transition: opacity var(--ccs-anim-fast);
+}
+.ccs-min-bar-restore:hover { opacity: 0.85; }
+.ccs-min-bar-close {
+    background: none;
+    border: none;
+    color: var(--ccs-text3);
+    cursor: pointer;
+    font-size: 1rem;
+    padding: 4px 6px;
+    border-radius: var(--ccs-radius-sm);
+    flex-shrink: 0;
+    touch-action: manipulation;
+    -webkit-tap-highlight-color: transparent;
+    transition: color var(--ccs-anim-fast);
+}
+.ccs-min-bar-close:hover { color: var(--ccs-red); }
+
+/* Mobile: full-width bar pinned to screen bottom */
+@media (max-width: 768px) {
+    .ccs-min-bar {
+        left: 0;
+        right: 0;
+        width: 100%;
+        max-width: 100%;
+        transform: none;
+        border-radius: 0;
+        min-width: unset;
+        /* Larger tap targets on mobile */
+        padding: 12px 16px;
+    }
+    @keyframes ccs-min-bar-in {
+        from { transform: translateY(100%); opacity: 0; }
+        to   { transform: translateY(0);   opacity: 1; }
+    }
+    .ccs-min-bar-restore {
+        min-height: 44px;
+        padding: 8px 16px;
+    }
+    .ccs-min-bar-close {
+        min-height: 44px;
+        min-width: 44px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+}

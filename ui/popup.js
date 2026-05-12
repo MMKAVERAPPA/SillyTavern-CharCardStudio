@@ -121,7 +121,12 @@ export class StudioPopup {
 
     close() {
         if (!this.isOpen) return;
-        if (this.session) memoryManager.saveSession(this.characterId, this.session);
+        // BUG-012 FIX: Force a synchronous settings persist before tearing down
+        // so session notes and card state aren't lost if the tab is about to close
+        if (this.session) {
+            memoryManager.saveSession(this.characterId, this.session);
+            memoryManager.save();
+        }
 
         // Clean up escape handler
         if (this._escHandler) {
@@ -172,7 +177,32 @@ export class StudioPopup {
         this.isMinimized = false;
         if (this.el) this.el.style.display = '';
         if (this._minBar) this._minBar.style.display = 'none';
+        // BUG-013 FIX: Refresh card fields in case user edited the character in
+        // SillyTavern's native editor while the studio was minimized.
+        // BUG-031 FIX: Guard behind !chatEngine.isGenerating — if a field write
+        // is in flight, readCurrentCard() may return a partially-written object
+        // which would then be overwritten by the generation result anyway.
+        if (!chatEngine.isGenerating) {
+            const fresh = cardManager.readCurrentCard();
+            if (fresh) {
+                this.cardFields = fresh;
+                cardPanel.updateCardFields(this.cardFields);
+            }
+        }
         this._focusInput();
+    }
+
+    // BUG-032: Public method called by the CHARACTER_EDITED event (index.js)
+    // when the user edits the character in ST while the studio is open+visible.
+    refreshCardFields() {
+        if (!this.isOpen || this.isMinimized || chatEngine.isGenerating) return;
+        const fresh = cardManager.readCurrentCard();
+        if (!fresh) return;
+        this.cardFields = fresh;
+        cardPanel.updateCardFields(this.cardFields);
+        // Also update the name label in the header
+        const nameEl = this.$('#ccs-char-name');
+        if (nameEl) nameEl.textContent = fresh.name || 'Character';
     }
 
     // ── DOM build — NO document.getElementById here ───────────────────────────
@@ -300,10 +330,18 @@ export class StudioPopup {
         ideaPanel.init('ccs-idea-panel-container');
         this._renderSnippetBar();
 
-        // Resume banner — session already loaded, check if it has history
+        // Resume banner
         const hasHistory = (this.session.conversationHistory?.length || 0) > 0;
         const resumeBtn = document.getElementById('ccs-resume-btn');
         if (resumeBtn) resumeBtn.style.display = hasHistory ? '' : 'none';
+
+        // BUG-004 FIX: Auto-expand the workspace drawer on first-ever mobile open
+        // so users immediately see the card fields instead of just a thin handle bar.
+        const workspaceCol = this.$('#ccs-workspace-col');
+        if (workspaceCol && window.matchMedia('(max-width: 768px)').matches && !hasHistory) {
+            // Small delay so the DOM is fully painted first
+            setTimeout(() => this._setDrawerExpanded(workspaceCol, true), 120);
+        }
     }
 
     // ── Restore saved session to UI on re-open ────────────────────────────────
@@ -359,51 +397,83 @@ export class StudioPopup {
         if (!fieldName || !this.cardFields) return;
         // Write directly to the card
         if (fieldName === 'alternate_greetings') {
-            this.cardFields[fieldName] = value.split('\n---\n');
+            // Always produce a real array — filter empty strings from split
+            const parts = value.split('\n---\n').map(s => s.trim()).filter(Boolean);
+            this.cardFields[fieldName] = parts.length ? parts : [value.trim()];
         } else {
             this.cardFields[fieldName] = value;
         }
-        await cardManager.writeField(fieldName, this.cardFields[fieldName]);
-        // Create a version in history
-        if (this.session) {
-            memoryManager.addFieldVersion(this.session, fieldName, this.cardFields[fieldName], 'Manual edit');
+        try {
+            await cardManager.writeField(fieldName, this.cardFields[fieldName]);
+            // Version history
+            if (this.session) {
+                memoryManager.addFieldVersion(this.session, fieldName, this.cardFields[fieldName], 'Manual edit');
+                memoryManager.save();
+            }
+            cardPanel.setFieldStatus(fieldName, 'accepted');
+            // BUG-030 FIX: Use targeted row update instead of full panel re-render.
+            // updateCardFields() rebuilds innerHTML entirely, resetting open drawers
+            // and causing a visual flash. setFieldStatus already calls _updateFieldRow
+            // and _updateTokenBudget internally. Only alternate_greetings needs a
+            // full render because it can change the number of rows (array type).
+            if (fieldName === 'alternate_greetings') {
+                cardPanel.updateCardFields(this.cardFields);
+            }
+            // else: setFieldStatus() above has already refreshed the row
+            this._flashSaveIndicator();
+            toastManager.show(`✅ Saved ${fieldName}`, 'success');
+        } catch (err) {
+            console.error('[CCS] Quick edit write failed:', err);
+            toastManager.show(`❌ Save failed for ${fieldName}: ${err.message}`, 'error');
         }
-        cardPanel.setFieldStatus(fieldName, 'accepted');
-        cardPanel.updateCardFields(this.cardFields);
-        this._flashSaveIndicator();
     }
 
     // ── Phase routing ──────────────────────────────────────────────────────────
 
     _routeToPhase(phase) {
+        const prevPhase = this.currentPhase;
         this.currentPhase = phase;
         this.session.currentPhase = phase;
         this._updatePhaseBadge(phase);
         this._updatePhaseTabs(phase);
 
+        // BUG-019 FIX: Wrap phase start in try/catch; revert badge on failure
+        const revertPhase = () => {
+            this.currentPhase = prevPhase;
+            this.session.currentPhase = prevPhase;
+            this._updatePhaseBadge(prevPhase);
+            this._updatePhaseTabs(prevPhase);
+        };
+
         switch (phase) {
             case PHASE.IDEATION:
-                ideationPhase.start(this.session, this.cardFields, () => this._routeToPhase(PHASE.BUILDING));
+                try {
+                    ideationPhase.start(this.session, this.cardFields, () => this._routeToPhase(PHASE.BUILDING));
+                } catch (err) { revertPhase(); toastManager.show('Failed to start Ideation phase: ' + err.message, 'error'); }
                 break;
             case PHASE.BUILDING:
-                generationPhase.start(this.session, this.cardFields, {
-                    onCardUpdated: () => {
-                        this.cardFields = cardManager.readCurrentCard() || this.cardFields;
-                        cardPanel.updateCardFields(this.cardFields);
-                    },
-                });
+                try {
+                    generationPhase.start(this.session, this.cardFields, {
+                        onCardUpdated: () => {
+                            this.cardFields = cardManager.readCurrentCard() || this.cardFields;
+                            cardPanel.updateCardFields(this.cardFields);
+                        },
+                    });
+                } catch (err) { revertPhase(); toastManager.show('Failed to start Building phase: ' + err.message, 'error'); }
                 break;
             case PHASE.LOREBOOK:
-                lorebookPhase.start(this.session, this.cardFields, {
-                    onUpdated: () => {
-                        lorebookPanel.render(
-                            this.session.lorebookLog.acceptedEntries,
-                            lorebookPhase.pendingEntries
-                        );
-                        this._switchWorkspaceTab(TAB.LOREBOOK);
-                    },
-                });
-                this._switchWorkspaceTab(TAB.LOREBOOK);
+                try {
+                    lorebookPhase.start(this.session, this.cardFields, {
+                        onUpdated: () => {
+                            lorebookPanel.render(
+                                this.session.lorebookLog.acceptedEntries,
+                                lorebookPhase.pendingEntries
+                            );
+                            this._switchWorkspaceTab(TAB.LOREBOOK);
+                        },
+                    });
+                    this._switchWorkspaceTab(TAB.LOREBOOK);
+                } catch (err) { revertPhase(); toastManager.show('Failed to start Lorebook phase: ' + err.message, 'error'); }
                 break;
         }
     }
@@ -719,16 +789,22 @@ export class StudioPopup {
             this._setDrawerExpanded(col, !isExpanded);
         });
 
-        // Swipe up on workspace column = expand; swipe down = collapse
+        // BUG-005 FIX: Raise swipe threshold to 80px (was 30px, too sensitive)
+        // and only trigger when the swipe STARTED on or near the handle area.
         const col = this.$('#ccs-workspace-col');
         if (!col) return;
         let touchStartY = 0;
+        let touchStartOnHandle = false;
         col.addEventListener('touchstart', (e) => {
             touchStartY = e.touches[0].clientY;
+            // Only count swipes that begin in the top 60px of the drawer (handle area)
+            const colRect = col.getBoundingClientRect();
+            touchStartOnHandle = (touchStartY - colRect.top) < 60;
         }, { passive: true });
         col.addEventListener('touchend', (e) => {
+            if (!touchStartOnHandle) return; // ignore scrolling inside panel content
             const dy = touchStartY - e.changedTouches[0].clientY;
-            if (Math.abs(dy) < 30) return;  // ignore micro-swipes
+            if (Math.abs(dy) < 80) return;  // ignore micro-swipes (raised from 30px)
             if (dy > 0) this._setDrawerExpanded(col, true);   // swipe up → expand
             else        this._setDrawerExpanded(col, false);  // swipe down → collapse
         }, { passive: true });
@@ -826,20 +902,9 @@ export class StudioPopup {
         chatPanel.addSystemMessage(`↩ Restored ${fieldName} to v${idx + 1}`, 'info');
     }
 
-    async _handleQuickEdit(fieldName, newVal) {
-        if (!this.cardFields) return;
-        
-        await cardManager.writeField(fieldName, newVal);
-        this.cardFields[fieldName] = newVal;
-        
-        // Log it as a manual edit
-        memoryManager.logFieldGeneration(this.session, fieldName, newVal, 'Manual Quick Edit');
-        
-        cardPanel.setFieldStatus(fieldName, 'accepted');
-        cardPanel.updateCardFields(this.cardFields);
-        this._flashSaveIndicator();
-        toastManager.show(`Saved manual edit for ${fieldName}`, 'success');
-    }
+
+    // NOTE: _handleQuickEdit is defined at line 358. The duplicate that was here
+    // (calling non-existent memoryManager.logFieldGeneration) has been removed.
 
     async _handleAnnotationRequest(selectedText, action) {
         const messages = {
