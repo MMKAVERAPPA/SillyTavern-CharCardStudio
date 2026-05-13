@@ -152,45 +152,30 @@ export class StudioPopup {
     minimize() {
         if (!this.isOpen || this.isMinimized) return;
         this.isMinimized = true;
-        if (this.el) this.el.style.display = 'none';
+        // Add CSS class to hide inner content while keeping the overlay in the DOM.
+        // This lets the _minBar (position:absolute inside the overlay) stay anchored
+        // to the viewport bottom — no position:fixed stacking context issues on mobile.
+        if (this.el) this.el.classList.add('ccs-minimized');
 
-        // Create floating restore bar if it doesn't exist
+        // Create restore bar if it doesn't exist
         if (!this._minBar) {
             this._minBar = document.createElement('div');
             this._minBar.className = 'ccs-min-bar';
-            // NUCLEAR OPTION: Force all positioning styles inline with maximum z-index
-            this._minBar.style.cssText = `
-                display: flex !important;
-                position: fixed !important;
-                bottom: 0 !important;
-                left: 0 !important;
-                right: 0 !important;
-                width: 100% !important;
-                z-index: 2147483646 !important;
-                background: var(--ccs-surface2, #1a1b26) !important;
-                border-top: 1px solid var(--ccs-border2, #414868) !important;
-                padding: 10px 16px !important;
-                align-items: center !important;
-                gap: 10px !important;
-                box-sizing: border-box !important;
-                font-family: var(--ccs-font, sans-serif) !important;
-                font-size: 0.85rem !important;
-                color: var(--ccs-text, #c0caf5) !important;
-                box-shadow: 0 -4px 20px rgba(0,0,0,0.4) !important;
-                pointer-events: auto !important;
-            `;
             this._minBar.innerHTML = `
                 <span class="ccs-min-bar-icon">🎭</span>
                 <span class="ccs-min-bar-label">Card Studio — ${this._esc(this.cardFields?.name || 'Character')}</span>
                 <span class="ccs-min-bar-phase">${this.currentPhase}</span>
-                <button class="ccs-min-bar-restore" title="Restore" style="background:var(--ccs-accent,#7aa2f7);color:#fff;border:none;border-radius:4px;padding:6px 14px;font-size:0.8rem;font-weight:600;cursor:pointer;flex-shrink:0;touch-action:manipulation;">▲ Restore</button>
-                <button class="ccs-min-bar-close" title="Close Studio" style="background:none;border:none;color:var(--ccs-text3,#565f89);font-size:1rem;cursor:pointer;padding:4px 8px;flex-shrink:0;touch-action:manipulation;">✕</button>
+                <button class="ccs-min-bar-restore" title="Restore">▲ Restore</button>
+                <button class="ccs-min-bar-close" title="Close Studio">✕</button>
             `;
             this._minBar.querySelector('.ccs-min-bar-restore').addEventListener('click', () => this.restore());
             this._minBar.querySelector('.ccs-min-bar-close').addEventListener('click', () => this.close());
-            document.body.appendChild(this._minBar);
+            // Append inside the studio overlay (not document.body).
+            // The overlay is position:fixed;inset:0, so position:absolute children
+            // are positioned relative to the full viewport — works on all devices.
+            this.el.appendChild(this._minBar);
         } else {
-            // Bar already exists, just make it visible
+            // Bar already exists, just make it visible again
             this._minBar.style.display = 'flex';
         }
     }
@@ -198,7 +183,8 @@ export class StudioPopup {
     restore() {
         if (!this.isOpen || !this.isMinimized) return;
         this.isMinimized = false;
-        if (this.el) this.el.style.display = '';
+        // Remove the minimized class to reveal the studio inner content again
+        if (this.el) this.el.classList.remove('ccs-minimized');
         if (this._minBar) this._minBar.style.display = 'none';
         // BUG-013 FIX: Refresh card fields in case user edited the character in
         // SillyTavern's native editor while the studio was minimized.

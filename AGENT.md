@@ -205,3 +205,52 @@ fetch('/api/characters/merge-attributes', { method: 'POST', headers: getRequestH
 - If element exists but not visible: Check computed z-index in DevTools
 - If element doesn't exist: Debug _build() method in settings-modal.js
 - Consider adding console.log statements to track execution flow
+
+---
+
+## Session 2 — Mobile-Specific Fixes (2026-05-13)
+
+### NEW CRITICAL LEARNING: position:fixed Containment on Mobile
+
+**Problem**: `position: fixed; inset: 0` on elements appended to `document.body` breaks on mobile
+when SillyTavern's page-level elements (left nav panel, wand menu) have active CSS transforms.
+Any CSS `transform` on an ancestor creates a new "containing block" for `position: fixed` descendants,
+causing them to be positioned relative to the transformed element instead of the viewport.
+
+**This affects any element appended to document.body AFTER ST's DOM is animated**, including:
+- Settings modal (`#ccs-settings-modal`)
+- Minimize restore bar (`.ccs-min-bar`)
+
+**Symptoms on mobile**:
+- Settings modal appears inside the studio header bar area, not full-screen
+- Minimize bar doesn't appear at viewport bottom at all
+
+**THE CORRECT PATTERN** for all CCS overlay children:
+1. The studio overlay itself (`#ccs-studio`) is appended to `document.body` once, BEFORE any animations — this works reliably.
+2. ALL elements that need to cover the viewport should be `position: absolute; inset: 0` INSIDE the studio overlay.
+3. The studio overlay is `position: fixed; inset: 0` — its absolute children inherit the same full-viewport frame with zero stacking context risk.
+4. **Never** append new `position: fixed` elements to `document.body` from within the extension.
+
+### Bug #1 (Settings Modal - Mobile) — ✅ FIXED
+- **Root Cause**: `open()` ignored the `container` param and always used `document.body` + `position:fixed`
+- **Fix**: Use passed `container` (studio overlay element); CSS handles `position:absolute` via scoped rule
+- **Files**: `ui/settings-modal.js` (open method), `style.css` (new .ccs-studio-overlay .ccs-modal-overlay rule)
+
+### Bug #2 (Minimize Bar - Mobile) — ✅ FIXED
+- **Root Cause**: `minimize()` used `display:none` on overlay (orphaning the bar) + appended bar to `document.body` with `position:fixed`
+- **Fix**: Add/remove `ccs-minimized` CSS class instead of display:none; append bar to `this.el` (inside overlay)
+- **Files**: `ui/popup.js` (minimize/restore methods), `style.css` (.ccs-min-bar position, new .ccs-minimized rules)
+
+### CSS Properties Created for These Fixes
+```css
+/* Settings modal inside overlay */
+.ccs-studio-overlay .ccs-modal-overlay { position: absolute; z-index: 100; }
+
+/* Minimized state */
+.ccs-studio-overlay.ccs-minimized { background: transparent; pointer-events: none; }
+.ccs-studio-overlay.ccs-minimized .ccs-studio-inner { display: none; }
+.ccs-studio-overlay.ccs-minimized .ccs-min-bar { pointer-events: auto; }
+
+/* Min bar — was position:fixed, now position:absolute */
+.ccs-min-bar { position: absolute; bottom: 0; left: 0; right: 0; z-index: 50; }
+```

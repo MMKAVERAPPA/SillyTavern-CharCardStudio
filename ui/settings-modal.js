@@ -13,34 +13,14 @@ export class SettingsModal {
 
     open(container = null) {
         document.getElementById('ccs-settings-modal')?.remove();
-        // Always append to document.body for maximum z-index effectiveness
-        this._container = document.body;
+        // Render inside the studio overlay element (position:absolute) rather than
+        // document.body (position:fixed). This avoids position:fixed containment
+        // failures on mobile caused by CSS transforms on ST's page-level elements.
+        // The studio overlay is already position:fixed;inset:0 so its absolute
+        // children get the same full-viewport frame with zero stacking context risk.
+        this._container = container || document.body;
         this._build();
         this._container.appendChild(this.el);
-        // NUCLEAR OPTION: Force all positioning styles inline with maximum z-index
-        this.el.style.cssText = `
-            display: flex !important;
-            position: fixed !important;
-            inset: 0 !important;
-            z-index: 2147483647 !important;
-            background: rgba(0, 0, 0, 0.75) !important;
-            align-items: center !important;
-            justify-content: center !important;
-            padding: 16px !important;
-            box-sizing: border-box !important;
-            overflow-y: auto !important;
-        `;
-        // Force modal inner to be visible
-        const modal = this.el.querySelector('.ccs-modal');
-        if (modal) {
-            modal.style.cssText = `
-                display: flex !important;
-                flex-direction: column !important;
-                min-height: 500px !important;
-                max-height: 90vh !important;
-                overflow: hidden !important;
-            `;
-        }
         this._bind();
         this._renderStats();
     }

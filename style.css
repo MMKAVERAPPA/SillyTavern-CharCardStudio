@@ -1155,12 +1155,15 @@
    The JS creates this element but it had no visibility styles at all.
    ══════════════════════════════════════════════════════════════════════════════ */
 .ccs-min-bar {
-    position: fixed;
+    /* position:absolute relative to studio overlay (which is position:fixed;inset:0).
+       This reliably pins to viewport bottom on all devices without fighting
+       position:fixed containment issues from ST's page-level CSS transforms. */
+    position: absolute;
     bottom: 0;
     left: 0;
     right: 0;
     width: 100%;
-    z-index: 29998; /* Just below ST modals (29999), above studio (29900) */
+    z-index: 50; /* Above studio content; no need for a high global z-index */
     background: var(--ccs-surface2);
     border: 1px solid var(--ccs-border2);
     border-bottom: none;
@@ -1257,4 +1260,33 @@
         align-items: center;
         justify-content: center;
     }
+}
+
+/* ══════════════════════════════════════════════════════════════════════════════
+   MOBILE FIX: Settings modal rendered inside studio overlay.
+   The studio overlay is already position:fixed;inset:0, so any position:absolute
+   child covers the same full-viewport area — no stacking context risk from
+   CSS transforms on ST's page-level elements.
+   ══════════════════════════════════════════════════════════════════════════════ */
+.ccs-studio-overlay .ccs-modal-overlay {
+    position: absolute; /* relative to studio overlay — same viewport coverage */
+    z-index: 100;       /* just above studio content; parent overlay handles global z */
+}
+
+/* ══════════════════════════════════════════════════════════════════════════════
+   MOBILE FIX: Minimized state.
+   Instead of display:none (which removes the overlay and orphans _minBar),
+   we keep the overlay in the DOM but invisible. The restore bar
+   (position:absolute;bottom:0 inside the overlay) stays pinned to the
+   viewport bottom on all devices and screen sizes.
+   ══════════════════════════════════════════════════════════════════════════════ */
+.ccs-studio-overlay.ccs-minimized {
+    background: transparent;  /* Remove dark backdrop — studio is invisible */
+    pointer-events: none;     /* Clicks pass through the invisible overlay */
+}
+.ccs-studio-overlay.ccs-minimized .ccs-studio-inner {
+    display: none;            /* Hide all studio content */
+}
+.ccs-studio-overlay.ccs-minimized .ccs-min-bar {
+    pointer-events: auto;     /* Restore bar remains fully interactive */
 }
