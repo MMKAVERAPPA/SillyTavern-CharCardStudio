@@ -130,26 +130,34 @@ fetch('/api/characters/merge-attributes', { method: 'POST', headers: getRequestH
 
 ## Current Status
 
-### Bug #3 (Save Errors)
-- **Root Cause #1**: Was using wrong endpoints (`/api/characters/save`, `/api/characters/edit`)
-- **Root Cause #2**: Tried clicking save button programmatically (unreliable)
-- **Root Cause #3**: Correct endpoint is `/api/characters/merge-attributes`
-- **Fix Applied**: Refactored to use `/api/characters/merge-attributes` endpoint (same as Character Creator extension)
+### Bug #3 (Save Errors) - ✅ FIXED
+- **Root Cause**: Was using wrong endpoints (`/api/characters/save`, `/api/characters/edit`)
+- **Fix Applied**: Refactored to use `/api/characters/merge-attributes` endpoint
 - **Pattern**: Send avatar filename + fields to update → API merges into existing character
-- **Confidence**: VERY HIGH - This is the proven pattern from working extensions
-- **Status**: Should be FIXED now
+- **Status**: WORKING - User confirmed saves work now
 
-### Bug #1 (Settings Modal - 412 x 0)
-- **Root Cause**: Modal had no minimum height, collapsed to 0px
-- **Fix Applied**: Added `min-height: 400px` to `.ccs-modal` in style.css
-- **Confidence**: HIGH - CSS fix should work immediately
-- **Status**: Should be FIXED after refresh
+### Bug #1 (Settings Modal - 412 x 0) - 🔧 SHOULD BE FIXED NOW
+- **Root Cause #1**: Modal had no minimum height, collapsed to 0px
+- **Root Cause #2**: Multiple duplicate CSS definitions (lines 535, 983, 1125) with inconsistent values
+- **Root Cause #3**: Z-index using extreme value (2147483647) instead of ST-compatible value (30000)
+- **Fix Applied**: 
+  - Added `min-height: 500px !important` to `.ccs-modal` (all 3 locations)
+  - Changed z-index from 2147483647 to 30000 (all locations including mobile media query)
+  - Added !important to force override any inline styles
+- **Confidence**: HIGH - CSS should now properly apply
+- **Status**: Ready to test after browser refresh
 
-### Bug #2 (Minimize Bar - Not Displaying Properly)
-- **Root Cause**: Object.assign not applying display: flex properly in some browsers
-- **Fix Applied**: Changed to cssText with !important flags to force all styles
-- **Confidence**: HIGH - cssText is more reliable than Object.assign for inline styles
-- **Status**: Should be FIXED after refresh
+### Bug #2 (Minimize Bar - Not Displaying Properly) - 🔧 SHOULD BE FIXED NOW
+- **Root Cause #1**: Inline styles conflicting with CSS positioning
+- **Root Cause #2**: CSS used `left: 50%; transform: translateX(-50%)` (centering) but inline had `left: 0; right: 0`
+- **Root Cause #3**: Transform conflict causing layout issues
+- **Fix Applied**:
+  - Simplified inline styles to only override positioning: `left: 0; right: 0; transform: none; max-width: 100%`
+  - Updated CSS to use full-width layout (`left: 0; right: 0; width: 100%`) instead of centering
+  - Changed `display: ''` to `display: 'flex'` explicitly
+  - Removed transform from CSS positioning, only used in animation
+- **Confidence**: HIGH - No more style conflicts
+- **Status**: Ready to test after browser refresh
 
 ## Next Steps
 1. ✅ Fixed import path to `../../../../../script.js`

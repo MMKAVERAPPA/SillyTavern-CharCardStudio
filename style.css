@@ -533,7 +533,7 @@
 /* ── Settings modal ──────────────────────────────────────────── */
 /* Z-index above ST modals (29999) to ensure visibility */
 .ccs-modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.7); z-index: 30000; display: flex; align-items: center; justify-content: center; }
-.ccs-modal { background: var(--ccs-surface); border: 1px solid var(--ccs-border2); border-radius: var(--ccs-radius); width: min(640px, 95vw); max-height: 85vh; min-height: 400px; display: flex; flex-direction: column; box-shadow: var(--ccs-shadow); }
+.ccs-modal { background: var(--ccs-surface); border: 1px solid var(--ccs-border2); border-radius: var(--ccs-radius); width: min(640px, 95vw); max-height: 85vh; min-height: 400px !important; display: flex; flex-direction: column; box-shadow: var(--ccs-shadow); }
 .ccs-settings-modal-inner { }
 .ccs-modal-header { display: flex; align-items: center; justify-content: space-between; padding: 14px 16px; border-bottom: 1px solid var(--ccs-border); font-weight: 700; color: var(--ccs-text); }
 .ccs-modal-close { background: none; border: none; color: var(--ccs-text3); font-size: 1.1rem; cursor: pointer; }
@@ -978,7 +978,7 @@
 
 /* ══════════════════════════════════════════════════════════════════════════════
    BUG-001 FIX: Modal overlay — appended to document.body now.
-   Must use z-index higher than SillyTavern's entire UI stack.
+   Z-index above ST modals (29999) to ensure visibility.
    ══════════════════════════════════════════════════════════════════════════════ */
 .ccs-modal-overlay {
     position: fixed;
@@ -987,8 +987,8 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    /* Must exceed studio overlay (2147483640) and ALL ST UI layers */
-    z-index: 2147483647;
+    /* Above ST modals at 29999 */
+    z-index: 30000;
     animation: ccs-fade-in 0.15s ease;
     backdrop-filter: blur(4px);
     -webkit-backdrop-filter: blur(4px);
@@ -1005,6 +1005,7 @@
     box-shadow: var(--ccs-shadow-lg);
     width: 100%;
     max-width: 680px;
+    min-height: 500px !important;
     max-height: 90vh;
     display: flex;
     flex-direction: column;
@@ -1125,15 +1126,14 @@
     .ccs-modal-overlay {
         padding: 0;
         align-items: flex-end;
-        /* Re-assert z-index here — some mobile browsers/ST themes reset
-           z-index for fixed elements when a media query partially overrides
-           an earlier rule. !important ensures this wins. */
-        z-index: 2147483647 !important;
+        /* Above ST modals at 29999 */
+        z-index: 30000 !important;
     }
     .ccs-modal,
     .ccs-settings-modal-inner {
         max-width: 100% !important;
         width: 100% !important;
+        min-height: 400px !important;
         max-height: 92dvh;
         border-radius: var(--ccs-radius) var(--ccs-radius) 0 0;
         margin: 0;
@@ -1158,29 +1158,28 @@
 .ccs-min-bar {
     position: fixed;
     bottom: 0;
-    left: 50%;
-    transform: translateX(-50%);
+    left: 0;
+    right: 0;
+    width: 100%;
     z-index: 29998; /* Just below ST modals (29999), above studio (29900) */
     background: var(--ccs-surface2);
     border: 1px solid var(--ccs-border2);
     border-bottom: none;
-    border-radius: var(--ccs-radius) var(--ccs-radius) 0 0;
     box-shadow: 0 -4px 20px rgba(0,0,0,0.4);
     display: flex;
     align-items: center;
     gap: 10px;
     padding: 10px 16px;
-    min-width: 280px;
-    max-width: 90vw;
     color: var(--ccs-text);
     font-family: var(--ccs-font);
     font-size: 0.85rem;
     animation: ccs-min-bar-in 0.2s cubic-bezier(0.4, 0, 0.2, 1);
     touch-action: manipulation;
+    box-sizing: border-box;
 }
 @keyframes ccs-min-bar-in {
-    from { transform: translateX(-50%) translateY(100%); opacity: 0; }
-    to   { transform: translateX(-50%) translateY(0);   opacity: 1; }
+    from { transform: translateY(100%); opacity: 0; }
+    to   { transform: translateY(0);   opacity: 1; }
 }
 .ccs-min-bar-icon { font-size: 1.1rem; flex-shrink: 0; }
 .ccs-min-bar-label {

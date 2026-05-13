@@ -158,26 +158,12 @@ export class StudioPopup {
         if (!this._minBar) {
             this._minBar = document.createElement('div');
             this._minBar.className = 'ccs-min-bar';
-            // Belt-and-suspenders: inline styles guarantee visibility even if
-            // ST's CSS cascade delays or overrides our stylesheet for fixed elements.
+            // Override CSS positioning to use full width instead of centered
             this._minBar.style.cssText = `
-                position: fixed !important;
-                bottom: 0 !important;
                 left: 0 !important;
                 right: 0 !important;
-                width: 100% !important;
-                z-index: 29998 !important;
-                display: flex !important;
-                align-items: center !important;
-                gap: 10px !important;
-                padding: 10px 16px !important;
-                background: var(--ccs-surface2, #1a1b26) !important;
-                border: 1px solid var(--ccs-border2, #414868) !important;
-                border-bottom: none !important;
-                box-sizing: border-box !important;
-                font-family: var(--ccs-font, sans-serif) !important;
-                font-size: 0.85rem !important;
-                color: var(--ccs-text, #c0caf5) !important;
+                transform: none !important;
+                max-width: 100% !important;
             `;
             this._minBar.innerHTML = `
                 <span class="ccs-min-bar-icon">🎭</span>
@@ -190,7 +176,7 @@ export class StudioPopup {
             this._minBar.querySelector('.ccs-min-bar-close').addEventListener('click', () => this.close());
             document.body.appendChild(this._minBar);
         }
-        this._minBar.style.display = '';
+        this._minBar.style.display = 'flex';
     }
 
     restore() {
