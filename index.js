@@ -7,7 +7,9 @@ import { SlashCommandParser } from '../../../slash-commands/SlashCommandParser.j
 import { SlashCommand } from '../../../slash-commands/SlashCommand.js';
 
 import { studioPopup } from './ui/popup.js';
+import { settingsModal } from './ui/settings-modal.js';
 import { memoryManager } from './core/memory.js';
+import { cardManager } from './core/card.js';
 import { apiManager } from './core/api.js';
 import { toastManager } from './ui/toast.js';
 
@@ -29,6 +31,33 @@ async function init() {
     if (window._ccsInitialized) return;
     window._ccsInitialized = true;
 
+    // Global error boundary: surface unhandled CCS rejections as a toast
+    // rather than silently losing them or crashing the page.
+    if (!window._ccsErrorBoundary) {
+        window._ccsErrorBoundary = true;
+        window.addEventListener('unhandledrejection', (event) => {
+            const reason = event.reason;
+            if (!reason) return;
+            const stack = reason?.stack || reason?.message || String(reason);
+            // Only catch errors originating from CharCardStudio code paths
+            if (!stack.includes('CharCardStudio') && !stack.includes('/ccs-')) return;
+            console.error(`[${EXT_NAME}] Unhandled rejection:`, reason);
+            toastManager.show(`⚠️ Studio error: ${reason?.message || reason}`, 'error');
+        });
+    }
+
+    // DEBUG: Expose modules to window for console testing
+    if (!window._ccsModules) {
+        window._ccsModules = {
+            studioPopup,
+            settingsModal,
+            memoryManager,
+            cardManager,
+            apiManager,
+            toastManager,
+        };
+    }
+
     // Init memory/settings
     try { memoryManager.init(); } catch (e) { console.warn(`[${EXT_NAME}] memoryManager.init failed:`, e); }
 
@@ -48,7 +77,7 @@ async function init() {
     // Register ST event listeners
     registerSTEvents();
 
-    console.log(`[${EXT_NAME}] v3.0.0 loaded ✓`);
+    console.log(`[${EXT_NAME}] v3.2.0 loaded ✓`);
 }
 
 // ── Wand-menu entry (the ONLY entry point — works on desktop and mobile) ──────
@@ -110,18 +139,17 @@ function registerSTEvents() {
         // Re-inject menu entry if ST re-renders the UI
         eventSource.on(event_types.APP_READY, () => createUI());
 
-        // Update character name in studio header if character changes while open
+        // BUG-032 FIX: Refresh the studio's full card field cache when the user
+        // edits the character externally in ST while the studio is open.
+        // Previously this only updated the name label, leaving cardFields stale.
         eventSource.on(event_types.CHARACTER_EDITED, () => {
-            if (studioPopup.isOpen) {
-                const nameEl = document.getElementById('ccs-char-name');
-                const fields = studioPopup.cardFields;
-                if (nameEl && fields) nameEl.textContent = fields.name || 'Character';
-            }
+            studioPopup.refreshCardFields();
         });
     } catch (err) {
         console.warn(`[${EXT_NAME}] Event registration failed:`, err);
     }
 }
+
 
 // ── Open studio ───────────────────────────────────────────────────────────────
 

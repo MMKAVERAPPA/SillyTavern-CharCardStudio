@@ -24,6 +24,7 @@ export class MemoryManager {
         if (!s.globalSettings.platformTarget) s.globalSettings.platformTarget = 'chub';
         if (!s.globalSettings.voiceToneProfile) s.globalSettings.voiceToneProfile = this._defaultToneProfile();
         if (s.globalSettings.parallelApiCalls === undefined) s.globalSettings.parallelApiCalls = true;
+        if (s.globalSettings.inputLimitEnabled === undefined) s.globalSettings.inputLimitEnabled = true;
         if (!s.snippets) s.snippets = [];
         this.settings = extensionSettings[SETTINGS_KEY];
     }
@@ -53,6 +54,7 @@ export class MemoryManager {
                 compressionThreshold: DEFAULT_COMPRESSION_THRESHOLD,
                 // Parallel API calls
                 parallelApiCalls: true,       // false = run variations/batch ops sequentially
+                inputLimitEnabled: true,      // false = disable 12,000 char message length cap
                 // Platform
                 platformTarget: 'chub',      // 'chub' | 'fictionlab' | 'janitor' | 'personal'
                 // Voice/Tone
@@ -216,6 +218,12 @@ export class MemoryManager {
         }
         log.acceptedAt = Date.now();
     }
+
+    // BUG-009 FIX: alias so popup.js and any other caller using the old name still works
+    addFieldVersion(session, fieldName, content, summary = '') {
+        return this.saveFieldVersion(session, fieldName, content, summary);
+    }
+
 
     getFieldVersions(session, fieldName) {
         return session.fieldLog[fieldName]?.versions || [];

@@ -166,20 +166,60 @@ export function parseLorebookEntriesFromResponse(text) {
 export function parseConceptRating(text) {
     if (!text) return null;
     const result = { conceptName: '', scores: {}, overall: '', pillars: [] };
-    const nameMatch = text.match(/💡 Concept:\s*"([^"]+)"/);
-    if (nameMatch) result.conceptName = nameMatch[1];
-    const axes = ['Hook Strength','Longevity/Depth','Originality','RP Potential','Platform Appeal'];
-    for (const axis of axes) {
-        const escaped = axis.replace('/', '\\/');
-        const match = text.match(new RegExp(escaped + '[^★☆]*([★☆]+)'));
-        if (match) result.scores[axis] = (match[1].match(/★/g) || []).length;
+
+    // BUG-7 FIX: Match quoted AND unquoted concept names, with or without emoji prefix
+    const nameMatch = text.match(/(?:💡\s*)?Concept:\s*"([^"]+)"/)
+        || text.match(/(?:💡\s*)?Concept:\s*([^\n"]{2,60})/)
+        || text.match(/\*\*([^*]{2,60})\*\*/);
+    if (nameMatch) result.conceptName = nameMatch[1].trim().replace(/[*_]/g, '');
+
+    // BUG-7 FIX: Accept ★, ⭐, ✦, or numeric ratings like "4/5" or "(4)"
+    const countStars = (str) => {
+        if (!str) return 0;
+        const filled = (str.match(/★|⭐|✦/g) || []).length;
+        if (filled) return filled;
+        const numeric = str.match(/(\d)\s*\/\s*5/) || str.match(/\((\d)\)/);
+        if (numeric) return parseInt(numeric[1]);
+        return 0;
+    };
+
+    // BUG-7 FIX: Fuzzy axis matching — partial names, case-insensitive, any order
+    const axisPatterns = [
+        { key: 'Hook Strength',    pats: [/hook\s*strength/i, /hook/i] },
+        { key: 'Longevity/Depth',  pats: [/longevity.*depth/i, /longevity/i, /depth/i] },
+        { key: 'Originality',      pats: [/original/i] },
+        { key: 'RP Potential',     pats: [/rp\s*potential/i, /roleplay\s*potential/i, /rp/i] },
+        { key: 'Platform Appeal',  pats: [/platform\s*appeal/i, /platform/i, /appeal/i] },
+    ];
+
+    for (const { key, pats } of axisPatterns) {
+        for (const pat of pats) {
+            // Find the line that matches the axis name
+            const lineMatch = text.match(new RegExp(pat.source + '[^\n]*?([★⭐✦☆]+|\\d\\s*\\/\\s*5)', 'i'));
+            if (lineMatch) {
+                result.scores[key] = countStars(lineMatch[0]);
+                break;
+            }
+        }
     }
+
     const overallMatch = text.match(/Overall:\s*(.+?)(?:\n|$)/);
     if (overallMatch) result.overall = overallMatch[1].trim();
-    const pillarMatches = [...text.matchAll(/□\s+(.+)/g)];
-    result.pillars = pillarMatches.map(m => ({ name: m[1].trim(), resolved: false, answer: '' }));
+
+    // BUG-7 FIX: Accept □, •, -, *, or numbered bullets for pillars
+    const pillarMatches = [...text.matchAll(/^[\s]*[□•\-\*]\s+(.+)/gm)];
+    // Also accept numbered "1. ..." style if □ style not found
+    const numberedPillars = pillarMatches.length === 0
+        ? [...text.matchAll(/^\s*\d+\.\s+(.+)/gm)]
+        : [];
+    const allPillarLines = [...pillarMatches, ...numberedPillars];
+    result.pillars = allPillarLines
+        .map(m => ({ name: m[1].trim().replace(/[*_]/g, ''), resolved: false, answer: '' }))
+        .filter(p => p.name.length > 3 && p.name.length < 200);
+
     return result;
 }
+
 
 export function parseCardReview(text) {
     if (!text) return { raw: text };

@@ -7,12 +7,14 @@ export class ChatPanel {
         this.container = null;
         this.inputEl = null;
         this.sendBtn = null;
+        this.abortBtn = null;
         this.streamingEl = null;
         this.onSend = null;
         this.onAbort = null;
-        this.abortBtn = null;
         this.messages = [];
-        this._annotationHandler = null; // track for cleanup
+        this._annotationAbort = null; // AbortController for annotation listener
+        this._windowSize = 50;        // max .ccs-msg nodes in DOM at once
+        this._firstVisibleIdx = 0;    // index in this.messages of first DOM-rendered msg
     }
 
     init(containerId, onSend, onAbort) {
@@ -59,10 +61,22 @@ export class ChatPanel {
     // ── Message rendering ─────────────────────────────────────────────────────
 
     addMessage(role, content) {
-        // Dismiss welcome screen on first message
         this._dismissWelcome();
-
         const index = this.messages.length;
+        const el = this._buildMessageEl(role, content, index);
+        this.container?.appendChild(el);
+        this.messages.push({ role, content, el, index, ts: Date.now() });
+
+        // Virtual windowing: prune oldest DOM nodes when over the limit
+        const domCount = this.container?.querySelectorAll('.ccs-msg').length || 0;
+        if (domCount > this._windowSize) this._pruneOldMessages();
+
+        this._scrollToBottom();
+        return el;
+    }
+
+    // Build a message DOM element (extracted for reuse in virtual scrolling)
+    _buildMessageEl(role, content, index) {
         const el = document.createElement('div');
         el.className = `ccs-msg ccs-msg-${role}`;
         el.dataset.index = index;
@@ -96,23 +110,93 @@ export class ChatPanel {
         el.appendChild(bubble);
         el.appendChild(time);
         el.appendChild(actions);
-        this.container?.appendChild(el);
-        this.messages.push({ role, content, el, index, ts: Date.now() });
-        this._scrollToBottom();
         return el;
+    }
+
+    // Virtual windowing helpers
+    _pruneOldMessages() {
+        const domMsgs = [...(this.container?.querySelectorAll('.ccs-msg') || [])];
+        const excess = domMsgs.length - this._windowSize;
+        if (excess <= 0) return;
+        for (let i = 0; i < excess; i++) {
+            domMsgs[i].remove();
+            this._firstVisibleIdx++;
+        }
+        this._ensureLoadMoreSentinel();
+    }
+
+    _ensureLoadMoreSentinel() {
+        if (this.container?.querySelector('.ccs-load-more')) return;
+        if (this._firstVisibleIdx <= 0) return;
+        const sentinel = document.createElement('div');
+        sentinel.className = 'ccs-load-more';
+        const hidden = this._firstVisibleIdx;
+        sentinel.innerHTML = `<button class="ccs-load-more-btn">▲ Load ${Math.min(hidden, 30)} earlier messages</button>`;
+        sentinel.querySelector('button').addEventListener('click', () => this._loadMoreMessages());
+        this.container?.prepend(sentinel);
+    }
+
+    _loadMoreMessages() {
+        if (this._firstVisibleIdx <= 0) {
+            this.container?.querySelector('.ccs-load-more')?.remove();
+            return;
+        }
+        const batchSize = 30;
+        const loadFrom = Math.max(0, this._firstVisibleIdx - batchSize);
+        const toLoad = this.messages.slice(loadFrom, this._firstVisibleIdx);
+        if (!toLoad.length) return;
+
+        // Preserve scroll offset from bottom
+        const scrollBottom = (this.container?.scrollHeight || 0) - (this.container?.scrollTop || 0);
+        const sentinel = this.container?.querySelector('.ccs-load-more');
+
+        // Rebuild DOM nodes for loaded messages (newest-first in DOM order)
+        [...toLoad].reverse().forEach(msg => {
+            const el = this._buildMessageEl(msg.role, msg.content, msg.index);
+            msg.el = el;
+            if (sentinel) sentinel.after(el);
+            else this.container?.prepend(el);
+        });
+
+        this._firstVisibleIdx = loadFrom;
+        if (this.container) this.container.scrollTop = this.container.scrollHeight - scrollBottom;
+
+        // Update or remove sentinel
+        if (this._firstVisibleIdx <= 0) {
+            sentinel?.remove();
+        } else {
+            const btn = sentinel?.querySelector('button');
+            if (btn) btn.textContent = `▲ Load ${Math.min(this._firstVisibleIdx, 30)} earlier messages`;
+        }
     }
 
     // Replay saved session history into DOM on re-open
     // FIX: Now pushes to this.messages so edit/resend works on restored messages
     restoreHistory(conversationHistory) {
         if (!conversationHistory?.length) return;
-        const hasSomething = conversationHistory.some(m => m.role === 'user' || m.role === 'assistant');
-        if (!hasSomething) return;
-        for (const msg of conversationHistory) {
-            if (msg.role === 'user' || msg.role === 'assistant') {
-                // FIX: Use normal addMessage so messages are tracked properly
-                this.addMessage(msg.role, msg.content);
-            }
+        const msgs = conversationHistory.filter(m => m.role === 'user' || m.role === 'assistant');
+        if (!msgs.length) return;
+
+        // If history exceeds window, only render the last _windowSize messages;
+        // push older messages into this.messages but not into the DOM.
+        const renderFrom = Math.max(0, msgs.length - this._windowSize);
+
+        for (let i = 0; i < renderFrom; i++) {
+            const m = msgs[i];
+            const index = this.messages.length;
+            this.messages.push({ role: m.role, content: m.content, el: null, index, ts: Date.now() });
+        }
+        this._firstVisibleIdx = renderFrom;
+
+        if (renderFrom > 0) this._ensureLoadMoreSentinel();
+
+        for (let i = renderFrom; i < msgs.length; i++) {
+            const m = msgs[i];
+            this._dismissWelcome();
+            const index = this.messages.length;
+            const el = this._buildMessageEl(m.role, m.content, index);
+            this.container?.appendChild(el);
+            this.messages.push({ role: m.role, content: m.content, el, index, ts: Date.now() });
         }
         this._scrollToBottom();
     }
@@ -301,10 +385,11 @@ export class ChatPanel {
     // ── Inline annotation ─────────────────────────────────────────────────────
 
     enableInlineAnnotation(session, onRequest) {
-        // FIX: Remove previous listener if any (prevents memory leak on re-open)
+        // Use AbortController for leak-proof cleanup — auto-aborts even if destroy() isn't called
         this.disableInlineAnnotation();
 
-        this._annotationHandler = () => {
+        this._annotationAbort = new AbortController();
+        document.addEventListener('mouseup', () => {
             const selection = window.getSelection();
             if (!selection || selection.isCollapsed) return;
             const text = selection.toString().trim();
@@ -314,16 +399,13 @@ export class ChatPanel {
             if (!this.container?.contains(selection.anchorNode)) return;
 
             this._showAnnotationPopup(text, selection.getRangeAt(0), onRequest);
-        };
-        document.addEventListener('mouseup', this._annotationHandler);
+        }, { signal: this._annotationAbort.signal });
     }
 
-    // FIX: Clean up annotation listener
+    // AbortController cleanup — calling abort() removes the listener automatically
     disableInlineAnnotation() {
-        if (this._annotationHandler) {
-            document.removeEventListener('mouseup', this._annotationHandler);
-            this._annotationHandler = null;
-        }
+        this._annotationAbort?.abort();
+        this._annotationAbort = null;
     }
 
     _showAnnotationPopup(selectedText, range, onRequest) {
@@ -366,6 +448,7 @@ export class ChatPanel {
         if (this.container) this.container.innerHTML = '';
         this.messages = [];
         this.streamingEl = null;
+        this._firstVisibleIdx = 0; // reset virtual window
     }
 
     // Full cleanup — called when studio closes

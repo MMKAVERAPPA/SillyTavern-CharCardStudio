@@ -51,15 +51,14 @@
     /* Use dynamic viewport height on mobile (accounts for browser chrome) */
     height: 100dvh;
     background: rgba(0,0,0,0.92);
-    /* Max safe z-index — must be above ALL SillyTavern UI layers on mobile */
-    z-index: 2147483640;
+    /* Use ST-compatible z-index (below ST modals at 29999, above ST content) */
+    z-index: 29900;
     display: flex;
     align-items: stretch;
     justify-content: stretch;
     animation: ccs-fade-in 0.2s ease;
     touch-action: auto;
-    /* Critical: isolate stacking context so transforms in ST don't affect us */
-    isolation: isolate;
+    /* REMOVED: isolation: isolate - This breaks position:fixed children! */
     /* Prevent iOS rubber-band scrolling on the overlay background */
     overscroll-behavior: contain;
 }
@@ -531,8 +530,9 @@
 .ccs-book-label { font-size: 0.85rem; color: var(--ccs-text2); }
 
 /* ── Settings modal ──────────────────────────────────────────── */
-.ccs-modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.7); z-index: 100002; display: flex; align-items: center; justify-content: center; }
-.ccs-modal { background: var(--ccs-surface); border: 1px solid var(--ccs-border2); border-radius: var(--ccs-radius); width: min(640px, 95vw); max-height: 85vh; display: flex; flex-direction: column; box-shadow: var(--ccs-shadow); }
+/* Z-index above ST modals (29999) to ensure visibility */
+.ccs-modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.7); z-index: 30000; display: flex; align-items: center; justify-content: center; }
+.ccs-modal { background: var(--ccs-surface); border: 1px solid var(--ccs-border2); border-radius: var(--ccs-radius); width: min(640px, 95vw); max-height: 85vh; min-height: 400px !important; display: flex; flex-direction: column; box-shadow: var(--ccs-shadow); }
 .ccs-settings-modal-inner { }
 .ccs-modal-header { display: flex; align-items: center; justify-content: space-between; padding: 14px 16px; border-bottom: 1px solid var(--ccs-border); font-weight: 700; color: var(--ccs-text); }
 .ccs-modal-close { background: none; border: none; color: var(--ccs-text3); font-size: 1.1rem; cursor: pointer; }
@@ -716,39 +716,10 @@
     transition: transform var(--ccs-anim);
 }
 
-/* ── Minimize bar ─────────────────────────────────────────────────────────── */
-.ccs-min-bar {
-    position: fixed;
-    bottom: 0;
-    left: 50%;
-    transform: translateX(-50%);
-    z-index: 99998;
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    background: var(--ccs-surface);
-    border: 1px solid var(--ccs-border2);
-    border-bottom: none;
-    border-radius: var(--ccs-radius) var(--ccs-radius) 0 0;
-    padding: 8px 16px;
-    box-shadow: 0 -4px 24px rgba(0,0,0,0.4);
-    min-width: 280px;
-    max-width: 90vw;
-}
-.ccs-min-bar-icon { font-size: 1.1rem; }
-.ccs-min-bar-label { flex: 1; font-size: 0.85rem; color: var(--ccs-text); font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.ccs-min-bar-phase { font-size: 0.72rem; color: var(--ccs-text3); background: var(--ccs-surface3); padding: 2px 8px; border-radius: 10px; }
-.ccs-min-bar-restore {
-    background: var(--ccs-accent); color: #fff; border: none;
-    border-radius: var(--ccs-radius-sm); padding: 4px 12px;
-    font-size: 0.8rem; cursor: pointer; white-space: nowrap;
-}
-.ccs-min-bar-restore:hover { background: #8ab4f8; }
-.ccs-min-bar-close {
-    background: transparent; border: none; color: var(--ccs-text3);
-    font-size: 0.9rem; cursor: pointer; padding: 2px 6px;
-}
-.ccs-min-bar-close:hover { color: var(--ccs-red); }
+/* ── Minimize bar — see comprehensive definition near end of file ──────────── */
+/* BUG-029 FIX: Old duplicate block removed. Full definition with correct z-index
+   (2147483646), mobile rules, and touch targets is at the bottom of this file. */
+
 
 /* ── Abort button visible state ───────────────────────────────────────────── */
 .ccs-abort-btn {
@@ -844,8 +815,8 @@
     .ccs-phase-badge { display: none; }
     .ccs-char-name { max-width: 120px; font-size: 0.75rem; }
 
-    /* Minimize bar full-width on mobile */
-    .ccs-min-bar { left: 0; right: 0; transform: none; width: 100%; border-radius: 0; }
+    /* Minimize pill — floats bottom-right, small pill shape */
+    .ccs-min-bar { bottom: 80px; right: 12px; left: auto; width: auto; border-radius: 100px; }
 
     /* Slightly larger input area elements */
     .ccs-chat-textarea { font-size: 0.9rem; }
@@ -873,7 +844,12 @@
     .ccs-msg-btn { padding: 4px 8px; }
     /* FIX: Show message actions always on touch (no hover) */
     .ccs-msg .ccs-msg-actions { opacity: 1; }
+    /* BUG-007 FIX: Field action buttons are hover-only on desktop.
+       Force them always visible on touch screens so users can tap them. */
+    .ccs-field-btns { opacity: 1 !important; visibility: visible !important; }
+    .ccs-field-btn { opacity: 1 !important; pointer-events: auto !important; }
 }
+
 
 /* FIX: Toolbar button — prevent being clipped by parent overflow */
 .ccs-toolbar-btn {
@@ -999,3 +975,337 @@
     min-width: 140px;
 }
 
+/* ══════════════════════════════════════════════════════════════════════════════
+   BUG-001 FIX: Modal overlay — appended to document.body now.
+   Z-index above ST modals (29999) to ensure visibility.
+   ══════════════════════════════════════════════════════════════════════════════ */
+.ccs-modal-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.75);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    /* Above ST modals at 29999 */
+    z-index: 30000;
+    animation: ccs-fade-in 0.15s ease;
+    backdrop-filter: blur(4px);
+    -webkit-backdrop-filter: blur(4px);
+    padding: 16px;
+    box-sizing: border-box;
+    touch-action: auto;
+    overflow-y: auto;
+}
+
+.ccs-modal {
+    background: var(--ccs-surface);
+    border: 1px solid var(--ccs-border2);
+    border-radius: var(--ccs-radius);
+    box-shadow: var(--ccs-shadow-lg);
+    width: 100%;
+    max-width: 680px;
+    min-height: 500px !important;
+    max-height: 90vh;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    position: relative;
+}
+
+.ccs-modal-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 16px 20px;
+    border-bottom: 1px solid var(--ccs-border);
+    flex-shrink: 0;
+    font-weight: 600;
+    color: var(--ccs-text);
+    background: var(--ccs-surface2);
+}
+
+.ccs-modal-close {
+    background: none;
+    border: none;
+    color: var(--ccs-text3);
+    cursor: pointer;
+    font-size: 1rem;
+    padding: 4px 8px;
+    border-radius: var(--ccs-radius-sm);
+    transition: color var(--ccs-anim-fast), background var(--ccs-anim-fast);
+}
+.ccs-modal-close:hover { color: var(--ccs-text); background: var(--ccs-surface3); }
+
+.ccs-modal-body {
+    flex: 1;
+    overflow-y: auto;
+    padding: 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+}
+
+.ccs-modal-footer {
+    display: flex;
+    gap: 10px;
+    justify-content: flex-end;
+    padding: 14px 20px;
+    border-top: 1px solid var(--ccs-border);
+    flex-shrink: 0;
+    background: var(--ccs-surface2);
+}
+
+/* Settings modal inner sizing */
+.ccs-settings-modal-inner {
+    max-width: 700px;
+}
+
+/* Settings tabs */
+.ccs-settings-tabs {
+    display: flex;
+    gap: 4px;
+    border-bottom: 1px solid var(--ccs-border);
+    margin-bottom: 16px;
+    flex-wrap: wrap;
+}
+.ccs-stab {
+    background: none;
+    border: none;
+    border-bottom: 2px solid transparent;
+    padding: 8px 14px;
+    color: var(--ccs-text3);
+    cursor: pointer;
+    font-size: 0.82rem;
+    font-weight: 500;
+    transition: color var(--ccs-anim-fast), border-color var(--ccs-anim-fast);
+    white-space: nowrap;
+}
+.ccs-stab:hover { color: var(--ccs-text); }
+.ccs-stab.active { color: var(--ccs-accent); border-bottom-color: var(--ccs-accent); }
+
+.ccs-stab-panel { display: none; }
+.ccs-stab-panel.active { display: block; }
+
+.ccs-setting-section {
+    margin-bottom: 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+.ccs-setting-label {
+    font-size: 0.82rem;
+    font-weight: 600;
+    color: var(--ccs-text2);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+.ccs-setting-hint {
+    font-size: 0.78rem;
+    color: var(--ccs-text3);
+    line-height: 1.5;
+}
+
+/* ══════════════════════════════════════════════════════════════════════════════
+   BUG-3 FIX: Drawer full-width — ensure .ccs-studio-body has NO side padding
+   on mobile so the absolutely-positioned drawer truly fills the full width.
+   ══════════════════════════════════════════════════════════════════════════════ */
+@media (max-width: 768px) {
+    .ccs-studio-body {
+        padding: 0 !important;
+    }
+    /* Explicit width:100% on drawer to override any inherited constraints */
+    #ccs-workspace-col {
+        width: 100% !important;
+        left: 0 !important;
+        right: 0 !important;
+        box-sizing: border-box;
+    }
+
+    /* ── BUG-10 FIX: Settings and other modals — full-screen on mobile ── */
+    .ccs-modal-overlay {
+        padding: 0;
+        align-items: flex-end;
+        /* Above ST modals at 29999 */
+        z-index: 30000 !important;
+    }
+    .ccs-modal,
+    .ccs-settings-modal-inner {
+        max-width: 100% !important;
+        width: 100% !important;
+        min-height: 400px !important;
+        max-height: 92dvh;
+        border-radius: var(--ccs-radius) var(--ccs-radius) 0 0;
+        margin: 0;
+    }
+
+    /* ── BUG-9 FIX: Shortcut help — full-width sheet on mobile ── */
+    .ccs-shortcut-help {
+        width: 100% !important;
+        max-width: 100% !important;
+        right: 0 !important;
+        left: 0 !important;
+        border-radius: var(--ccs-radius) var(--ccs-radius) 0 0;
+        bottom: 0;
+        top: auto;
+    }
+}
+
+/* ── Minimized restore pill ───────────────────────────────────────────────────────── */
+/* Compact floating pill — doesn't span full width, doesn't cover ST's UI */
+.ccs-min-bar {
+    position: absolute;
+    bottom: 24px;
+    right: 24px;
+    left: auto;    /* NOT full-width */
+    width: auto;
+    z-index: 50;
+    /* Glassmorphism pill */
+    background: rgba(26, 27, 38, 0.85);
+    backdrop-filter: blur(14px);
+    -webkit-backdrop-filter: blur(14px);
+    border: 1px solid rgba(122, 162, 247, 0.25);
+    border-radius: 100px;
+    box-shadow: 0 4px 24px rgba(0, 0, 0, 0.55),
+                0 0 0 1px rgba(122, 162, 247, 0.06),
+                inset 0 1px 0 rgba(255,255,255,0.05);
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 10px 8px 12px;
+    color: var(--ccs-text);
+    font-family: var(--ccs-font);
+    font-size: 0.82rem;
+    white-space: nowrap;
+    animation: ccs-min-bar-in 0.28s cubic-bezier(0.34, 1.56, 0.64, 1);
+    touch-action: manipulation;
+    box-sizing: border-box;
+}
+@keyframes ccs-min-bar-in {
+    from { transform: scale(0.7) translateY(10px); opacity: 0; }
+    to   { transform: scale(1)   translateY(0);    opacity: 1; }
+}
+.ccs-min-bar-icon { font-size: 1.1rem; flex-shrink: 0; }
+.ccs-min-bar-label {
+    flex: 1;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    font-weight: 500;
+    color: var(--ccs-text);
+}
+.ccs-min-bar-phase {
+    font-size: 0.75rem;
+    color: var(--ccs-accent);
+    background: rgba(122,162,247,0.15);
+    border: 1px solid rgba(122,162,247,0.3);
+    border-radius: 20px;
+    padding: 2px 8px;
+    flex-shrink: 0;
+    text-transform: capitalize;
+}
+.ccs-min-bar-restore {
+    background: var(--ccs-accent);
+    color: #fff;
+    border: none;
+    border-radius: var(--ccs-radius-sm);
+    padding: 6px 12px;
+    font-size: 0.8rem;
+    font-weight: 600;
+    cursor: pointer;
+    flex-shrink: 0;
+    touch-action: manipulation;
+    -webkit-tap-highlight-color: transparent;
+    transition: opacity var(--ccs-anim-fast);
+}
+.ccs-min-bar-restore:hover { opacity: 0.85; }
+.ccs-min-bar-close {
+    background: none;
+    border: none;
+    color: var(--ccs-text3);
+    cursor: pointer;
+    font-size: 1rem;
+    padding: 4px 6px;
+    border-radius: var(--ccs-radius-sm);
+    flex-shrink: 0;
+    touch-action: manipulation;
+    -webkit-tap-highlight-color: transparent;
+    transition: color var(--ccs-anim-fast);
+}
+.ccs-min-bar-close:hover { color: var(--ccs-red); }
+
+/* Mobile: compact pill, floats above ST's bottom UI elements (action buttons, input bar) */
+@media (max-width: 768px) {
+    .ccs-min-bar {
+        bottom: 80px;  /* safely above ST's character action buttons */
+        right: 12px;
+        left: auto;
+        width: auto;
+        max-width: calc(100vw - 24px);
+        padding: 8px 10px 8px 12px;
+    }
+    /* Mobile: hide the icon — saves space */
+    .ccs-min-bar-icon {
+        display: none;
+    }
+    /* Mobile: hide the close button — just Restore is enough */
+    .ccs-min-bar-close {
+        display: none;
+    }
+    /* Mobile: larger tap target for Restore */
+    .ccs-min-bar-restore {
+        min-height: 40px;
+        padding: 8px 16px;
+        font-size: 0.82rem;
+    }
+}
+
+/* ══════════════════════════════════════════════════════════════════════════════
+   MOBILE FIX: Settings modal rendered inside studio overlay.
+   The studio overlay is already position:fixed;inset:0, so any position:absolute
+   child covers the same full-viewport area — no stacking context risk from
+   CSS transforms on ST's page-level elements.
+   ══════════════════════════════════════════════════════════════════════════════ */
+.ccs-studio-overlay .ccs-modal-overlay {
+    position: absolute; /* relative to studio overlay — same viewport coverage */
+    z-index: 100;       /* just above studio content; parent overlay handles global z */
+}
+
+/* ══════════════════════════════════════════════════════════════════════════════
+   MOBILE FIX: Minimized state.
+   Instead of display:none (which removes the overlay and orphans _minBar),
+   we keep the overlay in the DOM but invisible. The restore bar
+   (position:absolute;bottom:0 inside the overlay) stays pinned to the
+   viewport bottom on all devices and screen sizes.
+   ══════════════════════════════════════════════════════════════════════════════ */
+.ccs-studio-overlay.ccs-minimized {
+    background: transparent;  /* Remove dark backdrop — studio is invisible */
+    pointer-events: none;     /* Clicks pass through the invisible overlay */
+}
+.ccs-studio-overlay.ccs-minimized .ccs-studio-inner {
+    display: none;            /* Hide all studio content */
+}
+.ccs-studio-overlay.ccs-minimized .ccs-min-bar {
+    pointer-events: auto;     /* Restore bar remains fully interactive */
+}
+
+/* -- Virtual-scroll load-more sentinel ---------------------------------------- */
+.ccs-load-more {
+    text-align: center;
+    padding: 10px 0 4px;
+}
+.ccs-load-more-btn {
+    background: var(--ccs-surface2);
+    border: 1px solid var(--ccs-border2);
+    border-radius: 20px;
+    color: var(--ccs-text3);
+    padding: 5px 18px;
+    font-size: 0.78rem;
+    font-family: var(--ccs-font);
+    cursor: pointer;
+    transition: background var(--ccs-anim-fast), color var(--ccs-anim-fast), border-color var(--ccs-anim-fast);
+}
+.ccs-load-more-btn:hover {
+    background: var(--ccs-surface3);
+    border-color: var(--ccs-accent);
+    color: var(--ccs-text);
+}

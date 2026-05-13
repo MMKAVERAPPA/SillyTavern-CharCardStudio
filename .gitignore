@@ -23,9 +23,17 @@ build/
 .env
 .env.local
 *.key
+.pi
+
+# Documentation
+AGENTS.md
+BUG_REPORT.md
+ARCHITECTURE.md
+IDEAS.md
 
 # Logs
 *.log
 
 # Other Directories
 examples/
+SillyTavernDocs/

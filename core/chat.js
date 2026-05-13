@@ -85,14 +85,61 @@ export class ChatEngine {
     }
 
     // ── Background (no history) generation — PRIMARY ─────────────────────
+    // BUG-5 FIX: Now uses abortController so abort button can cancel these calls too
 
     async generateBackground(systemPrompt, userPrompt) {
+        this.abortController = new AbortController();
+        this.isGenerating = true;
         try {
-            return await apiManager.generatePrimary(systemPrompt, userPrompt, null);
+            return await apiManager.generatePrimary(systemPrompt, userPrompt, this.abortController.signal);
         } catch (err) {
             const classified = (err instanceof CCSApiError) ? err : classifyApiError(err, 'Background generation');
+            if (classified.errorType === 'aborted') return null;
             console.error('[CCS] Background generation error:', classified.userMessage);
             throw classified;
+        } finally {
+            this.isGenerating = false;
+            this.abortController = null;
+        }
+    }
+
+    // ── BUG-6 FIX: Context-aware generation — sends conversation history ──────
+    // Use this for ALL ideation calls instead of generateBackground so the AI
+    // has memory of previous messages in the same session.
+
+    async generateWithContext(session, cardFields, systemPrompt, userPrompt, skillOptions = {}) {
+        const settings = memoryManager.getGlobalSettings();
+
+        // Build full context with conversation history
+        const baseSystemPrompt = buildBaseSystemPrompt(
+            settings.customSystemPromptRules,
+            skillOptions
+        );
+        const fullSystemPrompt = systemPrompt || baseSystemPrompt;
+        const { prompt: historyPrompt } = contextBuilder.buildContext({
+            session,
+            cardFields,
+            baseSystemPrompt: '',      // system already built above
+            extraInstruction: userPrompt,
+        });
+
+        this.abortController = new AbortController();
+        this.isGenerating = true;
+        try {
+            const result = await apiManager.generatePrimary(
+                fullSystemPrompt,
+                historyPrompt || userPrompt,
+                this.abortController.signal
+            );
+            return result || '';
+        } catch (err) {
+            const classified = (err instanceof CCSApiError) ? err : classifyApiError(err, 'Contextual generation');
+            if (classified.errorType === 'aborted') return null;
+            console.error('[CCS] Contextual generation error:', classified.userMessage);
+            throw classified;
+        } finally {
+            this.isGenerating = false;
+            this.abortController = null;
         }
     }
 

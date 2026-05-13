@@ -1,6 +1,8 @@
 // core/card.js
 // Character card V3 read/write, token counting, diff, field validation
 
+import { getRequestHeaders } from '../../../../../script.js';
+
 export const CARD_FIELDS = [
     'name','description','personality','scenario','first_mes','mes_example',
     'system_prompt','post_history_instructions','creator_notes','tags',
@@ -69,16 +71,45 @@ export class CardManager {
         if (characterId === undefined || characterId < 0) throw new Error('No character selected');
         const char = characters[characterId];
         if (!char) throw new Error('Character not found');
+        if (!char.avatar) throw new Error('Character has no avatar filename');
 
-        const payload = this._buildSavePayload(char, fieldName, value);
+        // Build the update payload - only include the fields we're changing
+        const updateData = { avatar: char.avatar };
+        
+        // Map field names to character structure
+        if (['name', 'description', 'personality', 'scenario', 'first_mes', 'mes_example'].includes(fieldName)) {
+            updateData[fieldName] = value;
+            // Also update in data object for consistency
+            if (!updateData.data) updateData.data = {};
+            updateData.data[fieldName] = value;
+        } else if (fieldName === 'alternate_greetings') {
+            if (!updateData.data) updateData.data = {};
+            updateData.data.alternate_greetings = value;
+        } else {
+            // Custom field in data object
+            if (!updateData.data) updateData.data = {};
+            updateData.data[fieldName] = value;
+        }
 
-        const response = await fetch('/api/characters/save', {
+        // Use /api/characters/merge-attributes endpoint (same as sillytavern-utils-lib)
+        const response = await fetch('/api/characters/merge-attributes', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(payload),
+            headers: getRequestHeaders(),
+            body: JSON.stringify(updateData),
+            cache: 'no-cache',
         });
-        if (!response.ok) throw new Error(`Save failed: ${response.statusText}`);
+        
+        if (!response.ok) {
+            const errorData = await response.json().catch(() => ({ message: response.statusText }));
+            throw new Error(errorData.message || `Save failed: ${response.statusText}`);
+        }
+        
+        // Update local character object after successful save
         this._updateLocalChar(char, fieldName, value);
+        
+        // Refresh character data to ensure UI is in sync
+        await SillyTavern.getContext().getCharacters();
+        
         return true;
     }
 
@@ -87,29 +118,44 @@ export class CardManager {
         if (characterId === undefined || characterId < 0) throw new Error('No character selected');
         const char = characters[characterId];
         if (!char) throw new Error('Character not found');
+        if (!char.avatar) throw new Error('Character has no avatar filename');
 
-        const payload = {
-            avatar: char.avatar,
-            ch_name: char.name,
-            description: char.description || '',
-            personality: char.personality || '',
-            scenario: char.scenario || '',
-            first_mes: char.first_mes || '',
-            mes_example: char.mes_example || '',
-            data: { ...(char.data || {}) },
-        };
-        for (const [f, v] of Object.entries(fieldsObj)) {
-            this._applyFieldToPayload(payload, f, v);
+        // Build the update payload
+        const updateData = { avatar: char.avatar, data: {} };
+        
+        for (const [fieldName, value] of Object.entries(fieldsObj)) {
+            if (['name', 'description', 'personality', 'scenario', 'first_mes', 'mes_example'].includes(fieldName)) {
+                updateData[fieldName] = value;
+                updateData.data[fieldName] = value;
+            } else if (fieldName === 'alternate_greetings') {
+                updateData.data.alternate_greetings = value;
+            } else {
+                // Custom field
+                updateData.data[fieldName] = value;
+            }
         }
-        const response = await fetch('/api/characters/save', {
+
+        // Use /api/characters/merge-attributes endpoint
+        const response = await fetch('/api/characters/merge-attributes', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(payload),
+            headers: getRequestHeaders(),
+            body: JSON.stringify(updateData),
+            cache: 'no-cache',
         });
-        if (!response.ok) throw new Error(`Save failed: ${response.statusText}`);
+        
+        if (!response.ok) {
+            const errorData = await response.json().catch(() => ({ message: response.statusText }));
+            throw new Error(errorData.message || `Save failed: ${response.statusText}`);
+        }
+        
+        // Update local character object
         for (const [f, v] of Object.entries(fieldsObj)) {
             this._updateLocalChar(char, f, v);
         }
+        
+        // Refresh character data
+        await SillyTavern.getContext().getCharacters();
+        
         return true;
     }
 

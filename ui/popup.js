@@ -1,4 +1,4 @@
-// ui/popup.js
+﻿// ui/popup.js
 // Full-screen studio overlay
 // FIX: removed duplicate messages on phase switch, fixed editMessage index,
 //      fixed overlay close-on-tap for mobile, annotation cleanup on close
@@ -41,6 +41,8 @@ export class StudioPopup {
     $$(sel) { return this.el ? [...this.el.querySelectorAll(sel)] : []; }
 
     open() {
+        // BUG-1 FIX: If minimized, restore instead of silently doing nothing
+        if (this.isOpen && this.isMinimized) { this.restore(); return; }
         if (this.isOpen) { this._focusInput(); return; }
 
         const ctx = SillyTavern.getContext();
@@ -119,7 +121,12 @@ export class StudioPopup {
 
     close() {
         if (!this.isOpen) return;
-        if (this.session) memoryManager.saveSession(this.characterId, this.session);
+        // BUG-012 FIX: Force a synchronous settings persist before tearing down
+        // so session notes and card state aren't lost if the tab is about to close
+        if (this.session) {
+            memoryManager.saveSession(this.characterId, this.session);
+            memoryManager.save();
+        }
 
         // Clean up escape handler
         if (this._escHandler) {
@@ -145,32 +152,64 @@ export class StudioPopup {
     minimize() {
         if (!this.isOpen || this.isMinimized) return;
         this.isMinimized = true;
-        if (this.el) this.el.style.display = 'none';
+        // Add CSS class to hide inner content while keeping the overlay in the DOM.
+        // This lets the _minBar (position:absolute inside the overlay) stay anchored
+        // to the viewport bottom — no position:fixed stacking context issues on mobile.
+        if (this.el) this.el.classList.add('ccs-minimized');
 
-        // Create floating restore bar if it doesn't exist
+        // Create restore bar if it doesn't exist
         if (!this._minBar) {
             this._minBar = document.createElement('div');
             this._minBar.className = 'ccs-min-bar';
             this._minBar.innerHTML = `
                 <span class="ccs-min-bar-icon">🎭</span>
-                <span class="ccs-min-bar-label">Card Studio — ${this._esc(this.cardFields?.name || 'Character')}</span>
-                <span class="ccs-min-bar-phase">${this.currentPhase}</span>
-                <button class="ccs-min-bar-restore" title="Restore">▲ Restore</button>
+                <button class="ccs-min-bar-restore" title="Restore Card Studio">▲ Restore</button>
                 <button class="ccs-min-bar-close" title="Close Studio">✕</button>
             `;
             this._minBar.querySelector('.ccs-min-bar-restore').addEventListener('click', () => this.restore());
             this._minBar.querySelector('.ccs-min-bar-close').addEventListener('click', () => this.close());
-            document.body.appendChild(this._minBar);
+            // Append inside the studio overlay (not document.body).
+            // The overlay is position:fixed;inset:0, so position:absolute children
+            // are positioned relative to the full viewport — works on all devices.
+            this.el.appendChild(this._minBar);
+        } else {
+            // Bar already exists, just make it visible again
+            this._minBar.style.display = 'flex';
         }
-        this._minBar.style.display = '';
     }
 
     restore() {
         if (!this.isOpen || !this.isMinimized) return;
         this.isMinimized = false;
-        if (this.el) this.el.style.display = '';
+        // Remove the minimized class to reveal the studio inner content again
+        if (this.el) this.el.classList.remove('ccs-minimized');
         if (this._minBar) this._minBar.style.display = 'none';
+        // BUG-013 FIX: Refresh card fields in case user edited the character in
+        // SillyTavern's native editor while the studio was minimized.
+        // BUG-031 FIX: Guard behind !chatEngine.isGenerating — if a field write
+        // is in flight, readCurrentCard() may return a partially-written object
+        // which would then be overwritten by the generation result anyway.
+        if (!chatEngine.isGenerating) {
+            const fresh = cardManager.readCurrentCard();
+            if (fresh) {
+                this.cardFields = fresh;
+                cardPanel.updateCardFields(this.cardFields);
+            }
+        }
         this._focusInput();
+    }
+
+    // BUG-032: Public method called by the CHARACTER_EDITED event (index.js)
+    // when the user edits the character in ST while the studio is open+visible.
+    refreshCardFields() {
+        if (!this.isOpen || this.isMinimized || chatEngine.isGenerating) return;
+        const fresh = cardManager.readCurrentCard();
+        if (!fresh) return;
+        this.cardFields = fresh;
+        cardPanel.updateCardFields(this.cardFields);
+        // Also update the name label in the header
+        const nameEl = this.$('#ccs-char-name');
+        if (nameEl) nameEl.textContent = fresh.name || 'Character';
     }
 
     // ── DOM build — NO document.getElementById here ───────────────────────────
@@ -298,10 +337,18 @@ export class StudioPopup {
         ideaPanel.init('ccs-idea-panel-container');
         this._renderSnippetBar();
 
-        // Resume banner — session already loaded, check if it has history
+        // Resume banner
         const hasHistory = (this.session.conversationHistory?.length || 0) > 0;
         const resumeBtn = document.getElementById('ccs-resume-btn');
         if (resumeBtn) resumeBtn.style.display = hasHistory ? '' : 'none';
+
+        // BUG-004 FIX: Auto-expand the workspace drawer on first-ever mobile open
+        // so users immediately see the card fields instead of just a thin handle bar.
+        const workspaceCol = this.$('#ccs-workspace-col');
+        if (workspaceCol && window.matchMedia('(max-width: 768px)').matches && !hasHistory) {
+            // Small delay so the DOM is fully painted first
+            setTimeout(() => this._setDrawerExpanded(workspaceCol, true), 120);
+        }
     }
 
     // ── Restore saved session to UI on re-open ────────────────────────────────
@@ -353,60 +400,99 @@ export class StudioPopup {
         );
     }
 
-    _handleQuickEdit(fieldName, value) {
+    async _handleQuickEdit(fieldName, value) {
         if (!fieldName || !this.cardFields) return;
         // Write directly to the card
         if (fieldName === 'alternate_greetings') {
-            this.cardFields[fieldName] = value.split('\n---\n');
+            // Always produce a real array — filter empty strings from split
+            const parts = value.split('\n---\n').map(s => s.trim()).filter(Boolean);
+            this.cardFields[fieldName] = parts.length ? parts : [value.trim()];
         } else {
             this.cardFields[fieldName] = value;
         }
-        cardManager.writeField(fieldName, this.cardFields[fieldName]);
-        // Create a version in history
-        if (this.session) {
-            memoryManager.addFieldVersion(this.session, fieldName, this.cardFields[fieldName], 'Manual edit');
+        try {
+            await cardManager.writeField(fieldName, this.cardFields[fieldName]);
+            // Version history
+            if (this.session) {
+                memoryManager.addFieldVersion(this.session, fieldName, this.cardFields[fieldName], 'Manual edit');
+                memoryManager.save();
+            }
+            cardPanel.setFieldStatus(fieldName, 'accepted');
+            // BUG-030 FIX: Use targeted row update instead of full panel re-render.
+            // updateCardFields() rebuilds innerHTML entirely, resetting open drawers
+            // and causing a visual flash. setFieldStatus already calls _updateFieldRow
+            // and _updateTokenBudget internally. Only alternate_greetings needs a
+            // full render because it can change the number of rows (array type).
+            if (fieldName === 'alternate_greetings') {
+                cardPanel.updateCardFields(this.cardFields);
+            }
+            // else: setFieldStatus() above has already refreshed the row
+            this._flashSaveIndicator();
+            toastManager.show(`✅ Saved ${fieldName}`, 'success');
+        } catch (err) {
+            console.error('[CCS] Quick edit write failed:', err);
+            toastManager.show(`❌ Save failed for ${fieldName}: ${err.message}`, 'error');
         }
-        cardPanel.setFieldStatus(fieldName, 'accepted');
-        cardPanel.updateCardFields(this.cardFields);
-        this._flashSaveIndicator();
     }
 
     // ── Phase routing ──────────────────────────────────────────────────────────
 
     _routeToPhase(phase) {
+        const prevPhase = this.currentPhase;
         this.currentPhase = phase;
         this.session.currentPhase = phase;
         this._updatePhaseBadge(phase);
         this._updatePhaseTabs(phase);
 
+        // BUG-019 FIX: Wrap phase start in try/catch; revert badge on failure
+        const revertPhase = () => {
+            this.currentPhase = prevPhase;
+            this.session.currentPhase = prevPhase;
+            this._updatePhaseBadge(prevPhase);
+            this._updatePhaseTabs(prevPhase);
+        };
+
         switch (phase) {
             case PHASE.IDEATION:
-                ideationPhase.start(this.session, this.cardFields, () => this._routeToPhase(PHASE.BUILDING));
+                try {
+                    ideationPhase.start(this.session, this.cardFields, () => this._routeToPhase(PHASE.BUILDING));
+                } catch (err) { revertPhase(); toastManager.show('Failed to start Ideation phase: ' + err.message, 'error'); }
                 break;
             case PHASE.BUILDING:
-                generationPhase.start(this.session, this.cardFields, {
-                    onCardUpdated: () => {
-                        this.cardFields = cardManager.readCurrentCard() || this.cardFields;
-                        cardPanel.updateCardFields(this.cardFields);
-                    },
-                });
+                try {
+                    generationPhase.start(this.session, this.cardFields, {
+                        onCardUpdated: () => {
+                            this.cardFields = cardManager.readCurrentCard() || this.cardFields;
+                            cardPanel.updateCardFields(this.cardFields);
+                        },
+                    });
+                } catch (err) { revertPhase(); toastManager.show('Failed to start Building phase: ' + err.message, 'error'); }
                 break;
             case PHASE.LOREBOOK:
-                lorebookPhase.start(this.session, this.cardFields, {
-                    onUpdated: () => {
-                        lorebookPanel.render(
-                            this.session.lorebookLog.acceptedEntries,
-                            lorebookPhase.pendingEntries
-                        );
-                        this._switchWorkspaceTab(TAB.LOREBOOK);
-                    },
-                });
-                this._switchWorkspaceTab(TAB.LOREBOOK);
+                try {
+                    lorebookPhase.start(this.session, this.cardFields, {
+                        onUpdated: () => {
+                            lorebookPanel.render(
+                                this.session.lorebookLog.acceptedEntries,
+                                lorebookPhase.pendingEntries
+                            );
+                            this._switchWorkspaceTab(TAB.LOREBOOK);
+                        },
+                    });
+                    this._switchWorkspaceTab(TAB.LOREBOOK);
+                } catch (err) { revertPhase(); toastManager.show('Failed to start Lorebook phase: ' + err.message, 'error'); }
                 break;
         }
     }
 
     async _handleUserMessage(message, editIdx) {
+        // Input validation — limit configurable in Settings → Session
+        if (!message?.trim()) return;
+        const settings = memoryManager.getGlobalSettings();
+        if (settings.inputLimitEnabled !== false && message.length > 12000) {
+            toastManager.show('⚠️ Message too long (max 12,000 chars). Disable the limit in Settings → Session if needed.', 'error');
+            return;
+        }
         // FIX: editMessage — pass actual message content, don't assume *2 index
         if (editIdx !== undefined) {
             // Find the actual index in session history for this edit
@@ -437,7 +523,7 @@ export class StudioPopup {
             return;
         }
         if (switchTo === 'build_start' && this.currentPhase === PHASE.IDEATION) {
-            await ideationPhase.handleMessage(message);
+            this._routeToPhase(PHASE.BUILDING);
             return;
         }
 
@@ -454,7 +540,9 @@ export class StudioPopup {
     _bindHeaderEvents() {
         this.$('#ccs-close-studio')?.addEventListener('click', () => this.close());
 
-        this.$('#ccs-settings-btn')?.addEventListener('click', () => settingsModal.open());
+        // BUG-2 FIX: Pass studio element so settings modal appends inside the overlay
+        // (correct stacking context — z-index works properly inside our isolated layer)
+        this.$('#ccs-settings-btn')?.addEventListener('click', () => settingsModal.open(this.el));
 
         this.$('#ccs-new-session-btn')?.addEventListener('click', () => {
             if (!confirm('Start a new session? Current session will be saved.')) return;
@@ -715,16 +803,22 @@ export class StudioPopup {
             this._setDrawerExpanded(col, !isExpanded);
         });
 
-        // Swipe up on workspace column = expand; swipe down = collapse
+        // BUG-005 FIX: Raise swipe threshold to 80px (was 30px, too sensitive)
+        // and only trigger when the swipe STARTED on or near the handle area.
         const col = this.$('#ccs-workspace-col');
         if (!col) return;
         let touchStartY = 0;
+        let touchStartOnHandle = false;
         col.addEventListener('touchstart', (e) => {
             touchStartY = e.touches[0].clientY;
+            // Only count swipes that begin in the top 60px of the drawer (handle area)
+            const colRect = col.getBoundingClientRect();
+            touchStartOnHandle = (touchStartY - colRect.top) < 60;
         }, { passive: true });
         col.addEventListener('touchend', (e) => {
+            if (!touchStartOnHandle) return; // ignore scrolling inside panel content
             const dy = touchStartY - e.changedTouches[0].clientY;
-            if (Math.abs(dy) < 30) return;  // ignore micro-swipes
+            if (Math.abs(dy) < 80) return;  // ignore micro-swipes (raised from 30px)
             if (dy > 0) this._setDrawerExpanded(col, true);   // swipe up → expand
             else        this._setDrawerExpanded(col, false);  // swipe down → collapse
         }, { passive: true });
@@ -822,20 +916,9 @@ export class StudioPopup {
         chatPanel.addSystemMessage(`↩ Restored ${fieldName} to v${idx + 1}`, 'info');
     }
 
-    async _handleQuickEdit(fieldName, newVal) {
-        if (!this.cardFields) return;
-        
-        await cardManager.writeField(fieldName, newVal);
-        this.cardFields[fieldName] = newVal;
-        
-        // Log it as a manual edit
-        memoryManager.logFieldGeneration(this.session, fieldName, newVal, 'Manual Quick Edit');
-        
-        cardPanel.setFieldStatus(fieldName, 'accepted');
-        cardPanel.updateCardFields(this.cardFields);
-        this._flashSaveIndicator();
-        toastManager.show(`Saved manual edit for ${fieldName}`, 'success');
-    }
+
+    // NOTE: _handleQuickEdit is defined at line 358. The duplicate that was here
+    // (calling non-existent memoryManager.logFieldGeneration) has been removed.
 
     async _handleAnnotationRequest(selectedText, action) {
         const messages = {

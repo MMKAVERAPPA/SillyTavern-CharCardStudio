@@ -4,6 +4,7 @@
 
 import { memoryManager } from './memory.js';
 import { statsManager } from './stats.js';
+import { toastManager } from '../ui/toast.js';
 
 // ── Typed API error class ───────────────────────────────────────────────────
 export class CCSApiError extends Error {
@@ -68,28 +69,50 @@ export function classifyApiError(err, context = 'API call') {
         });
     }
 
+    // BUG-024 FIX: Detect CORS and timeout errors before the generic network check
+    const msg = err?.message || String(err); // define msg before use
+    if (/cors/i.test(msg)) {
+        return new CCSApiError(`CORS error: ${msg}`, {
+            errorType: 'network', retryable: false,
+            userMessage: '⚠️ CORS blocked — check your API endpoint URL and that the server allows cross-origin requests.',
+        });
+    }
+    if (/timeout|timed out/i.test(msg)) {
+        return new CCSApiError(`Timeout: ${msg}`, {
+            errorType: 'network', retryable: true,
+            userMessage: '⚠️ Request timed out — the API server may be overloaded. Try again.',
+        });
+    }
+    // Detect HTML error pages returned instead of JSON (Cloudflare, nginx, etc.)
+    if (/unexpected token|<!doctype|<html/i.test(msg)) {
+        return new CCSApiError(`Non-JSON response: ${msg}`, {
+            errorType: 'server', retryable: false,
+            userMessage: '⚠️ API returned an HTML error page instead of JSON — check your endpoint URL.',
+        });
+    }
+
     // Network / generic errors
-    const msg = err?.message || String(err);
-    if (/network|fetch|failed to fetch|econnrefused|timeout/i.test(msg)) {
-        return new CCSApiError(`Network error: ${msg}`, {
+    const networkMsg = msg; // already extracted above
+    if (/network|fetch|failed to fetch|econnrefused/i.test(networkMsg)) {
+        return new CCSApiError(`Network error: ${networkMsg}`, {
             errorType: 'network', retryable: true,
             userMessage: '⚠️ Network error — check your connection and API status.',
         });
     }
-    if (/rate|limit|429|too many/i.test(msg)) {
-        return new CCSApiError(`Rate limit detected: ${msg}`, {
+    if (/rate|limit|429|too many/i.test(networkMsg)) {
+        return new CCSApiError(`Rate limit detected: ${networkMsg}`, {
             errorType: 'rate_limit', retryable: true,
             userMessage: '⚠️ Rate limited — too many requests. Wait a moment and try again.',
         });
     }
-    if (/balance|credit|quota|402|insufficient/i.test(msg)) {
-        return new CCSApiError(`Balance error: ${msg}`, {
+    if (/balance|credit|quota|402|insufficient/i.test(networkMsg)) {
+        return new CCSApiError(`Balance error: ${networkMsg}`, {
             errorType: 'balance', retryable: false,
             userMessage: '⚠️ Insufficient API balance. Check your account credits.',
         });
     }
-    if (/auth|401|403|key|unauthorized|forbidden/i.test(msg)) {
-        return new CCSApiError(`Auth error: ${msg}`, {
+    if (/auth|401|403|key|unauthorized|forbidden/i.test(networkMsg)) {
+        return new CCSApiError(`Auth error: ${networkMsg}`, {
             errorType: 'auth', retryable: false,
             userMessage: '⚠️ API authentication failed. Check your API key.',
         });
@@ -101,10 +124,37 @@ export function classifyApiError(err, context = 'API call') {
     });
 }
 
+// ── Retry with exponential backoff ─────────────────────────────────────────────────
+/**
+ * Retries an async fn up to maxAttempts times with exponential backoff.
+ * Only retries on retryable CCSApiErrors (rate_limit, server, network).
+ * Abort signals are respected — AbortError is never retried.
+ */
+async function retryWithBackoff(fn, maxAttempts = 3) {
+    for (let i = 0; i < maxAttempts; i++) {
+        try {
+            return await fn();
+        } catch (err) {
+            const classified = err instanceof CCSApiError ? err : classifyApiError(err, 'retried call');
+            const isLast = i === maxAttempts - 1;
+            if (isLast || !classified.retryable || classified.errorType === 'aborted') throw classified;
+            const delayMs = Math.min(1000 * Math.pow(2, i), 30000); // 1s → 2s → 4s…
+            console.warn(`[CCS] API ${classified.errorType}, retrying in ${delayMs}ms (attempt ${i + 1}/${maxAttempts - 1})…`);
+            await new Promise(r => setTimeout(r, delayMs));
+        }
+    }
+}
+
 export class ApiManager {
     constructor() {
         this._previousProfile = null;
+        // BUG-022 FIX: Shared flag — set on first 429/balance error, prevents
+        // further requests from firing in the same parallel or sequential batch.
+        this.rateLimitHit = false;
     }
+
+    // Clear the flag at the start of each new user-initiated action
+    clearRateLimitFlag() { this.rateLimitHit = false; }
 
     // ── Profile management ──────────────────────────────────────────────────
 
@@ -168,14 +218,14 @@ export class ApiManager {
         const settings = memoryManager.getGlobalSettings();
 
         try {
-            let result;
-            if (settings.apiMode === 'profile' && settings.selectedProfile) {
-                result = await this.withProfile(settings.selectedProfile, () =>
-                    generateRaw(prompt, undefined, false, false, systemPrompt, signal)
-                );
-            } else {
-                result = await generateRaw(prompt, undefined, false, false, systemPrompt, signal);
-            }
+            const result = await retryWithBackoff(() => {
+                if (settings.apiMode === 'profile' && settings.selectedProfile) {
+                    return this.withProfile(settings.selectedProfile, () =>
+                        generateRaw(prompt, undefined, false, false, systemPrompt, signal)
+                    );
+                }
+                return generateRaw(prompt, undefined, false, false, systemPrompt, signal);
+            });
 
             // Estimate tokens (approx 4 chars per token)
             const inputChars = (systemPrompt?.length || 0) + (prompt?.length || 0);
@@ -234,14 +284,17 @@ export class ApiManager {
             const data = await response.json();
             return data.choices?.[0]?.message?.content || '';
         } catch (err) {
-            if (err instanceof CCSApiError) {
-                // For utility calls, non-retryable errors should fall back to primary
-                if (!err.retryable) {
-                    console.warn('[CCS] Utility API failed (non-retryable), falling back to primary:', err.userMessage);
+            const classified = classifyApiError(err, 'Utility API');
+            if (classified instanceof CCSApiError) {
+                if (!classified.retryable) {
+                    // BUG-023 FIX: Show a non-intrusive toast so user knows background check failed
+                    toastManager.show('⚠️ Background check failed — using offline mode', 'warn');
+                    console.warn('[CCS] Utility API failed (non-retryable), falling back to primary:', classified.userMessage);
                     return this.generatePrimary(systemPrompt, prompt, null);
                 }
-                throw err;
+                throw classified;
             }
+            toastManager.show('⚠️ Background check failed — using offline mode', 'warn');
             console.warn('[CCS] Utility API failed, falling back to primary:', err);
             return this.generatePrimary(systemPrompt, prompt, null);
         }
@@ -251,16 +304,21 @@ export class ApiManager {
 
     async generateParallel(requests) {
         const settings = memoryManager.getGlobalSettings();
-        const parallelEnabled = settings.parallelApiCalls !== false; // default true
+        const parallelEnabled = settings.parallelApiCalls !== false;
+
+        // BUG-022 FIX: Reset the rate-limit flag at the start of each new batch
+        this.rateLimitHit = false;
 
         if (parallelEnabled) {
-            // Parallel mode (original behavior)
+            // Parallel mode — fire all at once but propagate rate-limit errors immediately
             const promises = requests.map(req =>
                 this.generatePrimary(req.systemPrompt, req.userPrompt, null)
                     .catch(err => {
                         const classified = classifyApiError(err, 'Parallel generation');
-                        // If rate-limited or balance error, throw to stop all
                         if (classified.errorType === 'rate_limit' || classified.errorType === 'balance') {
+                            // BUG-022: Set flag so sequential fallback and any future calls
+                            // can check it. Promise.all already aborts on throw.
+                            this.rateLimitHit = true;
                             throw classified;
                         }
                         return `[Generation failed: ${classified.userMessage}]`;
@@ -268,15 +326,20 @@ export class ApiManager {
             );
             return Promise.all(promises);
         } else {
-            // Sequential mode — one at a time
+            // Sequential mode — check flag before each request so we stop immediately
             const results = [];
             for (const req of requests) {
+                if (this.rateLimitHit) {
+                    results.push('[Skipped: rate limit active]');
+                    continue;
+                }
                 try {
                     const result = await this.generatePrimary(req.systemPrompt, req.userPrompt, null);
                     results.push(result);
                 } catch (err) {
                     const classified = classifyApiError(err, 'Sequential generation');
                     if (classified.errorType === 'rate_limit' || classified.errorType === 'balance') {
+                        this.rateLimitHit = true;
                         throw classified;
                     }
                     results.push(`[Generation failed: ${classified.userMessage}]`);

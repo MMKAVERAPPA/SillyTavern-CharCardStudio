@@ -11,10 +11,16 @@ export class SettingsModal {
         this.snippetEditId = null;
     }
 
-    open() {
+    open(container = null) {
         document.getElementById('ccs-settings-modal')?.remove();
+        // Render inside the studio overlay element (position:absolute) rather than
+        // document.body (position:fixed). This avoids position:fixed containment
+        // failures on mobile caused by CSS transforms on ST's page-level elements.
+        // The studio overlay is already position:fixed;inset:0 so its absolute
+        // children get the same full-viewport frame with zero stacking context risk.
+        this._container = container || document.body;
         this._build();
-        document.body.appendChild(this.el);
+        this._container.appendChild(this.el);
         this._bind();
         this._renderStats();
     }
@@ -167,6 +173,14 @@ export class SettingsModal {
                             <div class="ccs-setting-hint">When enabled, variations and batch operations fire multiple API calls simultaneously. Disable if you're getting rate-limited (429 errors).</div>
                         </div>
                         <div class="ccs-setting-section">
+                            <div class="ccs-setting-label">Input Message Limit</div>
+                            <label class="ccs-toggle-label">
+                                <input type="checkbox" id="ccs-input-limit" ${s.inputLimitEnabled !== false ? 'checked' : ''}>
+                                <span>Limit messages to 12,000 characters</span>
+                            </label>
+                            <div class="ccs-setting-hint">Prevents accidental very-long messages from consuming excessive tokens. Disable only if you intentionally paste large texts.</div>
+                        </div>
+                        <div class="ccs-setting-section">
                             <div class="ccs-setting-label">Danger Zone</div>
                             <button class="ccs-btn ccs-btn-danger" id="ccs-clear-all-sessions-btn">🗑 Clear All Sessions</button>
                         </div>
@@ -244,7 +258,12 @@ export class SettingsModal {
         // Close
         document.getElementById('ccs-settings-close')?.addEventListener('click', () => this.close());
         document.getElementById('ccs-settings-cancel')?.addEventListener('click', () => this.close());
-        this.el.addEventListener('click', (e) => { if (e.target === this.el) this.close(); });
+        // BUG-008 FIX: iOS Safari doesn't reliably fire 'click' on non-interactive elements.
+        // Add both click and touchend on the overlay backdrop so tapping outside dismisses on mobile.
+        const backdropClose = (e) => { if (e.target === this.el) this.close(); };
+        this.el.addEventListener('click', backdropClose);
+        this.el.addEventListener('touchend', backdropClose, { passive: true });
+
 
         // Save
         document.getElementById('ccs-settings-save')?.addEventListener('click', () => this._save());
@@ -261,6 +280,7 @@ export class SettingsModal {
             customSystemPromptRules: document.getElementById('ccs-custom-rules')?.value || '',
             compressionThreshold: parseInt(document.getElementById('ccs-compression')?.value) || 15,
             parallelApiCalls: document.getElementById('ccs-parallel-api')?.checked !== false,
+            inputLimitEnabled: document.getElementById('ccs-input-limit')?.checked !== false,
             voiceToneProfile: {
                 pov:               document.getElementById('ccs-tone-pov')?.value || 'third',
                 actionFormat:      document.getElementById('ccs-tone-action')?.value || 'asterisk',

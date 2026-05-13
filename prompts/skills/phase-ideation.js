@@ -84,7 +84,7 @@ In each response:
 5. Ask about the NEXT most important unresolved pillar — ONE pillar at a time
 
 Remember: ONE layer at a time. Depth over breadth.
-When ALL pillars are resolved (or user says to move on), offer to generate a PROPOSED PROFILE.`;
+When ALL pillars are resolved (or user says to move on), offer to generate a PROPOSED PROFILE, and tell the user they can say "start building" whenever they are ready to move to the next phase.`;
 
 export const SKILL_VOICE_CALIBRATION = `## Voice Calibration
 

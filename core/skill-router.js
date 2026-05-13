@@ -110,6 +110,15 @@ export class SkillRouter {
                 break;
         }
 
+        // ── Phase Awareness Context ────────────────────────────────────
+        const phaseNames = {
+            'ideation': 'IDEATION (Brainstorming & Setup)',
+            'generation': 'BUILDING (Drafting Card Fields)',
+            'lorebook': 'LOREBOOK (Worldbuilding)',
+            'audit': 'AUDIT (Review & Polish)'
+        };
+        skills.push(`## Current Phase: ${phaseNames[phase] || phase.toUpperCase()}`);
+
         // ── Layer 5: Custom rules ──────────────────────────────────────
         if (customRules?.trim()) {
             skills.push('## User Custom Rules\n' + customRules);
