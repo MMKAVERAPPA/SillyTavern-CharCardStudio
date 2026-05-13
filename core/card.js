@@ -1,9 +1,34 @@
 // core/card.js
 // Character card V3 read/write, token counting, diff, field validation
 
-// ST exposes getRequestHeaders as a named export from script.js (not on the SillyTavern object).
-// This is how every other ST extension does it — same pattern as MemoryBooks, etc.
-import { getRequestHeaders } from '../../../../script.js';
+// Robust CSRF token getter - tries multiple approaches to get SillyTavern's auth headers
+const getRequestHeaders = () => {
+    try {
+        // First try: window.getRequestHeaders (ST's global function)
+        if (typeof window.getRequestHeaders === 'function') {
+            return window.getRequestHeaders();
+        }
+    } catch (e) {
+        console.warn('[CCS] window.getRequestHeaders failed:', e);
+    }
+    
+    try {
+        // Second try: SillyTavern.token (global object)
+        const token = window.SillyTavern?.token || SillyTavern?.token;
+        if (token) {
+            return {
+                'Content-Type': 'application/json',
+                'X-CSRF-Token': token
+            };
+        }
+    } catch (e) {
+        console.warn('[CCS] SillyTavern.token not available:', e);
+    }
+    
+    // Last resort: no token (will likely fail but prevents crash)
+    console.warn('[CCS] No CSRF token available - API calls may fail');
+    return { 'Content-Type': 'application/json' };
+};
 
 export const CARD_FIELDS = [
     'name','description','personality','scenario','first_mes','mes_example',
@@ -105,6 +130,7 @@ export class CardManager {
         for (const [f, v] of Object.entries(fieldsObj)) {
             this._applyFieldToPayload(payload, f, v);
         }
+        
         const response = await fetch('/api/characters/save', {
             method: 'POST',
             headers: getRequestHeaders(),
