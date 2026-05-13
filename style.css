@@ -51,8 +51,8 @@
     /* Use dynamic viewport height on mobile (accounts for browser chrome) */
     height: 100dvh;
     background: rgba(0,0,0,0.92);
-    /* Max safe z-index — must be above ALL SillyTavern UI layers on mobile */
-    z-index: 2147483640;
+    /* Use ST-compatible z-index (below ST modals at 29999, above ST content) */
+    z-index: 29900;
     display: flex;
     align-items: stretch;
     justify-content: stretch;
@@ -531,8 +531,8 @@
 .ccs-book-label { font-size: 0.85rem; color: var(--ccs-text2); }
 
 /* ── Settings modal ──────────────────────────────────────────── */
-/* BUG-001 FIX: z-index must be > studio overlay (2147483640) to appear on mobile */
-.ccs-modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.7); z-index: 2147483647; display: flex; align-items: center; justify-content: center; }
+/* Z-index above ST modals (29999) to ensure visibility */
+.ccs-modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.7); z-index: 30000; display: flex; align-items: center; justify-content: center; }
 .ccs-modal { background: var(--ccs-surface); border: 1px solid var(--ccs-border2); border-radius: var(--ccs-radius); width: min(640px, 95vw); max-height: 85vh; display: flex; flex-direction: column; box-shadow: var(--ccs-shadow); }
 .ccs-settings-modal-inner { }
 .ccs-modal-header { display: flex; align-items: center; justify-content: space-between; padding: 14px 16px; border-bottom: 1px solid var(--ccs-border); font-weight: 700; color: var(--ccs-text); }
@@ -1160,7 +1160,7 @@
     bottom: 0;
     left: 50%;
     transform: translateX(-50%);
-    z-index: 2147483646; /* Just below the modal overlay */
+    z-index: 29998; /* Just below ST modals (29999), above studio (29900) */
     background: var(--ccs-surface2);
     border: 1px solid var(--ccs-border2);
     border-bottom: none;

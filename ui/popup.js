@@ -166,7 +166,7 @@ export class StudioPopup {
                 left: '0',
                 right: '0',
                 width: '100%',
-                zIndex: '2147483646',
+                zIndex: '29998',
                 display: 'flex',
                 alignItems: 'center',
                 gap: '10px',

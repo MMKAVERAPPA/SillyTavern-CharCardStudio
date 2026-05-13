@@ -20,10 +20,8 @@ export class SettingsModal {
         this._container = document.body;
         this._build();
         this._container.appendChild(this.el);
-        // Force z-index inline so ST's own stylesheet can't override it.
-        // On some mobile browsers a media-query CSS rule can lose to an
-        // inline style from ST's theme; this guarantees we stay on top.
-        this.el.style.cssText += ';z-index:2147483647!important;position:fixed!important;';
+        // Force position:fixed inline to ensure proper positioning
+        this.el.style.cssText += ';position:fixed!important;';
         this._bind();
         this._renderStats();
     }
