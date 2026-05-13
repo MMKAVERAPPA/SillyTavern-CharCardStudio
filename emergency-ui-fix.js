@@ -1,6 +1,6 @@
 /**
  * EMERGENCY FIX: Force modals and minimize bar to work on ALL viewports
- * 
+ *
  * This forcefully ensures settings modal and minimize bar display properly
  * regardless of viewport size, z-index conflicts, or CSS cascade issues.
  */
@@ -9,7 +9,7 @@
 // FIX #1: Settings Modal - Force visibility and positioning
 // ============================================================================
 const forceModalStyles = () => {
-    const modalCSS = `
+  const modalCSS = `
         /* FORCE MODAL TO WORK */
         #ccs-settings-modal {
             display: flex !important;
@@ -60,21 +60,21 @@ const forceModalStyles = () => {
             }
         }
     `;
-    
-    let styleEl = document.getElementById('ccs-modal-force-fix');
-    if (!styleEl) {
-        styleEl = document.createElement('style');
-        styleEl.id = 'ccs-modal-force-fix';
-        document.head.appendChild(styleEl);
-    }
-    styleEl.textContent = modalCSS;
+
+  let styleEl = document.getElementById("ccs-modal-force-fix");
+  if (!styleEl) {
+    styleEl = document.createElement("style");
+    styleEl.id = "ccs-modal-force-fix";
+    document.head.appendChild(styleEl);
+  }
+  styleEl.textContent = modalCSS;
 };
 
 // ============================================================================
 // FIX #2: Minimize Bar - Force visibility and positioning
 // ============================================================================
 const forceMinimizeBarStyles = () => {
-    const minBarCSS = `
+  const minBarCSS = `
         /* FORCE MINIMIZE BAR TO WORK */
         .ccs-min-bar {
             display: flex !important;
@@ -121,14 +121,14 @@ const forceMinimizeBarStyles = () => {
             padding: 4px 8px !important;
         }
     `;
-    
-    let styleEl = document.getElementById('ccs-minbar-force-fix');
-    if (!styleEl) {
-        styleEl = document.createElement('style');
-        styleEl.id = 'ccs-minbar-force-fix';
-        document.head.appendChild(styleEl);
-    }
-    styleEl.textContent = minBarCSS;
+
+  let styleEl = document.getElementById("ccs-minbar-force-fix");
+  if (!styleEl) {
+    styleEl = document.createElement("style");
+    styleEl.id = "ccs-minbar-force-fix";
+    document.head.appendChild(styleEl);
+  }
+  styleEl.textContent = minBarCSS;
 };
 
 // ============================================================================
@@ -137,7 +137,7 @@ const forceMinimizeBarStyles = () => {
 forceModalStyles();
 forceMinimizeBarStyles();
 
-console.log('✅ Emergency UI fixes applied!');
-console.log('   - Settings modal forced visible');
-console.log('   - Minimize bar forced visible');
-console.log('   - Try clicking settings/minimize buttons now');
+console.log("✅ Emergency UI fixes applied!");
+console.log("   - Settings modal forced visible");
+console.log("   - Minimize bar forced visible");
+console.log("   - Try clicking settings/minimize buttons now");

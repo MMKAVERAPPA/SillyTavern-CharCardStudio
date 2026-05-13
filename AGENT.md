@@ -50,6 +50,26 @@ SillyTavern third-party extension with 3 critical bugs:
 - **Why**: This merges attributes into existing character without needing FormData or file uploads
 - **Source**: Character Creator extension by bmen25124 uses sillytavern-utils-lib which uses this pattern
 
+### `isolation: isolate` Breaks `position: fixed` - CRITICAL BUG
+- **Problem**: `.ccs-studio-overlay` had `isolation: isolate` in CSS
+- **Effect**: Creates a new containing block for `position: fixed` descendants
+- **Result**: `position: fixed` elements are positioned relative to the isolating parent, NOT the viewport
+- **Symptoms**:
+  - Modal appeared in tiny header area instead of full-screen
+  - Minimize bar existed but wasn't visible
+  - Z-index was correct but element was still clipped
+- **Solution**: Remove `isolation: isolate` from parent elements
+- **Alternative**: Append modal/bar OUTSIDE the isolating parent (which we already do, but `isolation` still affects it)
+- **CSS properties that create containing blocks for position:fixed**:
+  - `transform` (any value except `none`)
+  - `perspective` (any value except `none`)
+  - `filter` (any value except `none`)
+  - `backdrop-filter` (any value except `none`)
+  - `will-change: transform | perspective | filter | backdrop-filter`
+  - **`isolation: isolate`** ← This was the culprit
+  - `contain: layout | paint | strict`
+  - `-webkit-transform` / `-webkit-perspective` / etc.
+
 ### Z-Index Strategy in SillyTavern
 From ST's style.css:
 - `z-index: 29999` - ST's popup/modal overlays
@@ -136,34 +156,30 @@ fetch('/api/characters/merge-attributes', { method: 'POST', headers: getRequestH
 - **Pattern**: Send avatar filename + fields to update → API merges into existing character
 - **Status**: WORKING - User confirmed saves work now
 
-### Bug #1 (Settings Modal - 412 x 0) - ☢️ NUCLEAR FIX APPLIED
-- **Root Cause #1**: Worked on desktop, failed on mobile/responsive view
-- **Root Cause #2**: CSS z-index and positioning being overridden by viewport-specific rules
-- **Root Cause #3**: Complex CSS cascade with 3 duplicate modal definitions fighting each other
-- **Fix Applied - NUCLEAR OPTION**:
-  - Removed ALL CSS dependencies - everything forced inline now
-  - Maximum z-index: `2147483647` (absolute maximum possible)
-  - ALL positioning styles forced with `!important` directly in JavaScript
-  - Inline styles override ALL CSS rules regardless of specificity or media queries
-  - Modal inner also forced to `display: flex; min-height: 500px` inline
-- **Why Nuclear**: CSS media queries and cascading rules were impossible to debug - inline styles are the only thing that works 100% of the time
-- **Confidence**: MAXIMUM - Inline styles with !important cannot be overridden
-- **Status**: Ready to test - should work on ALL viewports now
+### Bug #1 (Settings Modal - 412 x 0) - ☢️ SUPER NUCLEAR FIX APPLIED
+- **Root Cause FOUND**: `.ccs-studio-overlay` had `isolation: isolate` which **breaks position:fixed**!
+- **How it breaks**: When a parent has `isolation: isolate`, `position: fixed` children are positioned relative to THAT element, not the viewport
+- **Evidence**: Debug showed modal had correct z-index/position, but was clipped to tiny header area
+- **Fix Applied**:
+  1. Removed `isolation: isolate` from `.ccs-studio-overlay` in CSS
+  2. Kept nuclear inline styles in JavaScript (belt-and-suspenders)
+  3. Modal now appends to `document.body` with full viewport coverage
+- **Why it failed before**: Even with z-index 2147483647, `isolation: isolate` on parent created containing block
+- **Status**: Should be FIXED - test after restart
 
-### Bug #2 (Minimize Bar - Not Displaying Properly) - ☢️ NUCLEAR FIX APPLIED
-- **Root Cause #1**: Worked on desktop, failed on mobile/responsive view
-- **Root Cause #2**: CSS positioning conflicts with viewport-specific rules
-- **Root Cause #3**: Display/transform/positioning cascade issues
-- **Fix Applied - NUCLEAR OPTION**:
-  - Removed ALL CSS dependencies - everything forced inline now
-  - Maximum z-index: `2147483646` (just below modal at 2147483647)
-  - ALL positioning/display styles forced with `!important` directly in JavaScript
-  - Full-width bar: `left: 0; right: 0; width: 100%` all with !important
-  - Added `pointer-events: auto !important` to ensure clickability
-  - Buttons already had inline styles, kept those
-- **Why Nuclear**: Same as modal - CSS cascade was unreliable across viewports
-- **Confidence**: MAXIMUM - Inline styles with !important cannot be overridden
-- **Status**: Ready to test - should work on ALL viewports now
+### Bug #2 (Minimize Bar - Not Displaying Properly) - ☢️ SUPER NUCLEAR FIX APPLIED
+- **Root Cause**: Same as modal - affected by parent's `isolation: isolate`
+- **Evidence**: Debug showed bar exists with correct styles (display:flex, position:fixed, bottom:0, z-index:2147483646) but not visible
+- **Fix Applied**:
+  1. Removed `isolation: isolate` from `.ccs-studio-overlay` in CSS
+  2. Kept nuclear inline styles in JavaScript
+  3. Bar should now be visible at viewport bottom
+- **Additional fix**: Super nuclear script also:
+  - Verifies element is direct child of `document.body`
+  - Forces `isolation: auto` inline
+  - Uses `100vw` instead of `100%` for width
+  - Adds bright blue border for visibility
+- **Status**: Should be FIXED - test after restart
 
 ## Next Steps
 1. ✅ Fixed import path to `../../../../../script.js`

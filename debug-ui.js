@@ -17,7 +17,7 @@ if (modalOverlay) {
     console.log("  Position:", computedOverlay.position);
     console.log("  Visibility:", computedOverlay.visibility);
     console.log("  Opacity:", computedOverlay.opacity);
-    
+
     const modal = modalOverlay.querySelector('.ccs-modal');
     if (modal) {
         const computedModal = window.getComputedStyle(modal);

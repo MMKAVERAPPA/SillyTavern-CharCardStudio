@@ -58,8 +58,7 @@
     justify-content: stretch;
     animation: ccs-fade-in 0.2s ease;
     touch-action: auto;
-    /* Critical: isolate stacking context so transforms in ST don't affect us */
-    isolation: isolate;
+    /* REMOVED: isolation: isolate - This breaks position:fixed children! */
     /* Prevent iOS rubber-band scrolling on the overlay background */
     overscroll-behavior: contain;
 }
