@@ -158,12 +158,33 @@ export class StudioPopup {
         if (!this._minBar) {
             this._minBar = document.createElement('div');
             this._minBar.className = 'ccs-min-bar';
+            // Belt-and-suspenders: inline styles guarantee visibility even if
+            // ST's CSS cascade delays or overrides our stylesheet for fixed elements.
+            Object.assign(this._minBar.style, {
+                position: 'fixed',
+                bottom: '0',
+                left: '0',
+                right: '0',
+                width: '100%',
+                zIndex: '2147483646',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '10px',
+                padding: '10px 16px',
+                background: 'var(--ccs-surface2, #1a1b26)',
+                border: '1px solid var(--ccs-border2, #414868)',
+                borderBottom: 'none',
+                boxSizing: 'border-box',
+                fontFamily: 'var(--ccs-font, sans-serif)',
+                fontSize: '0.85rem',
+                color: 'var(--ccs-text, #c0caf5)',
+            });
             this._minBar.innerHTML = `
                 <span class="ccs-min-bar-icon">🎭</span>
                 <span class="ccs-min-bar-label">Card Studio — ${this._esc(this.cardFields?.name || 'Character')}</span>
                 <span class="ccs-min-bar-phase">${this.currentPhase}</span>
-                <button class="ccs-min-bar-restore" title="Restore">▲ Restore</button>
-                <button class="ccs-min-bar-close" title="Close Studio">✕</button>
+                <button class="ccs-min-bar-restore" title="Restore" style="background:var(--ccs-accent,#7aa2f7);color:#fff;border:none;border-radius:4px;padding:6px 14px;font-size:0.8rem;font-weight:600;cursor:pointer;flex-shrink:0;touch-action:manipulation;">▲ Restore</button>
+                <button class="ccs-min-bar-close" title="Close Studio" style="background:none;border:none;color:var(--ccs-text3,#565f89);font-size:1rem;cursor:pointer;padding:4px 8px;flex-shrink:0;touch-action:manipulation;">✕</button>
             `;
             this._minBar.querySelector('.ccs-min-bar-restore').addEventListener('click', () => this.restore());
             this._minBar.querySelector('.ccs-min-bar-close').addEventListener('click', () => this.close());

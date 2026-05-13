@@ -170,7 +170,7 @@ If you have ONE critical question that would significantly change output, ask it
 
         const requests = ['A', 'B', 'C'].map(label => ({
             systemPrompt,
-            userPrompt: `${fieldInstruction}\n\nGenerate variation ${label} for the "${fieldName}" field. Take a different creative angle than the others. Put content in a triple-backtick code block.\n\nConcept: ${this.session.ideaMemory?.conceptName || 'the character'}\nDetail level: ${detailLevel}`,
+            userPrompt: `${fieldInstruction}\n\nGenerate variation ${label} for the "${fieldName}" field. Take a different creative angle than the others. Put content in a triple-backtick code block.\n\nConcept: ${this.session?.ideaMemory?.conceptName || 'the character'}\nDetail level: ${detailLevel}`,
         }));
 
         try {
@@ -353,7 +353,7 @@ If you have ONE critical question that would significantly change output, ask it
 
         const requests = Array.from({ length: count }, (_, i) => ({
             systemPrompt,
-            userPrompt: `${fieldInstruction}\n\nGenerate alternate greeting #${i + 1} of ${count} for this character. Each should offer a meaningfully different starting point.\n\nConcept: ${this.session.ideaMemory?.conceptName || 'the character'}\n\nPut the greeting in a triple-backtick code block.`,
+            userPrompt: `${fieldInstruction}\n\nGenerate alternate greeting #${i + 1} of ${count} for this character. Each should offer a meaningfully different starting point.\n\nConcept: ${this.session?.ideaMemory?.conceptName || 'the character'}\n\nPut the greeting in a triple-backtick code block.`,
         }));
 
         try {

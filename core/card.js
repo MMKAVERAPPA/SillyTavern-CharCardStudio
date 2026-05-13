@@ -1,6 +1,10 @@
 // core/card.js
 // Character card V3 read/write, token counting, diff, field validation
 
+// ST exposes getRequestHeaders as a named export from script.js (not on the SillyTavern object).
+// This is how every other ST extension does it — same pattern as MemoryBooks, etc.
+import { getRequestHeaders } from '../../../../script.js';
+
 export const CARD_FIELDS = [
     'name','description','personality','scenario','first_mes','mes_example',
     'system_prompt','post_history_instructions','creator_notes','tags',
@@ -74,7 +78,7 @@ export class CardManager {
 
         const response = await fetch('/api/characters/save', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: getRequestHeaders(),
             body: JSON.stringify(payload),
         });
         if (!response.ok) throw new Error(`Save failed: ${response.statusText}`);
@@ -103,7 +107,7 @@ export class CardManager {
         }
         const response = await fetch('/api/characters/save', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: getRequestHeaders(),
             body: JSON.stringify(payload),
         });
         if (!response.ok) throw new Error(`Save failed: ${response.statusText}`);

@@ -1125,6 +1125,10 @@
     .ccs-modal-overlay {
         padding: 0;
         align-items: flex-end;
+        /* Re-assert z-index here — some mobile browsers/ST themes reset
+           z-index for fixed elements when a media query partially overrides
+           an earlier rule. !important ensures this wins. */
+        z-index: 2147483647 !important;
     }
     .ccs-modal,
     .ccs-settings-modal-inner {
