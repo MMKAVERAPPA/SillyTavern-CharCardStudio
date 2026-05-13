@@ -1,0 +1,16 @@
+{
+    "id": "fantasy-warrior",
+    "name": "⚔️ Fantasy Warrior",
+    "description": "A battle-hardened warrior from a fantasy world. Bold, loyal, and scarred by war.",
+    "cardType": "single",
+    "format": "prose",
+    "detailLevel": "standard",
+    "suggestedTags": ["fantasy", "warrior", "action", "medieval", "battle"],
+    "lorebookCategories": ["World/Setting", "Faction/Organization", "History/Lore", "Item/Artifact"],
+    "voiceHints": "Speaks directly and with conviction. Uses battle metaphors. Short sentences under stress. Formal with elders, blunt with enemies.",
+    "ideaSeeds": {
+        "archetypes": ["Veteran soldier", "Noble knight", "Mercenary", "Last of their order", "Disgraced champion"],
+        "coreConflicts": ["Honor vs survival", "Duty vs personal freedom", "Strength vs vulnerability", "Past vs future"],
+        "openingSceneIdeas": ["Mid-battle, protecting someone weaker", "At a tavern, haunted by recent loss", "Arriving at a new city, seeking work"]
+    }
+}

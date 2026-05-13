@@ -51,6 +51,12 @@ export class WorldInfoManager {
         return true;
     }
 
+    async createLorebook(name) {
+        if (!name?.trim()) throw new Error('Lorebook name cannot be empty');
+        await this.saveLorebook(name.trim(), {});
+        return name.trim();
+    }
+
     async addEntries(lorebookName, entriesData) {
         const existing = await this.getLorebookEntries(lorebookName);
         let uid = this._getNextUid(existing);

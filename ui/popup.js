@@ -1,7 +1,6 @@
-﻿// ui/popup.js
-// Full-screen studio overlay
-// FIX: removed duplicate messages on phase switch, fixed editMessage index,
-//      fixed overlay close-on-tap for mobile, annotation cleanup on close
+// ui/popup.js
+// Full-screen studio overlay — v3.3.0
+// Adds: themes, auto-complete chips, extended shortcuts, swipe gestures, undo/redo, template picker
 
 import { memoryManager } from '../core/memory.js';
 import { cardManager } from '../core/card.js';
@@ -18,6 +17,7 @@ import { generationPhase } from '../phases/generation.js';
 import { lorebookPhase } from '../phases/lorebook-phase.js';
 import { detectPhaseSwitch } from '../core/parser.js';
 import { toastManager } from './toast.js';
+import { haptic } from '../core/haptic.js';
 
 const PHASE = { IDEATION: 'ideation', BUILDING: 'building', LOREBOOK: 'lorebook' };
 const TAB   = { IDEA: 'idea', CARD: 'card', LOREBOOK: 'lorebook' };
@@ -71,6 +71,9 @@ export class StudioPopup {
         this._buildDOM();               // binds all events via this.$() before DOM insert
         document.body.appendChild(this.el);  // NOW in DOM
         this.isOpen = true;
+
+        // Apply saved theme
+        this._applyTheme(memoryManager.getGlobalSettings().theme || 'dark');
 
         this._initPanels();             // safe to use document.getElementById now
 
@@ -264,6 +267,7 @@ export class StudioPopup {
                                 <span class="ccs-snip-label">📌</span>
                                 <div id="ccs-snip-chips"></div>
                             </div>
+                            <div class="ccs-chip-bar" id="ccs-chip-bar"></div>
                         </div>
                     </div>
 
@@ -383,10 +387,12 @@ export class StudioPopup {
         cardPanel.updateCardFields(this.cardFields);
 
         // Restore lorebook panel if entries exist
-        if (this.session.lorebookLog.acceptedEntries?.length) {
+        const loreLog = this.session.lorebookLog;
+        if (loreLog.acceptedEntries?.length || loreLog.targetBook) {
             lorebookPanel.render(
-                this.session.lorebookLog.acceptedEntries,
-                this.session.lorebookLog.pendingEntries || []
+                loreLog.acceptedEntries || [],
+                loreLog.pendingEntries || [],
+                loreLog.targetBook || ''
             );
         }
 
@@ -473,8 +479,9 @@ export class StudioPopup {
                     lorebookPhase.start(this.session, this.cardFields, {
                         onUpdated: () => {
                             lorebookPanel.render(
-                                this.session.lorebookLog.acceptedEntries,
-                                lorebookPhase.pendingEntries
+                                this.session.lorebookLog.acceptedEntries || [],
+                                lorebookPhase.pendingEntries,
+                                this.session.lorebookLog.targetBook || ''
                             );
                             this._switchWorkspaceTab(TAB.LOREBOOK);
                         },
@@ -483,6 +490,7 @@ export class StudioPopup {
                 } catch (err) { revertPhase(); toastManager.show('Failed to start Lorebook phase: ' + err.message, 'error'); }
                 break;
         }
+        this._updateChipBar();
     }
 
     async _handleUserMessage(message, editIdx) {
@@ -551,6 +559,7 @@ export class StudioPopup {
             statsManager.record('sessions');
             chatPanel.clear();
             cardPanel.init('ccs-card-panel-container', this.cardFields, this.session, cardPanel.callbacks);
+            this._showTemplatePicker();
             this._routeToPhase(PHASE.IDEATION);
         });
 
@@ -599,22 +608,34 @@ export class StudioPopup {
             }
         };
         
-        // Keyboard shortcuts
+        // Keyboard shortcuts (extended in v3.3)
         this._shortcutHandler = (e) => {
             if (!this.isOpen || this.isMinimized) return;
             const ctrl = e.ctrlKey || e.metaKey;
+            const shift = e.shiftKey;
+
+            // Phase switching
             if (ctrl && e.key === '1') { e.preventDefault(); this._routeToPhase(PHASE.IDEATION); }
             else if (ctrl && e.key === '2') { e.preventDefault(); this._routeToPhase(PHASE.BUILDING); }
             else if (ctrl && e.key === '3') { e.preventDefault(); this._routeToPhase(PHASE.LOREBOOK); }
+            // Generation
             else if (ctrl && e.key === 'g') { e.preventDefault(); generationPhase.generateAllFields(); }
-            else if (ctrl && e.key === 'f') { 
-                e.preventDefault(); 
+            // Search
+            else if (ctrl && e.key === 'f') {
+                e.preventDefault();
                 const searchInput = this.$('#ccs-chat-search-input');
                 if (searchInput) {
                     searchInput.style.display = searchInput.style.display === 'block' ? 'none' : 'block';
                     if (searchInput.style.display === 'block') searchInput.focus();
                 }
             }
+            // v3.3: Export session log
+            else if (ctrl && e.key === 's') { e.preventDefault(); this._exportSessionLog(); }
+            // v3.3: Focus chat input
+            else if (ctrl && e.key === '/') { e.preventDefault(); this._focusInput(); }
+            // v3.3: Undo / Redo field changes
+            else if (ctrl && !shift && e.key === 'z') { e.preventDefault(); this._undoField(); }
+            else if (ctrl && shift && e.key === 'Z') { e.preventDefault(); this._redoField(); }
         };
         
         // Ghost Mode global hotkey Alt+Shift+G
@@ -628,6 +649,9 @@ export class StudioPopup {
         document.addEventListener('keydown', this._escHandler);
         document.addEventListener('keydown', this._ghostModeHandler);
         document.addEventListener('keydown', this._shortcutHandler);
+
+        // v3.3: Swipe left/right on the phase tabs to cycle phases (mobile)
+        this._bindPhaseSwipe();
 
         // FIX: Overlay close-on-tap — only trigger when BOTH pointerdown and click
         // land on the overlay itself (not on .ccs-studio-inner or its children).
@@ -715,11 +739,129 @@ export class StudioPopup {
                 <div class="ccs-shortcut-item"><span>Switch to Build</span><span class="ccs-shortcut-key">Ctrl+2</span></div>
                 <div class="ccs-shortcut-item"><span>Switch to Lore</span><span class="ccs-shortcut-key">Ctrl+3</span></div>
                 <div class="ccs-shortcut-item"><span>Generate All</span><span class="ccs-shortcut-key">Ctrl+G</span></div>
+                <div class="ccs-shortcut-item"><span>Export Session Log</span><span class="ccs-shortcut-key">Ctrl+S</span></div>
+                <div class="ccs-shortcut-item"><span>Focus Chat Input</span><span class="ccs-shortcut-key">Ctrl+/</span></div>
+                <div class="ccs-shortcut-item"><span>Undo Field Change</span><span class="ccs-shortcut-key">Ctrl+Z</span></div>
+                <div class="ccs-shortcut-item"><span>Redo Field Change</span><span class="ccs-shortcut-key">Ctrl+Shift+Z</span></div>
                 <div class="ccs-shortcut-item"><span>Send Message</span><span class="ccs-shortcut-key">Enter</span></div>
                 <div class="ccs-shortcut-item"><span>Minimize Studio</span><span class="ccs-shortcut-key">Esc</span></div>
+                <div class="ccs-shortcut-item"><span>Ghost Mode</span><span class="ccs-shortcut-key">Alt+Shift+G</span></div>
             </div>
         `;
         this.$('.ccs-studio-inner')?.appendChild(help);
+    }
+
+    // ── Theme ──────────────────────────────────────────────────────────────────
+
+    _applyTheme(theme) {
+        const studio = document.getElementById('ccs-studio');
+        if (!studio) return;
+        studio.classList.remove('ccs-theme-midnight', 'ccs-theme-sepia', 'ccs-theme-light');
+        if (theme && theme !== 'dark') studio.classList.add(`ccs-theme-${theme}`);
+    }
+
+    // ── Phase swipe (mobile) ──────────────────────────────────────────────────
+
+    _bindPhaseSwipe() {
+        const chatCol = this.$('.ccs-chat-col');
+        if (!chatCol) return;
+        const phases = [PHASE.IDEATION, PHASE.BUILDING, PHASE.LOREBOOK];
+        let sx = 0, sy = 0, sTime = 0;
+
+        chatCol.addEventListener('touchstart', (e) => {
+            sx = e.touches[0].clientX;
+            sy = e.touches[0].clientY;
+            sTime = Date.now();
+        }, { passive: true });
+
+        chatCol.addEventListener('touchend', (e) => {
+            const dx = e.changedTouches[0].clientX - sx;
+            const dy = e.changedTouches[0].clientY - sy;
+            const dt = Date.now() - sTime;
+            // Must be: fast enough, clearly horizontal, at least 50px
+            if (dt > 400 || Math.abs(dx) < 50 || Math.abs(dx) < Math.abs(dy) * 2) return;
+            // Must not be currently generating
+            if (chatEngine.isGenerating) return;
+            const idx = phases.indexOf(this.currentPhase);
+            if (dx < 0 && idx < phases.length - 1) {
+                haptic.pulse(8); this._routeToPhase(phases[idx + 1]);
+            } else if (dx > 0 && idx > 0) {
+                haptic.pulse(8); this._routeToPhase(phases[idx - 1]);
+            }
+        }, { passive: true });
+    }
+
+    // ── Auto-complete chip bar ────────────────────────────────────────────────
+
+    _updateChipBar() {
+        const bar = this.$('#ccs-chip-bar');
+        if (!bar) return;
+        const suggestions = {
+            [PHASE.IDEATION]: [
+                '💡 Rate my concept', '🎭 Suggest 3 archetypes', '🔍 What pillars should I define?',
+                '⚖️ Show concept pros/cons', '🌟 Make it more original',
+            ],
+            [PHASE.BUILDING]: [
+                '⚡ Generate all fields', '📝 Make description darker', '🎲 Add 3 alt greetings',
+                '✂️ Shorten first message', '🔍 Audit the card',
+            ],
+            [PHASE.LOREBOOK]: [
+                '🗺️ What entries should I create?', '🔑 Check keyword quality',
+                '📋 Organize entries', '💾 Insert all staged entries',
+            ],
+        };
+        const chips = suggestions[this.currentPhase] || [];
+        if (!chips.length) { bar.style.display = 'none'; return; }
+        bar.style.display = 'flex';
+        bar.innerHTML = chips.map(c =>
+            `<button class="ccs-autocomplete-chip" title="${c}">${c}</button>`
+        ).join('');
+        bar.querySelectorAll('.ccs-autocomplete-chip').forEach(btn => {
+            btn.addEventListener('click', () => {
+                const input = this.$('#ccs-chat-input');
+                if (input) {
+                    input.value = btn.title;
+                    input.focus();
+                    input.dispatchEvent(new Event('input'));
+                }
+            });
+        });
+    }
+
+    // ── Undo / Redo ──────────────────────────────────────────────────────────
+
+    async _undoField() {
+        if (!this.session) return;
+        const action = memoryManager.popUndo(this.session);
+        if (!action) { toastManager.show('Nothing to undo.', 'info'); return; }
+        const currentVal = this.cardFields[action.fieldName];
+        memoryManager.pushRedo(this.session, action.fieldName, currentVal);
+        try {
+            await cardManager.writeField(action.fieldName, action.value);
+            this.cardFields[action.fieldName] = action.value;
+            cardPanel.setFieldStatus(action.fieldName, action.value ? 'accepted' : 'empty');
+            haptic.double();
+            toastManager.show(`↩ Undid change to ${action.fieldName}`, 'info');
+        } catch (err) {
+            toastManager.show(`❌ Undo failed: ${err.message}`, 'error');
+        }
+    }
+
+    async _redoField() {
+        if (!this.session) return;
+        const action = memoryManager.popRedo(this.session);
+        if (!action) { toastManager.show('Nothing to redo.', 'info'); return; }
+        const currentVal = this.cardFields[action.fieldName];
+        memoryManager.pushUndo(this.session, action.fieldName, currentVal);
+        try {
+            await cardManager.writeField(action.fieldName, action.value);
+            this.cardFields[action.fieldName] = action.value;
+            cardPanel.setFieldStatus(action.fieldName, action.value ? 'accepted' : 'empty');
+            haptic.double();
+            toastManager.show(`↪ Redid change to ${action.fieldName}`, 'info');
+        } catch (err) {
+            toastManager.show(`❌ Redo failed: ${err.message}`, 'error');
+        }
     }
 
     _flashSaveIndicator() {
@@ -744,7 +886,11 @@ export class StudioPopup {
         this.$('#ccs-lorebook-panel-container')?.style && (this.$('#ccs-lorebook-panel-container').style.display = tabName === TAB.LOREBOOK ? '' : 'none');
         this.$('#ccs-idea-panel-container')?.style && (this.$('#ccs-idea-panel-container').style.display     = tabName === TAB.IDEA     ? '' : 'none');
 
-        if (tabName === TAB.LOREBOOK) lorebookPanel.render(this.session.lorebookLog.acceptedEntries, lorebookPhase.pendingEntries);
+        if (tabName === TAB.LOREBOOK) lorebookPanel.render(
+            this.session.lorebookLog.acceptedEntries || [],
+            lorebookPhase.pendingEntries,
+            this.session.lorebookLog.targetBook || ''
+        );
         if (tabName === TAB.IDEA) ideaPanel.render(this.session.ideaMemory);
 
         // Update drawer handle label (mobile)
@@ -965,6 +1111,66 @@ export class StudioPopup {
         a.download = `${(card.name || 'character').replace(/\s+/g,'_')}_studio_log.md`;
         a.click();
         URL.revokeObjectURL(url);
+    }
+
+    _showTemplatePicker() {
+        const templates = [
+            { id: 'fantasy-warrior',  name: '⚔️ Fantasy Warrior',       desc: 'Battle-hardened, loyal, scarred by war' },
+            { id: 'romance-modern',   name: '💕 Modern Romance Lead',    desc: 'Charming on surface, guarded underneath' },
+            { id: 'scifi-commander',  name: '🚀 Sci-Fi Commander',       desc: 'Starship captain, ethics vs orders' },
+            { id: 'horror-survivor',  name: '🕯️ Horror Survivor',       desc: 'Trauma-shaped, resourceful, afraid for good reasons' },
+        ];
+
+        const modal = document.createElement('div');
+        modal.className = 'ccs-modal-overlay';
+        modal.innerHTML = `
+            <div class="ccs-modal ccs-template-modal">
+                <div class="ccs-modal-header"><span>🎭 Start from a Template</span><button class="ccs-modal-close" id="ccs-tmpl-close">✕</button></div>
+                <div class="ccs-modal-body">
+                    <p style="color:var(--ccs-text3);font-size:0.82rem;margin-bottom:12px">Pick a template to pre-fill ideation context, or start blank.</p>
+                    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+                        ${templates.map(t => `
+                            <button class="ccs-template-card" data-id="${t.id}">
+                                <div class="ccs-template-name">${t.name}</div>
+                                <div class="ccs-template-desc">${t.desc}</div>
+                            </button>
+                        `).join('')}
+                    </div>
+                </div>
+                <div class="ccs-modal-footer">
+                    <button class="ccs-btn ccs-btn-ghost" id="ccs-tmpl-blank">Start Blank</button>
+                </div>
+            </div>
+        `;
+
+        const close = () => modal.remove();
+        modal.querySelector('#ccs-tmpl-close').addEventListener('click', close);
+        modal.querySelector('#ccs-tmpl-blank').addEventListener('click', close);
+
+        modal.querySelectorAll('.ccs-template-card').forEach(card => {
+            card.addEventListener('click', () => {
+                const tpl = templates.find(t => t.id === card.dataset.id);
+                if (tpl && this.session?.ideaMemory) {
+                    this.session.ideaMemory.templateId = tpl.id;
+                    this.session.ideaMemory.templateName = tpl.name;
+                }
+                chatPanel.addSystemMessage(`📋 Template loaded: ${tpl?.name || ''}. Start describing your character!`, 'info');
+                close();
+            });
+        });
+
+        (this.el || document.body).appendChild(modal);
+    }
+
+    async _analyzeDepth() {
+        chatPanel.addSystemMessage('🧠 Running psychological depth analysis...', 'info');
+        try {
+            const result = await auditEngine.analyzeCharacterDepth(this.cardFields, this.session?.ideaMemory);
+            cardPanel.showDepthAnalysis(result);
+            chatPanel.addMessage('assistant', result.raw);
+        } catch (err) {
+            chatPanel.addSystemMessage('❌ Depth analysis failed: ' + err.message, 'error');
+        }
     }
 
     _showNoCharError() {

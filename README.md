@@ -4,7 +4,7 @@
 
 **Character Card Studio** is a full-screen SillyTavern extension that turns character card creation into a guided, collaborative process. Instead of filling fields manually, you have a conversation with an AI Lab Assistant that understands the SillyTavern card format deeply — it handles the craft while you handle the creative direction.
 
-**v3.2.0** — **Reliability & Performance.** Virtual scrolling keeps the chat snappy on long sessions. Auto-retry on rate limits (1s → 2s → 4s backoff). Global error boundary catches unhandled rejections. Input message length limit (toggleable). `updateCardFields` now diffs instead of rebuilding — no more scroll-position resets. AbortController-based annotation cleanup.
+**v3.3.0** — **Experience & Polish.** 4 themes (Dark/Midnight/Sepia/Light), per-phase auto-complete chips, swipe-to-change-phase on mobile, `Ctrl+Z`/`Ctrl+Shift+Z` undo/redo, session import/export, template picker on new session, psychological depth radar chart, style consistency & cross-reference audit, haptic feedback.
 
 
 ---
@@ -137,7 +137,7 @@ Each type loads specialized rules — multi-character cards get guidance on prev
 - **Duplicate detection** — skips entries with titles already in the lorebook
 - **Keyword quality checker** — flags keys that are too broad, too narrow, or conflicting
 - **Search and filter** by keyword or category across all accepted entries
-- Supports both **embedded** (character_book) and **external standalone** lorebooks
+- **Always writes to an external named lorebook** — on entering Lore phase you select or create one; selection is persisted across sessions
 
 ### ⭐ Card Review Mode
 Load any existing card (yours or downloaded) and:
@@ -156,27 +156,34 @@ Load any existing card (yours or downloaded) and:
 
 ### 🎨 UI & UX
 - **Glassmorphism UI** — frosted-glass header and workspace panels with backdrop blur
+- **4 Themes** — Dark (default), Midnight, Sepia, Light; selected in Settings → Appearance
+- **Auto-complete chip bar** — phase-aware suggestions injected with one tap, no AI cost
 - **Gradient accents** — buttons, title text, and send button use a blue-to-purple gradient
 - **Inter font** — clean, modern typography with system font fallback
 - **Smooth animations** — message entrance, field status glow transitions, progress ring
 - **Welcome Screen** — three quick-start cards on fresh sessions (Pitch, Surprise Me, Improve Existing)
+- **Template Picker** — 4 archetype templates on New Session for quick ideation scaffolding
 - **Progress Ring** — SVG circular indicator showing field completion with token count
 - **Quick Edit** — click ✏️ on any field to edit inline without going through chat
+- **Undo / Redo** — `Ctrl+Z` / `Ctrl+Shift+Z` to revert or replay field changes
+- **Psychological Depth Radar** — 7-axis bar chart in card panel after running depth analysis
 - **Chat Search (Ctrl+F)** — filter chat messages instantly
 - **Raw Context Inspector** — view the exact payload sent to the LLM
 - **Ghost Mode (Alt+Shift+G)** — semi-transparent click-through overlay
 - **Session Notes** — persistent scratchpad at the bottom of the Idea tab
 - **Toast Notifications** — stacking auto-dismiss notifications
-- **Mobile-first** — opens via 🪄 Extensions wand on any screen size; workspace is a collapsible bottom drawer on mobile with swipe-gesture support
+- **Mobile-first** — opens via 🪄 Extensions wand on any screen size; workspace is a collapsible bottom drawer on mobile; swipe left/right on chat to change phases
 
 ### ⚙️ Power Features
 - **Two-tier API system** — primary API for generation, separate utility API for fast background checks. Point utility at a cheap/fast model to save cost
 - **Parallel API Calls** — concurrent requests for faster variation/batch generation
 - **Voice/Tone Profile** — set POV, action format, prose density, formality register
 - **Snippet Library** — reusable text snippets inserted into any prompt with one click
-- **Export Session Log** — full markdown export of the entire session
+- **Export Session Log** — full markdown export of the entire session (`Ctrl+S`)
+- **Session Import/Export** — save and restore full session state as JSON
 - **Session compression** — auto-compress long conversations to preserve context quality
 - **Usage Statistics** — tracks messages, tokens, field generations, and variations
+- **Haptic feedback** — configurable vibration on mobile for key interactions
 
 ---
 
@@ -303,6 +310,10 @@ You don't need to memorize these — the AI understands natural language. But th
 | `Ctrl+3` | Switch to Lore phase |
 | `Ctrl+G` | Generate All fields |
 | `Ctrl+F` | Search chat messages |
+| `Ctrl+S` | Export session log |
+| `Ctrl+/` | Focus chat input |
+| `Ctrl+Z` | Undo last field change |
+| `Ctrl+Shift+Z` | Redo last undone change |
 | `Alt+Shift+G` | Toggle Ghost Mode |
 | `Enter` | Send message |
 | `Escape` | Minimize studio |
@@ -316,9 +327,14 @@ Open Settings with the ⚙ button in the Studio header.
 ### API Tab
 | Setting | Description |
 |---|---|
-| **Primary API** | `ST Current` uses whatever ST has active. `Connection Profile` temporarily switches profiles during generation. |
+| **Primary API** | `ST Current` uses whatever ST has active. `Connection Profile` picks from a dropdown of your saved ST profiles. |
 | **Utility API** | `Same as primary` (default) or a custom OpenAI-compatible endpoint. Point this at a fast/cheap model (Gemini Flash, GPT-4o-mini, Haiku) for background checks without burning your main model. |
 | **Custom System Prompt Rules** | Text appended to every system prompt — your personal writing rules enforced on all generation. |
+
+### Appearance Tab
+| Setting | Description |
+|---|---|
+| **Theme** | Dark (default), Midnight (deep navy), Sepia (warm brown), Light. Applied on save. |
 
 ### Tone Tab
 Sets the output style profile applied to every generation:
@@ -333,7 +349,9 @@ Add reusable text snippets. They appear as clickable chips above the chat input.
 ### Session Tab
 - **Compression Threshold**: How many messages before history auto-compresses (default: 15)
 - **Parallel API Calls**: Enable/disable concurrent API requests for faster generation
-- **Input Message Limit**: Cap messages at 12,000 characters (default: on). Disable if you intentionally paste large texts into the chat
+- **Input Message Limit**: Cap messages at 12,000 characters (default: on)
+- **Haptic Feedback**: Mobile vibration on key interactions (off by default)
+- **Export/Import Session**: Save the full session state as JSON; restore from a previously exported file
 - **Clear All Sessions**: Deletes all saved session data
 
 ---
@@ -375,26 +393,27 @@ Utility calls are fire-and-forget — if the utility API is unavailable, the mai
 ```
 CharCardStudio/
 ├── index.js                  # Extension entry point, toolbar injection, slash commands
-├── manifest.json             # Extension metadata (v3.0.0)
+├── manifest.json             # Extension metadata (v3.3.0)
 ├── settings.html             # ST Extensions panel UI
-├── style.css                 # Full-screen studio styles (glassmorphism, animations)
+├── style.css                 # Full-screen studio styles (glassmorphism, themes, animations)
 │
 ├── core/
 │   ├── api.js               # Two-tier API manager (primary + utility) + error classification
-│   ├── audit.js             # Coherence audit, conflict detection, tag inference
+│   ├── audit.js             # Coherence audit, depth analysis, style check, cross-ref, tag inference
 │   ├── card.js              # Card read/write, token counting, diff, macro validation
 │   ├── chat.js              # Generation engine with skill-aware context building
 │   ├── context-builder.js   # Smart context sizing with field dependency graph
-│   ├── memory.js            # Session state, field versions, voice/psych profiles
+│   ├── haptic.js            # ★ Mobile haptic feedback (navigator.vibrate wrapper)
+│   ├── memory.js            # Session state, field versions, undo/redo stacks, export/import
 │   ├── parser.js            # Text parsing: fields, lorebook entries, ratings
 │   ├── skill-router.js      # ★ Skill Engine — assembles expert modules per AI call
 │   ├── stats.js             # Usage statistics tracking
-│   └── worldinfo.js         # Lorebook CRUD (external + embedded)
+│   └── worldinfo.js         # Lorebook CRUD (external + createLorebook)
 │
 ├── phases/
 │   ├── ideation.js          # Concept rating, card type detection, voice calibration
 │   ├── generation.js        # CoT field generation, test drive, rewrite actions
-│   └── lorebook-phase.js    # Full WI spec entry generation, staging, deduplication
+│   └── lorebook-phase.js    # Mandatory named-lorebook selection, entry generation, staging
 │
 ├── prompts/
 │   ├── base.js              # Backward-compat wrapper → delegates to skill-router
@@ -413,15 +432,21 @@ CharCardStudio/
 │       ├── phase-ideation.js    # Concept rating, voice cal, proposed profile
 │       ├── phase-generation.js  # Chain-of-thought, field instructions, rewrites
 │       ├── phase-lorebook.js    # Full World Info spec (18+ features)
-│       └── phase-audit.js       # Coherence audit, simulation, card review
+│       └── phase-audit.js       # Coherence audit, depth, style, cross-ref, simulation
+│
+├── templates/               # ★ Archetype templates (v3.3)
+│   ├── fantasy-warrior.json
+│   ├── romance-modern.json
+│   ├── scifi-commander.json
+│   └── horror-survivor.json
 │
 └── ui/
-    ├── card-panel.js        # Card status board, progress ring, quick edit, history
+    ├── card-panel.js        # Card status board, progress ring, quick edit, depth radar
     ├── chat-panel.js        # Chat area, welcome screen, streaming, accept bars
     ├── idea-panel.js        # Concept rating display, pillar tracker
-    ├── lorebook-panel.js    # Entry index, staging, search/filter
-    ├── popup.js             # Full-screen overlay orchestrator, keyboard shortcuts
-    ├── settings-modal.js    # Settings modal (API, tone, snippets, session)
+    ├── lorebook-panel.js    # Entry index, staging, target banner, search/filter
+    ├── popup.js             # Full-screen overlay orchestrator, shortcuts, swipe, undo/redo
+    ├── settings-modal.js    # Settings modal (API, appearance, tone, snippets, session)
     └── toast.js             # Stacking toast notification system
 ```
 
@@ -472,6 +497,7 @@ CharCardStudio/
 
 | Version | Highlights |
 |---------|-----------|
+| **v3.3.0** | 4 themes, auto-complete chips, swipe-to-change-phase, Ctrl+Z/Redo undo, session import/export, template picker, depth radar chart, style consistency & cross-ref audit, haptic feedback, profile dropdown |
 | **v3.2.0** | Virtual scrolling (50-msg DOM cap with load-more), auto-retry on rate limits, global error boundary, input message limit toggle, `updateCardFields` diffing, AbortController annotation cleanup, CONTRIBUTING.md, CHANGELOG.md |
 | **v3.1.1** | Mobile minimize pill, settings modal mobile fix |
 | **v3.1.0** | Mobile UI overhaul — collapsible bottom drawer, swipe gestures, wand-menu only entry point, no-character screen, reliable mobile rendering |

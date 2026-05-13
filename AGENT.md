@@ -1,10 +1,10 @@
-# AGENT.md - CharCardStudio Extension Debugging
+# AGENT.md - CharCardStudio Extension
 
-## Project Context
-SillyTavern third-party extension with 3 critical bugs:
-1. Settings modal not opening/visible
-2. Minimize function not working
-3. Save function causing 403 errors
+## Project Status — v3.3.0 (current)
+
+All original bugs (settings modal, minimize bar, character save) were resolved in v3.0–v3.2.
+v3.3.0 adds: themes, auto-complete chips, swipe gestures, undo/redo, session portability,
+template picker, depth radar, style consistency & cross-reference audit, haptic feedback.
 
 ## Key Learnings
 

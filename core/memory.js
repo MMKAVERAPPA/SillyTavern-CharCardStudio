@@ -25,7 +25,12 @@ export class MemoryManager {
         if (!s.globalSettings.voiceToneProfile) s.globalSettings.voiceToneProfile = this._defaultToneProfile();
         if (s.globalSettings.parallelApiCalls === undefined) s.globalSettings.parallelApiCalls = true;
         if (s.globalSettings.inputLimitEnabled === undefined) s.globalSettings.inputLimitEnabled = true;
+        if (!s.globalSettings.theme) s.globalSettings.theme = 'dark';
+        if (s.globalSettings.hapticFeedback === undefined) s.globalSettings.hapticFeedback = false;
         if (!s.snippets) s.snippets = [];
+        // v3.3: undo/redo stacks are in-memory only (not persisted)
+        this._undoStacks = {}; // { sessionKey: [{ fieldName, prevValue }] }
+        this._redoStacks = {};
         this.settings = extensionSettings[SETTINGS_KEY];
     }
 
@@ -59,6 +64,10 @@ export class MemoryManager {
                 platformTarget: 'chub',      // 'chub' | 'fictionlab' | 'janitor' | 'personal'
                 // Voice/Tone
                 voiceToneProfile: this._defaultToneProfile(),
+                // Appearance
+                theme: 'dark',               // 'dark' | 'midnight' | 'sepia' | 'light'
+                // Haptic feedback (mobile)
+                hapticFeedback: false,
             },
             snippets: [],   // [{ id, name, content, category }]
         };
@@ -149,8 +158,8 @@ export class MemoryManager {
             },
             fieldLog: this._emptyFieldLog(),
             lorebookLog: {
-                targetBook: '',
-                embedded: true,
+                targetBook: '',      // name of the chosen external lorebook
+                embedded: false,     // embedded mode removed; always use external book
                 entryList: [],
                 acceptedEntries: [],
                 pendingEntries: [],
@@ -243,6 +252,55 @@ export class MemoryManager {
         const idx = session.lorebookLog.pendingEntries.findIndex(e => e._tempId === entry._tempId);
         if (idx !== -1) session.lorebookLog.pendingEntries.splice(idx, 1);
         session.lorebookLog.acceptedEntries.push({ ...entry, acceptedAt: Date.now() });
+    }
+
+    // ── Undo / Redo (in-memory, per session) ────────────────────────────────
+
+    pushUndo(session, fieldName, prevValue) {
+        const key = this.getSessionKey(session.characterId);
+        if (!this._undoStacks[key]) this._undoStacks[key] = [];
+        if (!this._redoStacks[key]) this._redoStacks[key] = [];
+        this._undoStacks[key].push({ fieldName, value: prevValue, timestamp: Date.now() });
+        // Clear redo stack on new action
+        this._redoStacks[key] = [];
+        // Cap at 30 actions
+        if (this._undoStacks[key].length > 30) this._undoStacks[key].shift();
+    }
+
+    popUndo(session) {
+        const key = this.getSessionKey(session.characterId);
+        return this._undoStacks[key]?.pop() || null;
+    }
+
+    pushRedo(session, fieldName, prevValue) {
+        const key = this.getSessionKey(session.characterId);
+        if (!this._redoStacks[key]) this._redoStacks[key] = [];
+        this._redoStacks[key].push({ fieldName, value: prevValue, timestamp: Date.now() });
+    }
+
+    popRedo(session) {
+        const key = this.getSessionKey(session.characterId);
+        return this._redoStacks[key]?.pop() || null;
+    }
+
+    // ── Session export / import ─────────────────────────────────────────────
+
+    exportSession(characterId) {
+        const s = this.settings.sessions[this.getSessionKey(characterId)];
+        if (!s) throw new Error('No session found for this character.');
+        return JSON.stringify({ _ccsExport: true, version: '3.3.0', exportedAt: Date.now(), session: s }, null, 2);
+    }
+
+    importSession(jsonString) {
+        let parsed;
+        try { parsed = JSON.parse(jsonString); } catch { throw new Error('Invalid JSON — could not parse session file.'); }
+        if (!parsed._ccsExport || !parsed.session) throw new Error('Not a valid CCS session export file.');
+        const s = parsed.session;
+        if (!s.characterId && s.characterId !== 0) throw new Error('Session missing characterId.');
+        const key = this.getSessionKey(s.characterId);
+        this.settings.sessions[key] = s;
+        this.save();
+        return s;
     }
 
     buildLorebookIndex(session) {

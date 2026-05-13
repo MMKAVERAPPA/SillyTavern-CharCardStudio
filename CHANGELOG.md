@@ -6,7 +6,39 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [3.3.0] - 2026-05-13
+
+### Added
+- **Lorebook target selection** — Embedded mode removed; user must always choose a named external lorebook. On entering the Lore phase with no book selected, a picker appears immediately with a **"Create New Lorebook"** option. Selection persists across sessions
+- **4 Themes** — Dark (default), Midnight, Sepia, Light; selector in Settings → Appearance, applied live on save
+- **Profile dropdown** — API profile setting is now a `<select>` populated asynchronously from `apiManager.getProfiles()` instead of a manual text field
+- **Auto-complete chip bar** — Phase-aware suggestion chips below the chat input. Static, no AI cost; chips inject text into the input for quick dispatch
+- **Extended keyboard shortcuts** — `Ctrl+S` (export log), `Ctrl+/` (focus input), `Ctrl+Z` (undo), `Ctrl+Shift+Z` (redo). Existing shortcuts updated in help panel
+- **Undo/Redo** — In-memory per-session stack (up to 30 actions). Pushes on every quick-edit or field accept; `Ctrl+Z` / `Ctrl+Shift+Z` reverses/reapplies writes to SillyTavern
+- **Swipe gestures** — Horizontal swipe on the chat column cycles through phases on mobile; velocity-gated to avoid accidental triggers
+- **Haptic feedback** — `navigator.vibrate()` calls on entry insert, undo/redo, and phase swipe. Off by default; toggle in Settings → Session
+- **Session portability** — Export current session as a JSON file; import a previously exported file; available in Settings → Session
+- **Card templates** — 4 built-in templates (Fantasy Warrior, Modern Romance, Sci-Fi Commander, Horror Survivor); template picker shown on "New Session"
+- **Psychological depth analyzer** — `auditEngine.analyzeCharacterDepth()` runs the AI on 7 psychological axes (Motivation, Fear, Contradiction, Growth Potential, Relatability, Uniqueness, Consistency) and renders a color-coded bar chart in the Card Panel
+- **Style consistency check** — `auditEngine.checkStyleConsistency()` audits POV, tense, format, formality, and narrator voice across all fields
+- **Cross-reference validation** — `auditEngine.crossReferenceCheck()` extracts all facts and checks for contradictions between fields and lorebook entries
+- **`core/haptic.js`** — New module; thin wrapper around `navigator.vibrate()` gated behind the settings flag
+- **`templates/`** — New directory with 4 JSON template files
+
+### Changed
+- `lorebook-panel.js` — Rewrote to include target banner (green if set, yellow warning if not), search/filter, and per-entry insert/discard buttons
+- `memory.js` — `lorebookLog.embedded` now defaults to `false`; added `theme`, `hapticFeedback`, `_undoStacks`, `_redoStacks` fields; added `pushUndo/popUndo/pushRedo/popRedo/exportSession/importSession` methods
+- `settings-modal.js` — Added Appearance tab; profile input is now an async dropdown; added haptic and session import/export controls
+- `popup.js` — Theme applied on open; chip bar updates on every phase change; lorebook render now always passes `targetBook`
+- `style.css` — Added theme overrides, chip bar styles, lorebook target banner, depth radar chart, template picker
+
+### Fixed
+- Lorebook entries could be generated but never saved (no lorebook target selected before generation) — now blocked at phase start
+
+---
+
 ## [3.2.0] - 2026-05-13
+
 
 ### Added
 - **Virtual scrolling** in the chat panel — DOM is capped at 50 messages; older messages accessible via a "Load earlier messages" button, preventing lag on long sessions

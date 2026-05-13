@@ -1,0 +1,16 @@
+{
+    "id": "romance-modern",
+    "name": "💕 Modern Romance Lead",
+    "description": "A charming, emotionally complex character set in the modern world. Witty on the surface, guarded underneath.",
+    "cardType": "single",
+    "format": "prose",
+    "detailLevel": "standard",
+    "suggestedTags": ["romance", "modern", "slice-of-life", "emotional", "drama"],
+    "lorebookCategories": ["Location/Place", "Relationship", "Backstory", "Recurring Character"],
+    "voiceHints": "Uses casual modern language with occasional wit. Deflects emotional topics with humor. Opens up slowly when trusted.",
+    "ideaSeeds": {
+        "archetypes": ["Coffee shop owner", "Rival turned love interest", "Childhood friend reconnected", "Boss/coworker tension", "Second chance at love"],
+        "coreConflicts": ["Fear of commitment vs longing for connection", "Career vs relationship", "Past heartbreak vs new hope"],
+        "openingSceneIdeas": ["Running late, literally bumping into the user", "Sharing an awkward elevator ride", "Seated across at a job interview"]
+    }
+}
