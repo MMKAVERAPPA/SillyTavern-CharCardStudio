@@ -8,8 +8,10 @@ export class LorebookPanel {
         this.container = null;
         this.searchQuery = '';
         this.filterCategory = 'all';
+        this._targetBook = '';   // persisted across search/filter re-renders
         this.onInsertEntry = null;
         this.onDiscardEntry = null;
+        this.onChooseLorebook = null;   // set by popup.js to trigger the book-selector flow
     }
 
     init(containerId, callbacks = {}) {
@@ -20,6 +22,8 @@ export class LorebookPanel {
 
     render(acceptedEntries = [], pendingEntries = [], targetBook = '') {
         if (!this.container) return;
+        // Persist targetBook so search/filter re-renders don't lose it
+        if (targetBook) this._targetBook = targetBook;
 
         const categories = [...new Set([
             ...acceptedEntries.map(e => e.category || 'General'),
@@ -195,11 +199,11 @@ export class LorebookPanel {
 
         searchEl?.addEventListener('input', () => {
             this.searchQuery = searchEl.value;
-            this.render(acceptedEntries, pendingEntries);
+            this.render(acceptedEntries, pendingEntries, this._targetBook);
         });
         filterEl?.addEventListener('change', () => {
             this.filterCategory = filterEl.value;
-            this.render(acceptedEntries, pendingEntries);
+            this.render(acceptedEntries, pendingEntries, this._targetBook);
         });
 
         // Section toggles
@@ -228,6 +232,11 @@ export class LorebookPanel {
                 this.render(acceptedEntries, pendingEntries.filter(p => p._tempId !== tempId));
             });
         });
+        // Banner buttons (choose / change lorebook)
+        this.container.querySelector('#ccs-choose-lorebook-btn')
+            ?.addEventListener('click', () => this.onChooseLorebook?.());
+        this.container.querySelector('#ccs-change-lorebook-btn')
+            ?.addEventListener('click', () => this.onChooseLorebook?.());
     }
 }
 

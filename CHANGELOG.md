@@ -26,19 +26,21 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 - **`templates/`** — New directory with 4 JSON template files
 
 ### Changed
-- `lorebook-panel.js` — Rewrote to include target banner (green if set, yellow warning if not), search/filter, and per-entry insert/discard buttons
+- `lorebook-panel.js` — Rewrote to include target banner (green if set, yellow warning if not), search/filter, and per-entry insert/discard buttons; "Choose Lorebook" / "Change" banner buttons now correctly wired to the book-selector flow
 - `memory.js` — `lorebookLog.embedded` now defaults to `false`; added `theme`, `hapticFeedback`, `_undoStacks`, `_redoStacks` fields; added `pushUndo/popUndo/pushRedo/popRedo/exportSession/importSession` methods
-- `settings-modal.js` — Added Appearance tab; profile input is now an async dropdown; added haptic and session import/export controls
-- `popup.js` — Theme applied on open; chip bar updates on every phase change; lorebook render now always passes `targetBook`
-- `style.css` — Added theme overrides, chip bar styles, lorebook target banner, depth radar chart, template picker
+- `settings-modal.js` — Added Appearance tab; profile input is now an async dropdown; added haptic and session import/export controls; fixed stray `</div>` that hid Appearance and Session tabs
+- `popup.js` — Theme applied on open; chip bar updates on every phase change; lorebook render always passes `targetBook`; `onChooseLorebook` callback wired to lorebook phase
 
 ### Fixed
 - Lorebook entries could be generated but never saved (no lorebook target selected before generation) — now blocked at phase start
+- "Choose Lorebook" and "Change" banner buttons had no click handlers — now correctly wired
+- Lorebook search bar reset the selected target book banner to "No lorebook selected" on every keystroke — fixed by storing `_targetBook` as instance state
+- Settings modal Appearance, Session, and Stats tabs were invisible due to a stray `</div>` closing the modal body prematurely
+- `apiManager.getProfiles()` was missing — settings modal profile dropdown would crash silently; method now added with graceful fallback
 
 ---
 
 ## [3.2.0] - 2026-05-13
-
 
 ### Added
 - **Virtual scrolling** in the chat panel — DOM is capped at 50 messages; older messages accessible via a "Load earlier messages" button, preventing lag on long sessions
@@ -70,8 +72,7 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 ## [3.1.0] - 2026-05-12
 
 ### Fixed
-- 28 production bugs resolved across mobile UI, data persistence, and API race conditions  
-  *(see `.pi/docs/` for the full bug report)*
+- 28 production bugs resolved across mobile UI, data persistence, and API race conditions
 - Quick-edit save now correctly writes to the active card (BUG-003)
 - `restoreHistory()` now pushes messages into `this.messages` so edit/resend works on restored messages
 - Annotation listener properly cleaned up on studio close (memory leak)
@@ -83,9 +84,15 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ### Added
 - **Modular Skill Engine** — generation driven by a skill-based prompt router (`core/skill-router.js`)
-- **Psychological depth profiling** — core motivation, primary fear, hidden desire, central contradiction in ideation phase
-- **Voice calibration** — samples-based tone locking for consistent character voice
-- **Lorebook phase** — full lorebook entry generation and management within the studio
+- **Psychological depth profiling** — Core Motivation, Primary Fear, Hidden Desire, Central Contradiction, The Wound, Stress Behavior, Social Mask extracted during ideation and distributed across all fields
+- **Voice calibration** — 3 sample lines generated to confirm character voice before writing begins
+- **Chain-of-thought generation** — every field goes through Plan → Draft → Self-Check → Output
+- **Smart context sizing** — full content for dependency fields, truncated previews for independent fields
+- **Character test drive** — AI simulates character across 4 scenarios and critiques the card
+- **Full World Info spec** — lorebook phase teaches the AI all 18+ WI features (Timed Effects, Inclusion Groups, Outlet positions, Regex keys, etc.)
+- **Card type detection** — Single character, Multi-character, or Scenario/World card, each with specialized generation rules
+- **Format flexibility** — Prose (default) or PList+Ali:Chat, switchable mid-session
+- **Lorebook phase** — full entry generation and management within the studio
 - **Parallel API calls** — variations and batch operations can fire simultaneously
 - **Card audit engine** — automated quality check across all card fields
 - **Session compression** — long conversations auto-compress older messages to preserve context
@@ -98,6 +105,54 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
-## [2.x] - Legacy
+## [2.6.0] - 2026
 
-v2.x was a monolithic single-file implementation. No changelog was maintained.
+### Added
+- Chat search (`Ctrl+F`) with instant message filtering
+- Raw Context Inspector — view the exact payload sent to the LLM
+- Ghost Mode (`Alt+Shift+G`) — semi-transparent click-through overlay
+- Session Notes — persistent scratchpad in the Idea tab
+- Usage Statistics — tracks messages, tokens, field generations, and variations
+
+---
+
+## [2.5.0] - 2026
+
+### Added
+- Glassmorphism UI overhaul — frosted-glass panels, backdrop blur, gradient accents
+- Welcome Screen — three quick-start cards on fresh sessions
+- Progress Ring — SVG circular indicator showing field completion and token count
+- Quick Edit — click ✏️ on any field to edit inline
+- Extended keyboard shortcuts (`Ctrl+1/2/3`, `Ctrl+G`)
+- Toast notification system — stacking, auto-dismiss
+- Mobile improvements — collapsible drawer, responsive layouts
+
+---
+
+## [2.0.1] - 2026
+
+### Fixed
+- API error classification (`CCSApiError`) for proper rate-limit, balance, and auth handling
+- Automatic generation stop on critical errors (balance, auth)
+- Parallel API toggle to work around rate limits
+- Graceful streaming cleanup on abort
+
+---
+
+## [2.0.0] - 2026
+
+### Added
+- Full-screen studio overlay
+- Two-tier API system (primary + utility)
+- Guided ideation with structural pillars
+- Field variations (3 parallel options)
+- Lorebook builder (basic entry generation)
+- Coherence audit
+- Snippet library
+- Platform-aware mode (Chub / FictionLab / JanitorAI / Personal)
+
+---
+
+## [1.0.0] - Initial Release
+
+Basic character card generation assistant — single-file implementation, no session state, simple prompt-to-field generation.

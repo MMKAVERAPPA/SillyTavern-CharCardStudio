@@ -267,7 +267,7 @@ export class StudioPopup {
                                 <span class="ccs-snip-label">📌</span>
                                 <div id="ccs-snip-chips"></div>
                             </div>
-                            <div class="ccs-chip-bar" id="ccs-chip-bar"></div>
+                            <div class="ccs-chip-bar" id="ccs-chip-bar" style="display:none"></div>
                         </div>
                     </div>
 
@@ -337,6 +337,8 @@ export class StudioPopup {
                 if (idx !== -1) lorebookPhase.pendingEntries.splice(idx, 1);
             },
         });
+        // Wire the "Choose Lorebook" / "Change" banner buttons → book-selector flow
+        lorebookPanel.onChooseLorebook = () => lorebookPhase._promptInitialBookSelection();
 
         ideaPanel.init('ccs-idea-panel-container');
         this._renderSnippetBar();

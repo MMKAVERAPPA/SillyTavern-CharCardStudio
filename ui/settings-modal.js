@@ -65,17 +65,16 @@ export class SettingsModal {
                     <span>⚙️ Character Card Studio Settings</span>
                     <button class="ccs-modal-close" id="ccs-settings-close">✕</button>
                 </div>
+                <!-- Tab bar outside the scrollable body — always visible -->
+                <div class="ccs-settings-tabs">
+                    <button class="ccs-stab active" data-tab="api">🔗 API</button>
+                    <button class="ccs-stab" data-tab="appearance">🎨 Appearance</button>
+                    <button class="ccs-stab" data-tab="tone">🎙 Tone</button>
+                    <button class="ccs-stab" data-tab="snippets">📌 Snippets</button>
+                    <button class="ccs-stab" data-tab="session">🔧 Session</button>
+                    <button class="ccs-stab" data-tab="stats">📊 Stats</button>
+                </div>
                 <div class="ccs-modal-body">
-
-                    <!-- Tab bar -->
-                    <div class="ccs-settings-tabs">
-                        <button class="ccs-stab active" data-tab="api">🔗 API</button>
-                        <button class="ccs-stab" data-tab="appearance">🎨 Appearance</button>
-                        <button class="ccs-stab" data-tab="tone">🎙 Tone</button>
-                        <button class="ccs-stab" data-tab="snippets">📌 Snippets</button>
-                        <button class="ccs-stab" data-tab="session">🔧 Session</button>
-                        <button class="ccs-stab" data-tab="stats">📊 Stats</button>
-                    </div>
 
                     <!-- API Tab -->
                     <div class="ccs-stab-panel active" id="ccs-tab-panel-api">
@@ -161,8 +160,6 @@ export class SettingsModal {
                         <div class="ccs-snippet-list" id="ccs-snippet-list">
                             ${snippets.length ? snippets.map(s => this._renderSnippet(s)).join('') : '<div class="ccs-muted">No snippets yet.</div>'}
                         </div>
-                    </div>
-
                     </div>
 
                     <!-- Appearance Tab -->

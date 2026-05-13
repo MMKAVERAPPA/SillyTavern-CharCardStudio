@@ -975,6 +975,31 @@
     min-width: 140px;
 }
 
+/* Settings tabs — sit between modal header and scrollable body, never scroll */
+.ccs-settings-tabs {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0;
+    padding: 0 12px;
+    border-bottom: 1px solid var(--ccs-border);
+    flex-shrink: 0;
+    background: var(--ccs-surface);
+}
+.ccs-stab {
+    background: none;
+    border: none;
+    border-bottom: 2px solid transparent;
+    padding: 10px 12px;
+    color: var(--ccs-text3);
+    cursor: pointer;
+    font-size: 0.82rem;
+    font-weight: 500;
+    transition: color var(--ccs-anim-fast), border-color var(--ccs-anim-fast);
+    white-space: nowrap;
+}
+.ccs-stab:hover { color: var(--ccs-text); }
+.ccs-stab.active { color: var(--ccs-accent); border-bottom-color: var(--ccs-accent); }
+
 /* ══════════════════════════════════════════════════════════════════════════════
    BUG-001 FIX: Modal overlay — appended to document.body now.
    Z-index above ST modals (29999) to ensure visibility.
@@ -1060,28 +1085,8 @@
     max-width: 700px;
 }
 
-/* Settings tabs */
-.ccs-settings-tabs {
-    display: flex;
-    gap: 4px;
-    border-bottom: 1px solid var(--ccs-border);
-    margin-bottom: 16px;
-    flex-wrap: wrap;
-}
-.ccs-stab {
-    background: none;
-    border: none;
-    border-bottom: 2px solid transparent;
-    padding: 8px 14px;
-    color: var(--ccs-text3);
-    cursor: pointer;
-    font-size: 0.82rem;
-    font-weight: 500;
-    transition: color var(--ccs-anim-fast), border-color var(--ccs-anim-fast);
-    white-space: nowrap;
-}
-.ccs-stab:hover { color: var(--ccs-text); }
-.ccs-stab.active { color: var(--ccs-accent); border-bottom-color: var(--ccs-accent); }
+
+
 
 .ccs-stab-panel { display: none; }
 .ccs-stab-panel.active { display: block; }
