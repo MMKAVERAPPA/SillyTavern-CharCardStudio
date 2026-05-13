@@ -1,5 +1,6 @@
 // ui/settings-modal.js
 // Settings modal: API config, utility API, tone profile, snippet library
+// v3.3 — Added Appearance tab (themes), profile dropdown, haptic toggle, session import
 
 import { memoryManager } from '../core/memory.js';
 import { apiManager } from '../core/api.js';
@@ -64,16 +65,16 @@ export class SettingsModal {
                     <span>⚙️ Character Card Studio Settings</span>
                     <button class="ccs-modal-close" id="ccs-settings-close">✕</button>
                 </div>
+                <!-- Tab bar outside the scrollable body — always visible -->
+                <div class="ccs-settings-tabs">
+                    <button class="ccs-stab active" data-tab="api">🔗 API</button>
+                    <button class="ccs-stab" data-tab="appearance">🎨 Appearance</button>
+                    <button class="ccs-stab" data-tab="tone">🎙 Tone</button>
+                    <button class="ccs-stab" data-tab="snippets">📌 Snippets</button>
+                    <button class="ccs-stab" data-tab="session">🔧 Session</button>
+                    <button class="ccs-stab" data-tab="stats">📊 Stats</button>
+                </div>
                 <div class="ccs-modal-body">
-
-                    <!-- Tab bar -->
-                    <div class="ccs-settings-tabs">
-                        <button class="ccs-stab active" data-tab="api">🔗 API</button>
-                        <button class="ccs-stab" data-tab="tone">🎨 Tone</button>
-                        <button class="ccs-stab" data-tab="snippets">📌 Snippets</button>
-                        <button class="ccs-stab" data-tab="session">🔧 Session</button>
-                        <button class="ccs-stab" data-tab="stats">📊 Stats</button>
-                    </div>
 
                     <!-- API Tab -->
                     <div class="ccs-stab-panel active" id="ccs-tab-panel-api">
@@ -83,8 +84,12 @@ export class SettingsModal {
                                 <option value="current" ${s.apiMode==='current'?'selected':''}>🔗 Use ST's current connection</option>
                                 <option value="profile" ${s.apiMode==='profile'?'selected':''}>👤 Use a connection profile</option>
                             </select>
-                            <div id="ccs-profile-row" style="${s.apiMode==='profile'?'':'display:none'}; margin-top:8px;">
-                                <input class="ccs-input ccs-w100" id="ccs-profile-name" placeholder="Profile name (exact match)" value="${s.selectedProfile||''}">
+                            <div id="ccs-profile-row" style="${s.apiMode==='profile'?'':'display:none'}; margin-top:8px; display:flex; flex-direction:column; gap:6px;">
+                                <select class="ccs-select ccs-w100" id="ccs-profile-name">
+                                    <option value="">⌛ Loading profiles...</option>
+                                    ${s.selectedProfile ? `<option value="${s.selectedProfile}" selected>${s.selectedProfile}</option>` : ''}
+                                </select>
+                                <div class="ccs-setting-hint">Profiles are loaded from your SillyTavern connection settings.</div>
                             </div>
                             <div class="ccs-setting-hint">Uses whatever API is configured in SillyTavern. Switch to Profile mode to temporarily swap connection presets during generation.</div>
                         </div>
@@ -157,6 +162,20 @@ export class SettingsModal {
                         </div>
                     </div>
 
+                    <!-- Appearance Tab -->
+                    <div class="ccs-stab-panel" id="ccs-tab-panel-appearance">
+                        <div class="ccs-setting-section">
+                            <div class="ccs-setting-label">Theme</div>
+                            <select class="ccs-select ccs-w100" id="ccs-theme">
+                                <option value="dark"     ${s.theme==='dark'?     'selected':''}>🌑 Dark (Default)</option>
+                                <option value="midnight" ${s.theme==='midnight'?'selected':''}>🌌 Midnight</option>
+                                <option value="sepia"    ${s.theme==='sepia'?   'selected':''}>🍂 Sepia</option>
+                                <option value="light"    ${s.theme==='light'?   'selected':''}>☀️ Light</option>
+                            </select>
+                            <div class="ccs-setting-hint">Changes the studio's color palette. Applied immediately on save.</div>
+                        </div>
+                    </div>
+
                     <!-- Session Tab -->
                     <div class="ccs-stab-panel" id="ccs-tab-panel-session">
                         <div class="ccs-setting-section">
@@ -179,6 +198,23 @@ export class SettingsModal {
                                 <span>Limit messages to 12,000 characters</span>
                             </label>
                             <div class="ccs-setting-hint">Prevents accidental very-long messages from consuming excessive tokens. Disable only if you intentionally paste large texts.</div>
+                        </div>
+                        <div class="ccs-setting-section">
+                            <div class="ccs-setting-label">Haptic Feedback</div>
+                            <label class="ccs-toggle-label">
+                                <input type="checkbox" id="ccs-haptic" ${s.hapticFeedback ? 'checked' : ''}>
+                                <span>Enable vibration feedback on mobile (off by default)</span>
+                            </label>
+                            <div class="ccs-setting-hint">Triggers short vibrations on entry insertion, undo/redo, and phase swipe. Only works on mobile devices that support the Vibration API.</div>
+                        </div>
+                        <div class="ccs-setting-section">
+                            <div class="ccs-setting-label">Session Portability</div>
+                            <div style="display:flex;gap:8px;flex-wrap:wrap">
+                                <button class="ccs-btn ccs-btn-secondary" id="ccs-export-session-btn">📤 Export Session</button>
+                                <button class="ccs-btn ccs-btn-secondary" id="ccs-import-session-btn">📥 Import Session</button>
+                                <input type="file" id="ccs-import-session-file" accept=".json" style="display:none">
+                            </div>
+                            <div class="ccs-setting-hint">Export saves your current session as a JSON file. Import loads a previously exported session (replaces the current session for that character).</div>
                         </div>
                         <div class="ccs-setting-section">
                             <div class="ccs-setting-label">Danger Zone</div>
@@ -255,6 +291,34 @@ export class SettingsModal {
             }
         });
 
+        // Session export / import
+        document.getElementById('ccs-export-session-btn')?.addEventListener('click', () => {
+            try {
+                const ctx = SillyTavern?.getContext?.();
+                const json = memoryManager.exportSession(ctx?.characterId);
+                const blob = new Blob([json], { type: 'application/json' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url; a.download = 'ccs_session_export.json'; a.click();
+                URL.revokeObjectURL(url);
+            } catch (err) { alert('Export failed: ' + err.message); }
+        });
+        document.getElementById('ccs-import-session-btn')?.addEventListener('click', () => {
+            document.getElementById('ccs-import-session-file')?.click();
+        });
+        document.getElementById('ccs-import-session-file')?.addEventListener('change', async (e) => {
+            const file = e.target.files[0];
+            if (!file) return;
+            try {
+                const text = await file.text();
+                memoryManager.importSession(text);
+                alert('✅ Session imported! Reload the studio to see it.');
+            } catch (err) { alert('Import failed: ' + err.message); }
+        });
+
+        // Load profiles into dropdown asynchronously
+        this._loadProfileDropdown();
+
         // Close
         document.getElementById('ccs-settings-close')?.addEventListener('click', () => this.close());
         document.getElementById('ccs-settings-cancel')?.addEventListener('click', () => this.close());
@@ -269,10 +333,11 @@ export class SettingsModal {
         document.getElementById('ccs-settings-save')?.addEventListener('click', () => this._save());
     }
 
-    _save() {
+    async _save() {
+        const theme = document.getElementById('ccs-theme')?.value || 'dark';
         const updates = {
             apiMode:            document.getElementById('ccs-api-mode')?.value || 'current',
-            selectedProfile:    document.getElementById('ccs-profile-name')?.value.trim() || '',
+            selectedProfile:    document.getElementById('ccs-profile-name')?.value?.trim() || '',
             utilityApiMode:     document.getElementById('ccs-util-mode')?.value || 'same',
             utilityEndpoint:    document.getElementById('ccs-util-endpoint')?.value.trim() || '',
             utilityApiKey:      document.getElementById('ccs-util-apikey')?.value.trim() || '',
@@ -281,6 +346,8 @@ export class SettingsModal {
             compressionThreshold: parseInt(document.getElementById('ccs-compression')?.value) || 15,
             parallelApiCalls: document.getElementById('ccs-parallel-api')?.checked !== false,
             inputLimitEnabled: document.getElementById('ccs-input-limit')?.checked !== false,
+            hapticFeedback:    document.getElementById('ccs-haptic')?.checked || false,
+            theme,
             voiceToneProfile: {
                 pov:               document.getElementById('ccs-tone-pov')?.value || 'third',
                 actionFormat:      document.getElementById('ccs-tone-action')?.value || 'asterisk',
@@ -289,7 +356,29 @@ export class SettingsModal {
             },
         };
         memoryManager.updateGlobalSettings(updates);
+        // Apply theme immediately
+        try {
+            const { studioPopup } = await import('./popup.js').catch(() => ({}));
+            studioPopup?._applyTheme?.(theme);
+        } catch {}
         this.close();
+    }
+
+    async _loadProfileDropdown() {
+        const select = document.getElementById('ccs-profile-name');
+        if (!select) return;
+        try {
+            const profiles = await apiManager.getProfiles();
+            const current = memoryManager.getGlobalSettings().selectedProfile || '';
+            if (!profiles?.length) {
+                select.innerHTML = '<option value="">No profiles found</option>';
+                return;
+            }
+            select.innerHTML = `<option value="">— Select profile —</option>` +
+                profiles.map(p => `<option value="${p}" ${p === current ? 'selected' : ''}>${p}</option>`).join('');
+        } catch {
+            select.innerHTML = '<option value="">⚠️ Could not load profiles</option>';
+        }
     }
 
     _renderSnippet(snippet) {

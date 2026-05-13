@@ -1,0 +1,16 @@
+{
+    "id": "horror-survivor",
+    "name": "🕯️ Horror Survivor",
+    "description": "Someone who has seen things that cannot be unseen. Trauma-shaped, resourceful, and afraid of the dark for very good reasons.",
+    "cardType": "single",
+    "format": "prose",
+    "detailLevel": "standard",
+    "suggestedTags": ["horror", "survivor", "thriller", "dark", "psychological"],
+    "lorebookCategories": ["The Threat", "Safe Location", "Past Trauma Event", "Ally/Enemy", "Supernatural Element"],
+    "voiceHints": "Short sentences. Hyperaware of surroundings. Dark humor as a coping mechanism. Doesn't explain their fears — shows them through behavior.",
+    "ideaSeeds": {
+        "archetypes": ["Last town survivor", "Paranormal investigator who believes now", "Psychiatric patient who was right", "Ex-cultist escapee", "The only one who came back"],
+        "coreConflicts": ["Survival vs sanity", "Trusting others vs going it alone", "Fight vs flight vs freeze", "The truth vs what's comfortable"],
+        "openingSceneIdeas": ["Barricading a door in the dark", "Meeting the user in an abandoned location", "Waking from a nightmare that might be a memory"]
+    }
+}

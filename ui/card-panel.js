@@ -393,6 +393,50 @@ export class CardPanel {
         section.appendChild(sugg);
     }
 
+    showDepthAnalysis({ scores = {}, suggestions = '', overall = '' } = {}) {
+        // Remove any previous depth section
+        const existing = this.container?.querySelector('.ccs-depth-section');
+        existing?.remove();
+        if (!this.container) return;
+
+        const axes = [
+            { key: 'Motivation',      label: 'Motivation' },
+            { key: 'Fear',            label: 'Fear / Vuln.' },
+            { key: 'Contradiction',   label: 'Contradiction' },
+            { key: 'GrowthPotential', label: 'Growth Potential' },
+            { key: 'Relatability',    label: 'Relatability' },
+            { key: 'Uniqueness',      label: 'Uniqueness' },
+            { key: 'Consistency',     label: 'Consistency' },
+        ];
+
+        const el = document.createElement('div');
+        el.className = 'ccs-depth-section';
+        el.innerHTML = `
+            <div class="ccs-depth-header">🧠 Psychological Depth Analysis</div>
+            <div class="ccs-depth-radar">
+                ${axes.map(a => {
+                    const score = scores[a.key] ?? 0;
+                    const pct = `${score * 10}%`;
+                    return `
+                        <div class="ccs-depth-axis">
+                            <span class="ccs-depth-axis-label">${a.label}</span>
+                            <div class="ccs-depth-axis-track">
+                                <div class="ccs-depth-axis-fill" data-score="${score}" style="width:${pct}"></div>
+                            </div>
+                            <span class="ccs-depth-axis-score">${score || '—'}</span>
+                        </div>
+                    `;
+                }).join('')}
+            </div>
+            ${suggestions ? `<div class="ccs-depth-suggestions">${this._escHtml(suggestions)}</div>` : ''}
+        `;
+
+        // Prepend just after the progress ring section
+        const firstChild = this.container.firstElementChild;
+        if (firstChild) this.container.insertBefore(el, firstChild.nextSibling);
+        else this.container.appendChild(el);
+    }
+
     _escHtml(str) {
         return String(str || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
     }

@@ -185,3 +185,86 @@ Overall: [★★★★☆] — [one-line overall verdict]
 **💡 Enhancements ([N])**
 **✅ Strengths**
 **🎯 Verdict:** [2-3 sentences]`;
+
+export const SKILL_DEPTH_ANALYSIS = `## Psychological Depth Analysis
+
+Analyze this character on 7 psychological dimensions. For each, give a score 1-10 and a one-line justification.
+
+### Dimensions:
+1. **Motivation** — Is the core drive clear, specific, and believable?
+2. **Fear** — Does the character have a meaningful fear or vulnerability?
+3. **Contradiction** — Do they hold opposing beliefs or desires that create tension?
+4. **Growth Potential** — Is there room to evolve through roleplay?
+5. **Relatability** — Can a player connect emotionally?
+6. **Uniqueness** — Does this character feel distinct from common archetypes?
+7. **Consistency** — Do all fields agree on who this character is?
+
+### Output Format (use EXACTLY this structure for parsing):
+DEPTH_SCORES_START
+Motivation: [1-10]
+Fear: [1-10]
+Contradiction: [1-10]
+GrowthPotential: [1-10]
+Relatability: [1-10]
+Uniqueness: [1-10]
+Consistency: [1-10]
+DEPTH_SCORES_END
+
+### Top Suggestions:
+[3 specific, actionable improvements to deepen this character — be concrete about which field to edit and what to add]
+
+### Overall Assessment:
+[2-3 sentences on the character's psychological richness and what kind of roleplay they'd support best]`;
+
+export const SKILL_STYLE_CONSISTENCY = `## Style Consistency Check
+
+Analyze ALL populated fields for consistency of writing style. Do not comment on content — only on how things are written.
+
+### Check these dimensions:
+1. **POV** — Is it consistently 1st person (I/me) or 3rd person (she/he/they)? Flag any field that breaks the pattern.
+2. **Tense** — Consistent present or past tense? Flag mixed tense within or across fields.
+3. **Format type** — Prose vs bullet points vs W++? Flag inconsistent format use across fields.
+4. **Formality level** — Is the vocabulary register consistent (e.g., florid description but blunt personality)?
+5. **Narrator voice** — Is the narrative stance consistent (clinical, warm, dramatic)?
+
+### Output Format:
+**POV:** [consistent/inconsistent — explain]
+**Tense:** [consistent/inconsistent — explain]
+**Format:** [consistent/inconsistent — explain]
+**Formality:** [consistent/inconsistent — explain]
+**Narrator Voice:** [consistent/inconsistent — explain]
+
+**Issues Found:** [N]
+[For each issue: field name, what the inconsistency is, suggested fix]
+
+**Overall:** [CONSISTENT / MOSTLY CONSISTENT / INCONSISTENT] — [one sentence]`;
+
+export const SKILL_CROSS_REF = `## Cross-Reference Validation
+
+Extract all concrete facts from the character card fields and check for contradictions.
+
+### What to extract:
+- Ages, dates, time periods
+- Relationships (family, friends, enemies)
+- Locations (birthplace, home, notable places)
+- Physical attributes (height, hair, eyes, build)
+- Backstory events (key moments, turning points)
+- Abilities and limitations
+- Named characters, factions, places
+
+### Cross-check against lorebook entries if provided.
+
+### Output Format:
+**Entity Map:**
+| Type | Entity | Source Field | Details |
+|------|--------|-------------|---------|
+[list all extracted facts]
+
+**Contradictions Found:** [N]
+[For each: Entity, Field A says X, Field B says Y, severity: critical/minor]
+
+**Lorebook Conflicts:** [N]
+[Any card field vs lorebook entry conflicts]
+
+**Verdict:** [CLEAN / MINOR ISSUES / CONTRADICTIONS FOUND]`;
+

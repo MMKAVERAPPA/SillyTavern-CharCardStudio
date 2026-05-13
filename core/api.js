@@ -375,6 +375,25 @@ export class ApiManager {
         if (s.utilityApiMode === 'same') return '↳ Same as primary';
         return `↳ Custom: ${s.utilityModel || s.utilityEndpoint || 'Not set'}`;
     }
+
+    /**
+     * Returns the list of saved ST connection profile names.
+     * ST stores these in context.connection_profiles (array of objects with a .name field)
+     * or context.connectionProfiles depending on version. Falls back to [] gracefully.
+     */
+    async getProfiles() {
+        try {
+            const ctx = SillyTavern.getContext();
+            // ST 1.12+ — connection_profiles is an array of { name, ... }
+            const raw = ctx.connection_profiles ?? ctx.connectionProfiles ?? [];
+            if (Array.isArray(raw)) {
+                return raw.map(p => (typeof p === 'string' ? p : p?.name)).filter(Boolean);
+            }
+            return [];
+        } catch {
+            return [];
+        }
+    }
 }
 
 export const apiManager = new ApiManager();

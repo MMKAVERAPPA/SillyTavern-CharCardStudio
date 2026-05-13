@@ -1,5 +1,5 @@
 /* ============================================================
-   Character Card Studio v2.5.0 — Full-Screen Overlay UI
+   Character Card Studio v3.3.0 — Full-Screen Overlay UI
    ============================================================ */
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
 
@@ -975,6 +975,31 @@
     min-width: 140px;
 }
 
+/* Settings tabs — sit between modal header and scrollable body, never scroll */
+.ccs-settings-tabs {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0;
+    padding: 0 12px;
+    border-bottom: 1px solid var(--ccs-border);
+    flex-shrink: 0;
+    background: var(--ccs-surface);
+}
+.ccs-stab {
+    background: none;
+    border: none;
+    border-bottom: 2px solid transparent;
+    padding: 10px 12px;
+    color: var(--ccs-text3);
+    cursor: pointer;
+    font-size: 0.82rem;
+    font-weight: 500;
+    transition: color var(--ccs-anim-fast), border-color var(--ccs-anim-fast);
+    white-space: nowrap;
+}
+.ccs-stab:hover { color: var(--ccs-text); }
+.ccs-stab.active { color: var(--ccs-accent); border-bottom-color: var(--ccs-accent); }
+
 /* ══════════════════════════════════════════════════════════════════════════════
    BUG-001 FIX: Modal overlay — appended to document.body now.
    Z-index above ST modals (29999) to ensure visibility.
@@ -1060,28 +1085,8 @@
     max-width: 700px;
 }
 
-/* Settings tabs */
-.ccs-settings-tabs {
-    display: flex;
-    gap: 4px;
-    border-bottom: 1px solid var(--ccs-border);
-    margin-bottom: 16px;
-    flex-wrap: wrap;
-}
-.ccs-stab {
-    background: none;
-    border: none;
-    border-bottom: 2px solid transparent;
-    padding: 8px 14px;
-    color: var(--ccs-text3);
-    cursor: pointer;
-    font-size: 0.82rem;
-    font-weight: 500;
-    transition: color var(--ccs-anim-fast), border-color var(--ccs-anim-fast);
-    white-space: nowrap;
-}
-.ccs-stab:hover { color: var(--ccs-text); }
-.ccs-stab.active { color: var(--ccs-accent); border-bottom-color: var(--ccs-accent); }
+
+
 
 .ccs-stab-panel { display: none; }
 .ccs-stab-panel.active { display: block; }
@@ -1308,4 +1313,230 @@
     background: var(--ccs-surface3);
     border-color: var(--ccs-accent);
     color: var(--ccs-text);
+}
+
+/* ══════════════════════════════════════════════════════════════════════════════
+   v3.3 — THEMES
+   Each theme overrides CSS variables on the #ccs-studio element.
+   Default (dark) = base :root variables above. Three alternatives below.
+   ══════════════════════════════════════════════════════════════════════════════ */
+
+/* Midnight — deeper navy/purple, more contrast */
+#ccs-studio.ccs-theme-midnight {
+    --ccs-bg:        #0d0e1a;
+    --ccs-surface:   #111223;
+    --ccs-surface2:  #161829;
+    --ccs-surface3:  #1c1f38;
+    --ccs-border:    #252847;
+    --ccs-border2:   #363966;
+    --ccs-text:      #d6dff7;
+    --ccs-text2:     #a0abcf;
+    --ccs-text3:     #4a527a;
+    --ccs-glass:     rgba(13,14,26,0.85);
+}
+
+/* Sepia — warm brown tones, easy on the eyes for long sessions */
+#ccs-studio.ccs-theme-sepia {
+    --ccs-bg:        #1a1710;
+    --ccs-surface:   #1f1c14;
+    --ccs-surface2:  #262118;
+    --ccs-surface3:  #2d2720;
+    --ccs-border:    #3d3626;
+    --ccs-border2:   #554c38;
+    --ccs-text:      #e8dfcf;
+    --ccs-text2:     #b8aa95;
+    --ccs-text3:     #6b5f4a;
+    --ccs-accent:    #c4a35a;
+    --ccs-accent2:   #d4886a;
+    --ccs-green:     #8fbe70;
+    --ccs-yellow:    #d4a84e;
+    --ccs-gradient:  linear-gradient(135deg, #c4a35a, #d4886a);
+    --ccs-gradient2: linear-gradient(135deg, #d4886a, #c4a35a);
+    --ccs-glass:     rgba(26,23,16,0.85);
+    --ccs-glow-accent: 0 0 20px rgba(196,163,90,0.15);
+}
+
+/* Light — clean white/grey for daytime use */
+#ccs-studio.ccs-theme-light {
+    --ccs-bg:        #f5f6fa;
+    --ccs-surface:   #ffffff;
+    --ccs-surface2:  #eef0f6;
+    --ccs-surface3:  #e4e6f0;
+    --ccs-border:    #d0d3e4;
+    --ccs-border2:   #b8bccc;
+    --ccs-text:      #1a1b2e;
+    --ccs-text2:     #4a5280;
+    --ccs-text3:     #8890b0;
+    --ccs-glass:     rgba(245,246,250,0.9);
+    --ccs-glass-border: rgba(176,180,204,0.5);
+    --ccs-shadow:    0 8px 32px rgba(0,0,0,0.12);
+    --ccs-shadow-lg: 0 16px 48px rgba(0,0,0,0.18);
+}
+
+/* ── v3.3 Auto-complete chip bar ──────────────────────────────────────────── */
+.ccs-chip-bar {
+    display: flex;
+    gap: 6px;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    padding: 4px 0 2px;
+    scrollbar-width: none; /* Firefox */
+    -ms-overflow-style: none; /* IE/Edge */
+}
+.ccs-chip-bar::-webkit-scrollbar { display: none; }
+.ccs-chip-bar[style*="display: none"] { padding: 0; }
+
+.ccs-autocomplete-chip {
+    background: var(--ccs-surface3);
+    border: 1px solid var(--ccs-border2);
+    color: var(--ccs-text2);
+    border-radius: 20px;
+    padding: 4px 12px;
+    font-size: 0.75rem;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: all var(--ccs-anim-fast);
+    font-family: var(--ccs-font);
+    flex-shrink: 0;
+}
+.ccs-autocomplete-chip:hover {
+    background: rgba(122,162,247,0.12);
+    border-color: var(--ccs-accent);
+    color: var(--ccs-accent);
+    transform: translateY(-1px);
+}
+
+/* ── v3.3 Lorebook target banner ─────────────────────────────────────────── */
+.ccs-lore-target-banner {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 14px;
+    border-radius: var(--ccs-radius);
+    font-size: 0.85rem;
+    font-weight: 600;
+    flex-shrink: 0;
+}
+.ccs-lore-target-set {
+    background: rgba(158,206,106,0.1);
+    border: 1px solid rgba(158,206,106,0.3);
+    color: var(--ccs-green);
+}
+.ccs-lore-target-unset {
+    background: rgba(224,175,104,0.12);
+    border: 1px solid rgba(224,175,104,0.35);
+    color: var(--ccs-yellow);
+    justify-content: space-between;
+}
+.ccs-lore-target-icon { font-size: 1.1rem; flex-shrink: 0; }
+.ccs-lore-target-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* Updated book-selector */
+.ccs-book-selector-inner {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+.ccs-book-divider {
+    text-align: center;
+    font-size: 0.78rem;
+    color: var(--ccs-text3);
+    padding: 4px 0;
+}
+
+/* ── v3.3 Depth radar chart ──────────────────────────────────────────────── */
+.ccs-depth-section {
+    background: var(--ccs-surface2);
+    border: 1px solid var(--ccs-border);
+    border-radius: var(--ccs-radius);
+    padding: 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+.ccs-depth-header {
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: var(--ccs-text2);
+}
+.ccs-depth-radar {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 6px;
+}
+.ccs-depth-axis {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 0.78rem;
+    color: var(--ccs-text2);
+}
+.ccs-depth-axis-label { width: 110px; flex-shrink: 0; color: var(--ccs-text3); }
+.ccs-depth-axis-track {
+    flex: 1; height: 6px;
+    background: var(--ccs-surface3);
+    border-radius: 3px;
+    overflow: hidden;
+}
+.ccs-depth-axis-fill {
+    height: 100%;
+    border-radius: 3px;
+    transition: width 0.6s ease;
+}
+/* Color gradient: low=red, mid=yellow, high=green */
+.ccs-depth-axis-fill[data-score="1"],
+.ccs-depth-axis-fill[data-score="2"],
+.ccs-depth-axis-fill[data-score="3"] { background: var(--ccs-red); }
+.ccs-depth-axis-fill[data-score="4"],
+.ccs-depth-axis-fill[data-score="5"],
+.ccs-depth-axis-fill[data-score="6"] { background: var(--ccs-yellow); }
+.ccs-depth-axis-fill[data-score="7"],
+.ccs-depth-axis-fill[data-score="8"],
+.ccs-depth-axis-fill[data-score="9"],
+.ccs-depth-axis-fill[data-score="10"] { background: var(--ccs-green); }
+.ccs-depth-axis-score {
+    font-size: 0.72rem;
+    font-weight: 700;
+    color: var(--ccs-text);
+    width: 20px;
+    text-align: right;
+    flex-shrink: 0;
+}
+.ccs-depth-suggestions {
+    font-size: 0.78rem;
+    color: var(--ccs-text2);
+    line-height: 1.6;
+    white-space: pre-wrap;
+    border-top: 1px solid var(--ccs-border);
+    padding-top: 8px;
+}
+
+/* ── v3.3 Template picker ────────────────────────────────────────────────── */
+.ccs-template-modal { min-height: auto !important; max-width: 480px !important; }
+.ccs-template-card {
+    background: var(--ccs-surface2);
+    border: 1px solid var(--ccs-border);
+    border-radius: var(--ccs-radius);
+    padding: 14px;
+    cursor: pointer;
+    text-align: left;
+    transition: all var(--ccs-anim);
+    font-family: var(--ccs-font);
+}
+.ccs-template-card:hover {
+    border-color: var(--ccs-accent);
+    background: rgba(122,162,247,0.06);
+    transform: translateY(-2px);
+    box-shadow: var(--ccs-glow-accent);
+}
+.ccs-template-name {
+    font-size: 0.9rem;
+    font-weight: 700;
+    color: var(--ccs-text);
+    margin-bottom: 4px;
+}
+.ccs-template-desc {
+    font-size: 0.75rem;
+    color: var(--ccs-text3);
+    line-height: 1.4;
 }

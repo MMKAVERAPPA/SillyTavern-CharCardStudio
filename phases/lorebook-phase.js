@@ -1,16 +1,16 @@
 // phases/lorebook-phase.js
-// v3.0 — Lorebook creation with full WI spec via skill-router
-// FIX: try-catch all gen calls, proper error cleanup
+// v3.3 — Lorebook creation: ALWAYS external named lorebook (embedded mode removed)
+// On start: if no targetBook selected, immediately prompt the user to choose/create one.
 
 import { chatEngine } from '../core/chat.js';
 import { memoryManager } from '../core/memory.js';
 import { worldInfoManager } from '../core/worldinfo.js';
 import { chatPanel } from '../ui/chat-panel.js';
 import { lorebookPanel } from '../ui/lorebook-panel.js';
-import { contextBuilder } from '../core/context-builder.js';
 import { skillRouter } from '../core/skill-router.js';
 import { CCSApiError } from '../core/api.js';
 import { parseLorebookEntriesFromResponse } from '../core/parser.js';
+import { haptic } from '../core/haptic.js';
 
 export class LorebookPhase {
     constructor() {
@@ -27,6 +27,57 @@ export class LorebookPhase {
 
         // Restore pending entries from session
         this.pendingEntries = session.lorebookLog.pendingEntries || [];
+
+        // v3.3: embedded mode removed — always require a named external lorebook.
+        // If none is set yet, prompt immediately instead of silently failing later.
+        if (!session.lorebookLog.targetBook) {
+            this._promptInitialBookSelection();
+        } else {
+            chatPanel.addSystemMessage(
+                `📖 Lorebook: **${session.lorebookLog.targetBook}** — ready. Generate entries or say "change lorebook" to pick a different one.`,
+                'info'
+            );
+        }
+    }
+
+    // ── Initial book selection prompt ────────────────────────────────────────
+
+    async _promptInitialBookSelection() {
+        chatPanel.addSystemMessage(
+            '📖 No lorebook selected. Choose an existing lorebook or create a new one below.',
+            'warning'
+        );
+        try {
+            const books = await worldInfoManager.getLorebookList();
+            lorebookPanel.renderBookSelector(books, async (choice) => {
+                if (choice === '__create_new__') {
+                    await this._createNewLorebook();
+                } else {
+                    this._setTargetBook(choice);
+                }
+            }, { showCreateNew: true });
+        } catch (err) {
+            chatPanel.addSystemMessage('❌ Failed to load lorebook list. Check SillyTavern connection.', 'error');
+        }
+    }
+
+    async _createNewLorebook() {
+        const name = prompt('Enter a name for the new lorebook:');
+        if (!name?.trim()) return;
+        try {
+            const created = await worldInfoManager.createLorebook(name.trim());
+            this._setTargetBook(created);
+            chatPanel.addSystemMessage(`✅ Created lorebook: **${created}**`, 'info');
+        } catch (err) {
+            chatPanel.addSystemMessage(`❌ Failed to create lorebook: ${err.message}`, 'error');
+        }
+    }
+
+    _setTargetBook(name) {
+        this.session.lorebookLog.targetBook = name;
+        memoryManager.saveSession(this.session.characterId, this.session);
+        chatPanel.addSystemMessage(`📖 Lorebook set: **${name}** — start generating entries!`, 'info');
+        this.callbacks.onUpdated?.();
     }
 
     // ── Build skill-based system prompt ──────────────────────────────────────
@@ -46,6 +97,12 @@ export class LorebookPhase {
     async handleMessage(message) {
         const lower = message.toLowerCase();
 
+        // Change lorebook target
+        if (/change lorebook|switch lorebook|select lorebook|pick lorebook/i.test(lower)) {
+            await this._promptInitialBookSelection();
+            return;
+        }
+
         // Detect user intent
         if (/brainstorm|plan|what entries|suggest entries/i.test(lower)) {
             await this._brainstormEntries(message);
@@ -64,16 +121,7 @@ export class LorebookPhase {
             return;
         }
         if (/organiz|sort|reorder/i.test(lower)) {
-            await this._organizeEntries();
-            return;
-        }
-        if (/embedded|character.?book/i.test(lower)) {
-            this.session.lorebookLog.embedded = true;
-            chatPanel.addSystemMessage('📝 Lorebook mode: embedded in character card.', 'info');
-            return;
-        }
-        if (/external|standalone|world.?info/i.test(lower)) {
-            await this._selectExternalBook();
+            await this._organizeEntries();;
             return;
         }
 
@@ -121,6 +169,8 @@ export class LorebookPhase {
     // ── Generate entries ────────────────────────────────────────────────────
 
     async _generateEntries(userMessage) {
+        if (!this._guardTarget()) return;
+
         const cardSummary = Object.entries(this.cardFields || {})
             .filter(([k, v]) => typeof v === 'string' && v.trim())
             .map(([k, v]) => `### ${k}\n${v.substring(0, 500)}`)
@@ -260,25 +310,6 @@ export class LorebookPhase {
         }
     }
 
-    // ── External book selection ─────────────────────────────────────────────
-
-    async _selectExternalBook() {
-        try {
-            const books = await worldInfoManager.getLorebookList();
-            if (!books.length) {
-                chatPanel.addSystemMessage('No external lorebooks found. Create one in SillyTavern first, or use embedded mode.', 'warning');
-                return;
-            }
-            lorebookPanel.renderBookSelector(books, (name) => {
-                this.session.lorebookLog.targetBook = name;
-                this.session.lorebookLog.embedded = false;
-                chatPanel.addSystemMessage(`📖 Using external lorebook: **${name}**`, 'info');
-            });
-        } catch (err) {
-            chatPanel.addSystemMessage('❌ Failed to load lorebook list.', 'error');
-        }
-    }
-
     // ── Stage entries ───────────────────────────────────────────────────────
 
     _stageEntriesFromResponse(response) {
@@ -293,8 +324,7 @@ export class LorebookPhase {
     _stageEntries(entries) {
         let added = 0;
         for (const entry of entries) {
-            // BUG-027 FIX: Dedup on comment+keys together, not just comment alone.
-            // Two entries can have the same title but different content/keys legitimately.
+            // Dedup on comment+keys together
             const entryKeyStr = (entry.keys || []).sort().join(',');
             const isDupe = this.pendingEntries.some(p => {
                 const pKeyStr = (p.keys || []).sort().join(',');
@@ -314,12 +344,12 @@ export class LorebookPhase {
         this.callbacks.onUpdated?.();
 
         if (added) {
+            haptic.pulse(15);
             chatPanel.addSystemMessage(`📋 Staged ${added} new entries. Review them in the Lorebook panel.`, 'info');
         }
     }
 
     _parseEntryList(response) {
-        // Store the brainstormed list for reference
         this.session.lorebookLog.entryList = response;
     }
 
@@ -328,16 +358,15 @@ export class LorebookPhase {
     async _insertEntries(entries) {
         const loreLog = this.session.lorebookLog;
 
+        if (!loreLog.targetBook) {
+            chatPanel.addSystemMessage('❌ No lorebook selected. Use the lorebook panel to choose or create one first.', 'error');
+            await this._promptInitialBookSelection();
+            return;
+        }
+
         for (const entry of entries) {
             try {
-                if (loreLog.embedded) {
-                    await worldInfoManager.addEmbeddedEntries(this.session?.characterId, [entry]);
-                } else if (loreLog.targetBook) {
-                    await worldInfoManager.addEntries(loreLog.targetBook, [entry]);
-                } else {
-                    chatPanel.addSystemMessage('❌ No lorebook target set. Choose embedded or external first.', 'error');
-                    return;
-                }
+                await worldInfoManager.addEntries(loreLog.targetBook, [entry]);
 
                 // Move from pending to accepted
                 this.pendingEntries = this.pendingEntries.filter(p => p._tempId !== entry._tempId);
@@ -345,12 +374,14 @@ export class LorebookPhase {
                 loreLog.acceptedEntries.push(entry);
                 loreLog.pendingEntries = this.pendingEntries;
 
-                chatPanel.addSystemMessage(`✅ Inserted: ${entry.comment || 'Untitled'}`, 'info');
+                haptic.pulse(10);
+                chatPanel.addSystemMessage(`✅ Inserted: **${entry.comment || 'Untitled'}** → ${loreLog.targetBook}`, 'info');
             } catch (err) {
                 chatPanel.addSystemMessage(`❌ Failed to insert "${entry.comment}": ${err.message}`, 'error');
             }
         }
 
+        memoryManager.saveSession(this.session.characterId, this.session);
         this.callbacks.onUpdated?.();
     }
 
@@ -364,7 +395,15 @@ export class LorebookPhase {
 
     // ── Helpers ──────────────────────────────────────────────────────────────
 
-    // FIX: Centralized error display with proper cleanup
+    _guardTarget() {
+        if (!this.session.lorebookLog.targetBook) {
+            chatPanel.addSystemMessage('⚠️ No lorebook selected — choose one first.', 'warning');
+            this._promptInitialBookSelection();
+            return false;
+        }
+        return true;
+    }
+
     _showError(err, context) {
         const userMessage = (err instanceof CCSApiError)
             ? err.userMessage

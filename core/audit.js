@@ -5,7 +5,11 @@ import { chatEngine } from './chat.js';
 import { memoryManager } from './memory.js';
 import { contextBuilder } from './context-builder.js';
 import { buildBaseSystemPrompt } from '../prompts/base.js';
-import { COHERENCE_AUDIT_PROMPT, SMART_SUGGESTION_CHECK_PROMPT, MES_EXAMPLE_AUDIT_PROMPT, CONFLICT_CHECK_PROMPT, CARD_REVIEW_PROMPT } from '../prompts/audit.js';
+import {
+    COHERENCE_AUDIT_PROMPT, SMART_SUGGESTION_CHECK_PROMPT, MES_EXAMPLE_AUDIT_PROMPT,
+    CONFLICT_CHECK_PROMPT, CARD_REVIEW_PROMPT,
+    DEPTH_ANALYSIS_PROMPT, STYLE_CONSISTENCY_PROMPT, CROSS_REF_PROMPT,
+} from '../prompts/audit.js';
 import { KEYWORD_QUALITY_CHECK_PROMPT } from '../prompts/lorebook.js';
 import { AUTO_TAG_PROMPT, PILLAR_RESOLUTION_PROMPT, VERSION_SUMMARY_PROMPT } from '../prompts/utility.js';
 import { parseCardReview } from './parser.js';
@@ -142,6 +146,68 @@ export class AuditEngine {
     }
 
     // ── Helpers ──────────────────────────────────────────────────────────────
+
+    // ── Psychological depth analysis (v3.3) ───────────────────────────
+
+    async analyzeCharacterDepth(cardFields, ideaMemory) {
+        const fieldSummary = this._buildFullCardSummary(cardFields);
+        const psychSummary = ideaMemory?.psychProfile
+            ? `\n\n[PSYCH_PROFILE]\n` + Object.entries(ideaMemory.psychProfile)
+                .filter(([, v]) => v)
+                .map(([k, v]) => `${k}: ${v}`).join('\n')
+            : '';
+        const base = buildBaseSystemPrompt();
+        const raw = await chatEngine.generateBackground(
+            base + '\n\n' + DEPTH_ANALYSIS_PROMPT,
+            `Analyze this character:\n\n${fieldSummary}${psychSummary}`
+        );
+
+        // Parse structured scores block
+        const scores = {};
+        const block = raw.match(/DEPTH_SCORES_START([\s\S]*?)DEPTH_SCORES_END/);
+        if (block) {
+            const lines = block[1].trim().split('\n');
+            for (const line of lines) {
+                const m = line.match(/^([\w]+):\s*(\d+)/);
+                if (m) scores[m[1]] = parseInt(m[2]);
+            }
+        }
+
+        // Extract suggestions and overall from raw text
+        const suggestionsMatch = raw.match(/### Top Suggestions:[\s\S]*?(?=###|$)/);
+        const overallMatch     = raw.match(/### Overall Assessment:[\s\S]*$/);
+        const suggestions = suggestionsMatch ? suggestionsMatch[0].replace('### Top Suggestions:', '').trim() : '';
+        const overall     = overallMatch     ? overallMatch[0].replace('### Overall Assessment:', '').trim() : '';
+
+        return { scores, suggestions, overall, raw };
+    }
+
+    // ── Style consistency check (v3.3) ─────────────────────────────
+
+    async checkStyleConsistency(cardFields) {
+        const fieldSummary = this._buildFullCardSummary(cardFields);
+        const base = buildBaseSystemPrompt();
+        return chatEngine.generateBackground(
+            base + '\n\n' + STYLE_CONSISTENCY_PROMPT,
+            `Check style consistency for this character card:\n\n${fieldSummary}`
+        );
+    }
+
+    // ── Cross-reference validation (v3.3) ──────────────────────────
+
+    async crossReferenceCheck(cardFields, lorebookEntries = []) {
+        const fieldSummary = this._buildFullCardSummary(cardFields);
+        const loreSummary = lorebookEntries.length
+            ? '\n\n[LOREBOOK ENTRIES]\n' + lorebookEntries
+                .map(e => `Entry: ${e.comment}\nKeys: ${(e.keys||[]).join(', ')}\nContent: ${(e.content||'').substring(0,200)}`)
+                .join('\n\n')
+            : '';
+        const base = buildBaseSystemPrompt();
+        return chatEngine.generateBackground(
+            base + '\n\n' + CROSS_REF_PROMPT,
+            `Validate this character card:\n\n${fieldSummary}${loreSummary}`
+        );
+    }
 
     _parseAuditResult(text) {
         const errorMatch  = text.match(/🔴 Errors Found:\s*(\d+)/);
