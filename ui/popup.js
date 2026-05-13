@@ -160,25 +160,25 @@ export class StudioPopup {
             this._minBar.className = 'ccs-min-bar';
             // Belt-and-suspenders: inline styles guarantee visibility even if
             // ST's CSS cascade delays or overrides our stylesheet for fixed elements.
-            Object.assign(this._minBar.style, {
-                position: 'fixed',
-                bottom: '0',
-                left: '0',
-                right: '0',
-                width: '100%',
-                zIndex: '29998',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '10px',
-                padding: '10px 16px',
-                background: 'var(--ccs-surface2, #1a1b26)',
-                border: '1px solid var(--ccs-border2, #414868)',
-                borderBottom: 'none',
-                boxSizing: 'border-box',
-                fontFamily: 'var(--ccs-font, sans-serif)',
-                fontSize: '0.85rem',
-                color: 'var(--ccs-text, #c0caf5)',
-            });
+            this._minBar.style.cssText = `
+                position: fixed !important;
+                bottom: 0 !important;
+                left: 0 !important;
+                right: 0 !important;
+                width: 100% !important;
+                z-index: 29998 !important;
+                display: flex !important;
+                align-items: center !important;
+                gap: 10px !important;
+                padding: 10px 16px !important;
+                background: var(--ccs-surface2, #1a1b26) !important;
+                border: 1px solid var(--ccs-border2, #414868) !important;
+                border-bottom: none !important;
+                box-sizing: border-box !important;
+                font-family: var(--ccs-font, sans-serif) !important;
+                font-size: 0.85rem !important;
+                color: var(--ccs-text, #c0caf5) !important;
+            `;
             this._minBar.innerHTML = `
                 <span class="ccs-min-bar-icon">🎭</span>
                 <span class="ccs-min-bar-label">Card Studio — ${this._esc(this.cardFields?.name || 'Character')}</span>

@@ -1,7 +1,9 @@
 // core/card.js
 // Character card V3 read/write, token counting, diff, field validation
 
-import { getRequestHeaders } from '../../../../../script.js';
+import { getRequestHeaders, eventSource, event_types } from '../../../../../script.js';
+
+const $ = window.jQuery;
 
 export const CARD_FIELDS = [
     'name','description','personality','scenario','first_mes','mes_example',
@@ -72,15 +74,19 @@ export class CardManager {
         const char = characters[characterId];
         if (!char) throw new Error('Character not found');
 
-        const payload = this._buildSavePayload(char, fieldName, value);
-
-        const response = await fetch('/api/characters/save', {
-            method: 'POST',
-            headers: getRequestHeaders(),
-            body: JSON.stringify(payload),
-        });
-        if (!response.ok) throw new Error(`Save failed: ${response.statusText}`);
+        // Apply the field update directly to the character object
         this._updateLocalChar(char, fieldName, value);
+        
+        // Trigger ST's character save mechanism via event
+        // This ensures all ST's internal state management runs properly
+        eventSource.emit(event_types.CHARACTER_EDITED, { id: characterId, field: fieldName });
+        
+        // Trigger the actual save (clicks the save button programmatically)
+        $('#create_button').trigger('click');
+        
+        // Wait a bit for the save to complete
+        await new Promise(resolve => setTimeout(resolve, 100));
+        
         return true;
     }
 
@@ -90,29 +96,20 @@ export class CardManager {
         const char = characters[characterId];
         if (!char) throw new Error('Character not found');
 
-        const payload = {
-            avatar: char.avatar,
-            ch_name: char.name,
-            description: char.description || '',
-            personality: char.personality || '',
-            scenario: char.scenario || '',
-            first_mes: char.first_mes || '',
-            mes_example: char.mes_example || '',
-            data: { ...(char.data || {}) },
-        };
-        for (const [f, v] of Object.entries(fieldsObj)) {
-            this._applyFieldToPayload(payload, f, v);
-        }
-        
-        const response = await fetch('/api/characters/save', {
-            method: 'POST',
-            headers: getRequestHeaders(),
-            body: JSON.stringify(payload),
-        });
-        if (!response.ok) throw new Error(`Save failed: ${response.statusText}`);
+        // Apply all field updates directly to the character object
         for (const [f, v] of Object.entries(fieldsObj)) {
             this._updateLocalChar(char, f, v);
         }
+        
+        // Trigger ST's character save mechanism
+        eventSource.emit(event_types.CHARACTER_EDITED, { id: characterId, fields: Object.keys(fieldsObj) });
+        
+        // Trigger the actual save
+        $('#create_button').trigger('click');
+        
+        // Wait for save to complete
+        await new Promise(resolve => setTimeout(resolve, 100));
+        
         return true;
     }
 

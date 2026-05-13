@@ -20,6 +20,17 @@ SillyTavern third-party extension with 3 critical bugs:
 - Returns headers with CSRF token: `{ 'Content-Type': 'application/json', 'X-CSRF-Token': token }`
 - **DO NOT** try to access via `window.getRequestHeaders` - doesn't work in module scope
 
+### Character Save Pattern - CRITICAL LEARNING
+- **WRONG**: Don't make direct API calls to `/api/characters/save` or `/api/characters/edit`
+- **CORRECT**: Modify character object directly, then trigger ST's save button
+- **Pattern**:
+  1. Get character: `const { characterId, characters } = SillyTavern.getContext();`
+  2. Modify character object: `characters[characterId].first_mes = 'new value';`
+  3. Trigger save: `$('#create_button').trigger('click');`
+  4. Optionally emit event: `eventSource.emit(event_types.CHARACTER_EDITED, { id, field });`
+- **Why**: ST's save button handles all the complex logic (FormData, validation, API routing)
+- **jQuery**: Available as `window.jQuery` or just `$` in ST's global scope
+
 ### Z-Index Strategy in SillyTavern
 From ST's style.css:
 - `z-index: 29999` - ST's popup/modal overlays
@@ -57,7 +68,28 @@ import { getRequestHeaders } from '../../../../script.js';
 ```javascript
 import { getRequestHeaders } from '../../../../../script.js';
 ```
-**STATUS**: Currently testing - should work based on folder structure
+**STATUS**: Import works, but API calls still failed
+
+### Attempt 4: Direct API call to `/api/characters/save`
+```javascript
+fetch('/api/characters/save', { method: 'POST', headers: getRequestHeaders(), body: JSON.stringify(payload) })
+```
+**FAILED**: 404 Not Found
+**REASON**: Endpoint doesn't exist
+
+### Attempt 5: Direct API call to `/api/characters/edit`
+```javascript
+fetch('/api/characters/edit', { method: 'POST', headers: getRequestHeaders(), body: JSON.stringify(payload) })
+```
+**FAILED**: Still 404 Not Found
+**REASON**: Wrong approach - ST doesn't use direct API calls for character saves from extensions
+
+### Attempt 6: Modify character + trigger save button ✅
+```javascript
+this._updateLocalChar(char, fieldName, value);
+$('#create_button').trigger('click');
+```
+**SUCCESS**: This is how ST's own save mechanism works
 
 ## Working Extensions to Study
 1. TunnelVision - Uses imports from `../../../../script.js` successfully
@@ -66,24 +98,24 @@ import { getRequestHeaders } from '../../../../../script.js';
 
 ## Current Status
 
-### Bug #3 (403 Save Errors)
-- **Fix Applied**: Added proper import of `getRequestHeaders`
-- **Confidence**: HIGH - This should work
+### Bug #3 (Save Errors - 404 Not Found)
+- **Root Cause**: Was making direct API calls which don't work for character saves
+- **Fix Applied**: Changed to modify character object directly + trigger `$('#create_button').trigger('click')`
+- **Confidence**: VERY HIGH - This is how ST's own code works
+- **Pattern**: Update char object → Emit event → Click save button → Wait
 - **Next**: User needs to restart ST and test
 
-### Bug #1 (Settings Modal)
-- **Fix Applied**: Changed z-index to 30000
-- **Confidence**: MEDIUM - Modal should render but might need debugging
-- **Possible Issues**:
-  - CSS might not be loading
-  - Modal element might not be created properly
-  - Event handler might not be firing
-- **Next**: Need to check if modal element exists in DOM
+### Bug #1 (Settings Modal - 412 x 0)
+- **Root Cause**: Modal had no minimum height, collapsed to 0px
+- **Fix Applied**: Added `min-height: 400px` to `.ccs-modal` in style.css
+- **Confidence**: HIGH - CSS fix should work immediately
+- **Status**: Should be FIXED after refresh
 
-### Bug #2 (Minimize)
-- **Fix Applied**: Changed z-index to 29998
-- **Confidence**: MEDIUM - Same concerns as settings modal
-- **Next**: Verify minimize bar actually appears in DOM
+### Bug #2 (Minimize Bar - Not Displaying Properly)  
+- **Root Cause**: Object.assign not applying display: flex properly in some browsers
+- **Fix Applied**: Changed to cssText with !important flags to force all styles
+- **Confidence**: HIGH - cssText is more reliable than Object.assign for inline styles
+- **Status**: Should be FIXED after refresh
 
 ## Next Steps
 1. ✅ Fixed import path to `../../../../../script.js`
