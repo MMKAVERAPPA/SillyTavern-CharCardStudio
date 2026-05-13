@@ -1,33 +1,7 @@
 // core/card.js
 // Character card V3 read/write, token counting, diff, field validation
 
-// Helper to get request headers with CSRF token from SillyTavern's global API
-// For third-party extensions, ST exposes getRequestHeaders globally
-function getHeaders() {
-    // First try: Use ST's global getRequestHeaders function
-    if (typeof window.getRequestHeaders === 'function') {
-        try {
-            return window.getRequestHeaders();
-        } catch (e) {
-            console.warn('[CCS] getRequestHeaders() failed:', e);
-        }
-    }
-    
-    // Second try: Access token through SillyTavern global
-    if (window.SillyTavern?.getContext) {
-        const token = window.SillyTavern.token;
-        if (token) {
-            return {
-                'Content-Type': 'application/json',
-                'X-CSRF-Token': token
-            };
-        }
-    }
-    
-    // Fallback: Just content-type (will likely get 403 but won't crash)
-    console.warn('[CCS] No CSRF token available - save operations may fail');
-    return { 'Content-Type': 'application/json' };
-}
+import { getRequestHeaders } from '../../../../../script.js';
 
 export const CARD_FIELDS = [
     'name','description','personality','scenario','first_mes','mes_example',
@@ -102,7 +76,7 @@ export class CardManager {
 
         const response = await fetch('/api/characters/save', {
             method: 'POST',
-            headers: getHeaders(),
+            headers: getRequestHeaders(),
             body: JSON.stringify(payload),
         });
         if (!response.ok) throw new Error(`Save failed: ${response.statusText}`);
@@ -132,7 +106,7 @@ export class CardManager {
         
         const response = await fetch('/api/characters/save', {
             method: 'POST',
-            headers: getHeaders(),
+            headers: getRequestHeaders(),
             body: JSON.stringify(payload),
         });
         if (!response.ok) throw new Error(`Save failed: ${response.statusText}`);
