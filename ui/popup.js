@@ -1,4 +1,4 @@
-// ui/popup.js
+﻿// ui/popup.js
 // Full-screen studio overlay
 // FIX: removed duplicate messages on phase switch, fixed editMessage index,
 //      fixed overlay close-on-tap for mobile, annotation cleanup on close
@@ -163,9 +163,7 @@ export class StudioPopup {
             this._minBar.className = 'ccs-min-bar';
             this._minBar.innerHTML = `
                 <span class="ccs-min-bar-icon">🎭</span>
-                <span class="ccs-min-bar-label">Card Studio — ${this._esc(this.cardFields?.name || 'Character')}</span>
-                <span class="ccs-min-bar-phase">${this.currentPhase}</span>
-                <button class="ccs-min-bar-restore" title="Restore">▲ Restore</button>
+                <button class="ccs-min-bar-restore" title="Restore Card Studio">▲ Restore</button>
                 <button class="ccs-min-bar-close" title="Close Studio">✕</button>
             `;
             this._minBar.querySelector('.ccs-min-bar-restore').addEventListener('click', () => this.restore());
@@ -488,6 +486,13 @@ export class StudioPopup {
     }
 
     async _handleUserMessage(message, editIdx) {
+        // Input validation — limit configurable in Settings → Session
+        if (!message?.trim()) return;
+        const settings = memoryManager.getGlobalSettings();
+        if (settings.inputLimitEnabled !== false && message.length > 12000) {
+            toastManager.show('⚠️ Message too long (max 12,000 chars). Disable the limit in Settings → Session if needed.', 'error');
+            return;
+        }
         // FIX: editMessage — pass actual message content, don't assume *2 index
         if (editIdx !== undefined) {
             // Find the actual index in session history for this edit

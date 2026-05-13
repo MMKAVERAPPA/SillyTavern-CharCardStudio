@@ -173,6 +173,14 @@ export class SettingsModal {
                             <div class="ccs-setting-hint">When enabled, variations and batch operations fire multiple API calls simultaneously. Disable if you're getting rate-limited (429 errors).</div>
                         </div>
                         <div class="ccs-setting-section">
+                            <div class="ccs-setting-label">Input Message Limit</div>
+                            <label class="ccs-toggle-label">
+                                <input type="checkbox" id="ccs-input-limit" ${s.inputLimitEnabled !== false ? 'checked' : ''}>
+                                <span>Limit messages to 12,000 characters</span>
+                            </label>
+                            <div class="ccs-setting-hint">Prevents accidental very-long messages from consuming excessive tokens. Disable only if you intentionally paste large texts.</div>
+                        </div>
+                        <div class="ccs-setting-section">
                             <div class="ccs-setting-label">Danger Zone</div>
                             <button class="ccs-btn ccs-btn-danger" id="ccs-clear-all-sessions-btn">🗑 Clear All Sessions</button>
                         </div>
@@ -272,6 +280,7 @@ export class SettingsModal {
             customSystemPromptRules: document.getElementById('ccs-custom-rules')?.value || '',
             compressionThreshold: parseInt(document.getElementById('ccs-compression')?.value) || 15,
             parallelApiCalls: document.getElementById('ccs-parallel-api')?.checked !== false,
+            inputLimitEnabled: document.getElementById('ccs-input-limit')?.checked !== false,
             voiceToneProfile: {
                 pov:               document.getElementById('ccs-tone-pov')?.value || 'third',
                 actionFormat:      document.getElementById('ccs-tone-action')?.value || 'asterisk',

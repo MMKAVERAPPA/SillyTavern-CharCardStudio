@@ -70,6 +70,7 @@ export function classifyApiError(err, context = 'API call') {
     }
 
     // BUG-024 FIX: Detect CORS and timeout errors before the generic network check
+    const msg = err?.message || String(err); // define msg before use
     if (/cors/i.test(msg)) {
         return new CCSApiError(`CORS error: ${msg}`, {
             errorType: 'network', retryable: false,
@@ -91,7 +92,7 @@ export function classifyApiError(err, context = 'API call') {
     }
 
     // Network / generic errors
-    const networkMsg = err?.message || String(err);
+    const networkMsg = msg; // already extracted above
     if (/network|fetch|failed to fetch|econnrefused/i.test(networkMsg)) {
         return new CCSApiError(`Network error: ${networkMsg}`, {
             errorType: 'network', retryable: true,
@@ -121,6 +122,27 @@ export function classifyApiError(err, context = 'API call') {
         errorType: 'unknown', retryable: false,
         userMessage: `⚠️ ${context} failed: ${msg.substring(0, 120)}`,
     });
+}
+
+// ── Retry with exponential backoff ─────────────────────────────────────────────────
+/**
+ * Retries an async fn up to maxAttempts times with exponential backoff.
+ * Only retries on retryable CCSApiErrors (rate_limit, server, network).
+ * Abort signals are respected — AbortError is never retried.
+ */
+async function retryWithBackoff(fn, maxAttempts = 3) {
+    for (let i = 0; i < maxAttempts; i++) {
+        try {
+            return await fn();
+        } catch (err) {
+            const classified = err instanceof CCSApiError ? err : classifyApiError(err, 'retried call');
+            const isLast = i === maxAttempts - 1;
+            if (isLast || !classified.retryable || classified.errorType === 'aborted') throw classified;
+            const delayMs = Math.min(1000 * Math.pow(2, i), 30000); // 1s → 2s → 4s…
+            console.warn(`[CCS] API ${classified.errorType}, retrying in ${delayMs}ms (attempt ${i + 1}/${maxAttempts - 1})…`);
+            await new Promise(r => setTimeout(r, delayMs));
+        }
+    }
 }
 
 export class ApiManager {
@@ -196,14 +218,14 @@ export class ApiManager {
         const settings = memoryManager.getGlobalSettings();
 
         try {
-            let result;
-            if (settings.apiMode === 'profile' && settings.selectedProfile) {
-                result = await this.withProfile(settings.selectedProfile, () =>
-                    generateRaw(prompt, undefined, false, false, systemPrompt, signal)
-                );
-            } else {
-                result = await generateRaw(prompt, undefined, false, false, systemPrompt, signal);
-            }
+            const result = await retryWithBackoff(() => {
+                if (settings.apiMode === 'profile' && settings.selectedProfile) {
+                    return this.withProfile(settings.selectedProfile, () =>
+                        generateRaw(prompt, undefined, false, false, systemPrompt, signal)
+                    );
+                }
+                return generateRaw(prompt, undefined, false, false, systemPrompt, signal);
+            });
 
             // Estimate tokens (approx 4 chars per token)
             const inputChars = (systemPrompt?.length || 0) + (prompt?.length || 0);

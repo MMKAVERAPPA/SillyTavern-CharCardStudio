@@ -53,9 +53,27 @@ export class CardPanel {
     }
 
     updateCardFields(cardFields) {
+        const prevFields = this.cardFields;
         this.cardFields = cardFields;
+
+        // First render or container not yet built -- full render required
+        if (!prevFields || !this.container?.querySelector('.ccs-field-row')) {
+            this._detectExistingContent();
+            this.render();
+            return;
+        }
+
         this._detectExistingContent();
-        this.render();
+        // Only re-render rows where content actually changed
+        BOARD_FIELDS.forEach(f => {
+            const prev = prevFields[f];
+            const next = cardFields[f];
+            const changed = Array.isArray(next)
+                ? JSON.stringify(prev) !== JSON.stringify(next)
+                : prev !== next;
+            if (changed) this._updateFieldRow(f);
+        });
+        this._updateTokenBudget();
     }
 
     render() {

@@ -4,7 +4,8 @@
 
 **Character Card Studio** is a full-screen SillyTavern extension that turns character card creation into a guided, collaborative process. Instead of filling fields manually, you have a conversation with an AI Lab Assistant that understands the SillyTavern card format deeply — it handles the craft while you handle the creative direction.
 
-**v3.1.0** — The **Mobile UI** update. Full mobile compatibility: the studio now opens reliably on any screen size via the 🪄 Extensions wand menu. The workspace panel becomes a collapsible bottom drawer on mobile — chat takes the full screen by default, and a tap on the drawer handle slides the Card/Lore/Concept workspace up. Swipe gestures supported.
+**v3.2.0** — **Reliability & Performance.** Virtual scrolling keeps the chat snappy on long sessions. Auto-retry on rate limits (1s → 2s → 4s backoff). Global error boundary catches unhandled rejections. Input message length limit (toggleable). `updateCardFields` now diffs instead of rebuilding — no more scroll-position resets. AbortController-based annotation cleanup.
+
 
 ---
 
@@ -332,6 +333,7 @@ Add reusable text snippets. They appear as clickable chips above the chat input.
 ### Session Tab
 - **Compression Threshold**: How many messages before history auto-compresses (default: 15)
 - **Parallel API Calls**: Enable/disable concurrent API requests for faster generation
+- **Input Message Limit**: Cap messages at 12,000 characters (default: on). Disable if you intentionally paste large texts into the chat
 - **Clear All Sessions**: Deletes all saved session data
 
 ---
@@ -470,6 +472,8 @@ CharCardStudio/
 
 | Version | Highlights |
 |---------|-----------|
+| **v3.2.0** | Virtual scrolling (50-msg DOM cap with load-more), auto-retry on rate limits, global error boundary, input message limit toggle, `updateCardFields` diffing, AbortController annotation cleanup, CONTRIBUTING.md, CHANGELOG.md |
+| **v3.1.1** | Mobile minimize pill, settings modal mobile fix |
 | **v3.1.0** | Mobile UI overhaul — collapsible bottom drawer, swipe gestures, wand-menu only entry point, no-character screen, reliable mobile rendering |
 | **v3.0.0** | Skill Engine architecture, voice calibration, psychological profiling, chain-of-thought generation, smart context sizing, character test drive, full World Info spec, format flexibility |
 | **v2.6.0** | Chat search (Ctrl+F), Raw Context Inspector, Ghost Mode, Session Notes, Usage Statistics |

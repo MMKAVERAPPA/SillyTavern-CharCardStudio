@@ -31,6 +31,21 @@ async function init() {
     if (window._ccsInitialized) return;
     window._ccsInitialized = true;
 
+    // Global error boundary: surface unhandled CCS rejections as a toast
+    // rather than silently losing them or crashing the page.
+    if (!window._ccsErrorBoundary) {
+        window._ccsErrorBoundary = true;
+        window.addEventListener('unhandledrejection', (event) => {
+            const reason = event.reason;
+            if (!reason) return;
+            const stack = reason?.stack || reason?.message || String(reason);
+            // Only catch errors originating from CharCardStudio code paths
+            if (!stack.includes('CharCardStudio') && !stack.includes('/ccs-')) return;
+            console.error(`[${EXT_NAME}] Unhandled rejection:`, reason);
+            toastManager.show(`⚠️ Studio error: ${reason?.message || reason}`, 'error');
+        });
+    }
+
     // DEBUG: Expose modules to window for console testing
     if (!window._ccsModules) {
         window._ccsModules = {
@@ -62,7 +77,7 @@ async function init() {
     // Register ST event listeners
     registerSTEvents();
 
-    console.log(`[${EXT_NAME}] v3.0.0 loaded ✓`);
+    console.log(`[${EXT_NAME}] v3.2.0 loaded ✓`);
 }
 
 // ── Wand-menu entry (the ONLY entry point — works on desktop and mobile) ──────

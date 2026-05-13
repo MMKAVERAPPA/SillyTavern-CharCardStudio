@@ -815,8 +815,8 @@
     .ccs-phase-badge { display: none; }
     .ccs-char-name { max-width: 120px; font-size: 0.75rem; }
 
-    /* Minimize bar full-width on mobile */
-    .ccs-min-bar { left: 0; right: 0; transform: none; width: 100%; border-radius: 0; }
+    /* Minimize pill — floats bottom-right, small pill shape */
+    .ccs-min-bar { bottom: 80px; right: 12px; left: auto; width: auto; border-radius: 100px; }
 
     /* Slightly larger input area elements */
     .ccs-chat-textarea { font-size: 0.9rem; }
@@ -1150,38 +1150,39 @@
     }
 }
 
-/* ══════════════════════════════════════════════════════════════════════════════
-   BUG-002 FIX: .ccs-min-bar — was COMPLETELY MISSING from CSS.
-   The JS creates this element but it had no visibility styles at all.
-   ══════════════════════════════════════════════════════════════════════════════ */
+/* ── Minimized restore pill ───────────────────────────────────────────────────────── */
+/* Compact floating pill — doesn't span full width, doesn't cover ST's UI */
 .ccs-min-bar {
-    /* position:absolute relative to studio overlay (which is position:fixed;inset:0).
-       This reliably pins to viewport bottom on all devices without fighting
-       position:fixed containment issues from ST's page-level CSS transforms. */
     position: absolute;
-    bottom: 0;
-    left: 0;
-    right: 0;
-    width: 100%;
-    z-index: 50; /* Above studio content; no need for a high global z-index */
-    background: var(--ccs-surface2);
-    border: 1px solid var(--ccs-border2);
-    border-bottom: none;
-    box-shadow: 0 -4px 20px rgba(0,0,0,0.4);
+    bottom: 24px;
+    right: 24px;
+    left: auto;    /* NOT full-width */
+    width: auto;
+    z-index: 50;
+    /* Glassmorphism pill */
+    background: rgba(26, 27, 38, 0.85);
+    backdrop-filter: blur(14px);
+    -webkit-backdrop-filter: blur(14px);
+    border: 1px solid rgba(122, 162, 247, 0.25);
+    border-radius: 100px;
+    box-shadow: 0 4px 24px rgba(0, 0, 0, 0.55),
+                0 0 0 1px rgba(122, 162, 247, 0.06),
+                inset 0 1px 0 rgba(255,255,255,0.05);
     display: flex;
     align-items: center;
-    gap: 10px;
-    padding: 10px 16px;
+    gap: 6px;
+    padding: 8px 10px 8px 12px;
     color: var(--ccs-text);
     font-family: var(--ccs-font);
-    font-size: 0.85rem;
-    animation: ccs-min-bar-in 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+    font-size: 0.82rem;
+    white-space: nowrap;
+    animation: ccs-min-bar-in 0.28s cubic-bezier(0.34, 1.56, 0.64, 1);
     touch-action: manipulation;
     box-sizing: border-box;
 }
 @keyframes ccs-min-bar-in {
-    from { transform: translateY(100%); opacity: 0; }
-    to   { transform: translateY(0);   opacity: 1; }
+    from { transform: scale(0.7) translateY(10px); opacity: 0; }
+    to   { transform: scale(1)   translateY(0);    opacity: 1; }
 }
 .ccs-min-bar-icon { font-size: 1.1rem; flex-shrink: 0; }
 .ccs-min-bar-label {
@@ -1232,33 +1233,29 @@
 }
 .ccs-min-bar-close:hover { color: var(--ccs-red); }
 
-/* Mobile: full-width bar pinned to screen bottom */
+/* Mobile: compact pill, floats above ST's bottom UI elements (action buttons, input bar) */
 @media (max-width: 768px) {
     .ccs-min-bar {
-        left: 0;
-        right: 0;
-        width: 100%;
-        max-width: 100%;
-        transform: none;
-        border-radius: 0;
-        min-width: unset;
-        /* Larger tap targets on mobile */
-        padding: 12px 16px;
+        bottom: 80px;  /* safely above ST's character action buttons */
+        right: 12px;
+        left: auto;
+        width: auto;
+        max-width: calc(100vw - 24px);
+        padding: 8px 10px 8px 12px;
     }
-    @keyframes ccs-min-bar-in {
-        from { transform: translateY(100%); opacity: 0; }
-        to   { transform: translateY(0);   opacity: 1; }
+    /* Mobile: hide the icon — saves space */
+    .ccs-min-bar-icon {
+        display: none;
     }
-    .ccs-min-bar-restore {
-        min-height: 44px;
-        padding: 8px 16px;
-    }
+    /* Mobile: hide the close button — just Restore is enough */
     .ccs-min-bar-close {
-        min-height: 44px;
-        min-width: 44px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
+        display: none;
+    }
+    /* Mobile: larger tap target for Restore */
+    .ccs-min-bar-restore {
+        min-height: 40px;
+        padding: 8px 16px;
+        font-size: 0.82rem;
     }
 }
 
@@ -1289,4 +1286,26 @@
 }
 .ccs-studio-overlay.ccs-minimized .ccs-min-bar {
     pointer-events: auto;     /* Restore bar remains fully interactive */
+}
+
+/* -- Virtual-scroll load-more sentinel ---------------------------------------- */
+.ccs-load-more {
+    text-align: center;
+    padding: 10px 0 4px;
+}
+.ccs-load-more-btn {
+    background: var(--ccs-surface2);
+    border: 1px solid var(--ccs-border2);
+    border-radius: 20px;
+    color: var(--ccs-text3);
+    padding: 5px 18px;
+    font-size: 0.78rem;
+    font-family: var(--ccs-font);
+    cursor: pointer;
+    transition: background var(--ccs-anim-fast), color var(--ccs-anim-fast), border-color var(--ccs-anim-fast);
+}
+.ccs-load-more-btn:hover {
+    background: var(--ccs-surface3);
+    border-color: var(--ccs-accent);
+    color: var(--ccs-text);
 }

@@ -7,7 +7,7 @@
     "js": "index.js",
     "css": "style.css",
     "author": "DeathGamerSolo",
-    "version": "3.1.1",
+    "version": "3.2.0",
     "homePage": "https://github.com/MMKAVERAPPA/CharCardStudio",
     "auto_update": true,
     "minimum_client_version": "1.12.0"
