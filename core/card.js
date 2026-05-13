@@ -3,7 +3,7 @@
 
 // ST exposes getRequestHeaders as a named export from script.js (not on the SillyTavern object).
 // This is how every other ST extension does it — same pattern as MemoryBooks, etc.
-import { getRequestHeaders } from '../../../../script.js';
+import { getRequestHeaders } from '../../../../../script.js';
 
 export const CARD_FIELDS = [
     'name','description','personality','scenario','first_mes','mes_example',
