@@ -13,15 +13,34 @@ export class SettingsModal {
 
     open(container = null) {
         document.getElementById('ccs-settings-modal')?.remove();
-        // BUG-001 FIX: Always append to document.body — NOT inside the studio overlay.
-        // The studio uses `isolation: isolate` which scopes `position:fixed` children
-        // to the studio element only, breaking full-screen coverage on mobile.
-        // We give this modal the maximum possible z-index instead.
+        // Always append to document.body for maximum z-index effectiveness
         this._container = document.body;
         this._build();
         this._container.appendChild(this.el);
-        // Force position:fixed inline to ensure proper positioning
-        this.el.style.cssText += ';position:fixed!important;';
+        // NUCLEAR OPTION: Force all positioning styles inline with maximum z-index
+        this.el.style.cssText = `
+            display: flex !important;
+            position: fixed !important;
+            inset: 0 !important;
+            z-index: 2147483647 !important;
+            background: rgba(0, 0, 0, 0.75) !important;
+            align-items: center !important;
+            justify-content: center !important;
+            padding: 16px !important;
+            box-sizing: border-box !important;
+            overflow-y: auto !important;
+        `;
+        // Force modal inner to be visible
+        const modal = this.el.querySelector('.ccs-modal');
+        if (modal) {
+            modal.style.cssText = `
+                display: flex !important;
+                flex-direction: column !important;
+                min-height: 500px !important;
+                max-height: 90vh !important;
+                overflow: hidden !important;
+            `;
+        }
         this._bind();
         this._renderStats();
     }

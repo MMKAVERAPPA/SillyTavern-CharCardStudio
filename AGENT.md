@@ -136,28 +136,34 @@ fetch('/api/characters/merge-attributes', { method: 'POST', headers: getRequestH
 - **Pattern**: Send avatar filename + fields to update → API merges into existing character
 - **Status**: WORKING - User confirmed saves work now
 
-### Bug #1 (Settings Modal - 412 x 0) - 🔧 SHOULD BE FIXED NOW
-- **Root Cause #1**: Modal had no minimum height, collapsed to 0px
-- **Root Cause #2**: Multiple duplicate CSS definitions (lines 535, 983, 1125) with inconsistent values
-- **Root Cause #3**: Z-index using extreme value (2147483647) instead of ST-compatible value (30000)
-- **Fix Applied**: 
-  - Added `min-height: 500px !important` to `.ccs-modal` (all 3 locations)
-  - Changed z-index from 2147483647 to 30000 (all locations including mobile media query)
-  - Added !important to force override any inline styles
-- **Confidence**: HIGH - CSS should now properly apply
-- **Status**: Ready to test after browser refresh
+### Bug #1 (Settings Modal - 412 x 0) - ☢️ NUCLEAR FIX APPLIED
+- **Root Cause #1**: Worked on desktop, failed on mobile/responsive view
+- **Root Cause #2**: CSS z-index and positioning being overridden by viewport-specific rules
+- **Root Cause #3**: Complex CSS cascade with 3 duplicate modal definitions fighting each other
+- **Fix Applied - NUCLEAR OPTION**:
+  - Removed ALL CSS dependencies - everything forced inline now
+  - Maximum z-index: `2147483647` (absolute maximum possible)
+  - ALL positioning styles forced with `!important` directly in JavaScript
+  - Inline styles override ALL CSS rules regardless of specificity or media queries
+  - Modal inner also forced to `display: flex; min-height: 500px` inline
+- **Why Nuclear**: CSS media queries and cascading rules were impossible to debug - inline styles are the only thing that works 100% of the time
+- **Confidence**: MAXIMUM - Inline styles with !important cannot be overridden
+- **Status**: Ready to test - should work on ALL viewports now
 
-### Bug #2 (Minimize Bar - Not Displaying Properly) - 🔧 SHOULD BE FIXED NOW
-- **Root Cause #1**: Inline styles conflicting with CSS positioning
-- **Root Cause #2**: CSS used `left: 50%; transform: translateX(-50%)` (centering) but inline had `left: 0; right: 0`
-- **Root Cause #3**: Transform conflict causing layout issues
-- **Fix Applied**:
-  - Simplified inline styles to only override positioning: `left: 0; right: 0; transform: none; max-width: 100%`
-  - Updated CSS to use full-width layout (`left: 0; right: 0; width: 100%`) instead of centering
-  - Changed `display: ''` to `display: 'flex'` explicitly
-  - Removed transform from CSS positioning, only used in animation
-- **Confidence**: HIGH - No more style conflicts
-- **Status**: Ready to test after browser refresh
+### Bug #2 (Minimize Bar - Not Displaying Properly) - ☢️ NUCLEAR FIX APPLIED
+- **Root Cause #1**: Worked on desktop, failed on mobile/responsive view
+- **Root Cause #2**: CSS positioning conflicts with viewport-specific rules
+- **Root Cause #3**: Display/transform/positioning cascade issues
+- **Fix Applied - NUCLEAR OPTION**:
+  - Removed ALL CSS dependencies - everything forced inline now
+  - Maximum z-index: `2147483646` (just below modal at 2147483647)
+  - ALL positioning/display styles forced with `!important` directly in JavaScript
+  - Full-width bar: `left: 0; right: 0; width: 100%` all with !important
+  - Added `pointer-events: auto !important` to ensure clickability
+  - Buttons already had inline styles, kept those
+- **Why Nuclear**: Same as modal - CSS cascade was unreliable across viewports
+- **Confidence**: MAXIMUM - Inline styles with !important cannot be overridden
+- **Status**: Ready to test - should work on ALL viewports now
 
 ## Next Steps
 1. ✅ Fixed import path to `../../../../../script.js`
