@@ -20,16 +20,35 @@ SillyTavern third-party extension with 3 critical bugs:
 - Returns headers with CSRF token: `{ 'Content-Type': 'application/json', 'X-CSRF-Token': token }`
 - **DO NOT** try to access via `window.getRequestHeaders` - doesn't work in module scope
 
-### Character Save Pattern - CRITICAL LEARNING
-- **WRONG**: Don't make direct API calls to `/api/characters/save` or `/api/characters/edit`
-- **CORRECT**: Modify character object directly, then trigger ST's save button
-- **Pattern**:
-  1. Get character: `const { characterId, characters } = SillyTavern.getContext();`
-  2. Modify character object: `characters[characterId].first_mes = 'new value';`
-  3. Trigger save: `$('#create_button').trigger('click');`
-  4. Optionally emit event: `eventSource.emit(event_types.CHARACTER_EDITED, { id, field });`
-- **Why**: ST's save button handles all the complex logic (FormData, validation, API routing)
-- **jQuery**: Available as `window.jQuery` or just `$` in ST's global scope
+### Character Save Pattern - CRITICAL LEARNING (CORRECTED)
+- **WRONG #1**: Don't make direct API calls to `/api/characters/save` (doesn't exist)
+- **WRONG #2**: Don't call `/api/characters/edit` (wrong endpoint)
+- **WRONG #3**: Don't try to click `$('#create_button')` from extension code (unreliable)
+- **CORRECT**: Use `/api/characters/merge-attributes` endpoint
+- **Pattern** (from sillytavern-utils-lib):
+  1. Build update payload with `avatar` (filename) + fields to update
+  2. POST to `/api/characters/merge-attributes` with CSRF headers
+  3. Handle response and update local character object
+  4. Optionally call `getCharacters()` to refresh UI
+- **Example**:
+  ```javascript
+  const updateData = {
+    avatar: char.avatar, // Required: character filename
+    name: 'New Name',
+    data: {
+      name: 'New Name',
+      description: 'New description'
+    }
+  };
+  const response = await fetch('/api/characters/merge-attributes', {
+    method: 'POST',
+    headers: getRequestHeaders(),
+    body: JSON.stringify(updateData),
+    cache: 'no-cache'
+  });
+  ```
+- **Why**: This merges attributes into existing character without needing FormData or file uploads
+- **Source**: Character Creator extension by bmen25124 uses sillytavern-utils-lib which uses this pattern
 
 ### Z-Index Strategy in SillyTavern
 From ST's style.css:
@@ -68,7 +87,7 @@ import { getRequestHeaders } from '../../../../script.js';
 ```javascript
 import { getRequestHeaders } from '../../../../../script.js';
 ```
-**STATUS**: Import works, but API calls still failed
+**SUCCESS**: Import works correctly
 
 ### Attempt 4: Direct API call to `/api/characters/save`
 ```javascript
@@ -82,28 +101,43 @@ fetch('/api/characters/save', { method: 'POST', headers: getRequestHeaders(), bo
 fetch('/api/characters/edit', { method: 'POST', headers: getRequestHeaders(), body: JSON.stringify(payload) })
 ```
 **FAILED**: Still 404 Not Found
-**REASON**: Wrong approach - ST doesn't use direct API calls for character saves from extensions
+**REASON**: Wrong endpoint - this is for editing character metadata, not saving fields
 
-### Attempt 6: Modify character + trigger save button ✅
+### Attempt 6: Modify character + trigger save button
 ```javascript
 this._updateLocalChar(char, fieldName, value);
 $('#create_button').trigger('click');
 ```
-**SUCCESS**: This is how ST's own save mechanism works
+**FAILED**: Says "saved" but nothing actually happens
+**REASON**: Third-party extensions can't reliably trigger ST's internal save flow
+
+### Attempt 7: Use `/api/characters/merge-attributes` ✅
+```javascript
+const updateData = { avatar: char.avatar, [fieldName]: value, data: { [fieldName]: value } };
+fetch('/api/characters/merge-attributes', { method: 'POST', headers: getRequestHeaders(), body: JSON.stringify(updateData) })
+```
+**SUCCESS**: This is the correct endpoint used by working extensions (Character Creator)
 
 ## Working Extensions to Study
-1. TunnelVision - Uses imports from `../../../../script.js` successfully
-2. WorldInfoInfo - Uses ES6 imports, handles world info saves
-3. MemoryBooks - Referenced in CharCardStudio's own code as "proven pattern"
+1. **Character Creator** by bmen25124 - Uses `/api/characters/merge-attributes` via sillytavern-utils-lib
+2. **WorldInfo Recommender** by bmen25124 - Also uses sillytavern-utils-lib patterns
+3. **sillytavern-utils-lib** - Utility library that provides `saveCharacter()` function
+   - Uses `/api/characters/merge-attributes` endpoint
+   - Requires `avatar` (filename) + partial character data
+   - Source: https://github.com/bmen25124/sillytavern-utils-lib/blob/main/src/character-utils.ts
+
+**Key Insight**: Both extensions use React + TypeScript + sillytavern-utils-lib, but the core pattern (merge-attributes endpoint) works in vanilla JS too.
 
 ## Current Status
 
-### Bug #3 (Save Errors - 404 Not Found)
-- **Root Cause**: Was making direct API calls which don't work for character saves
-- **Fix Applied**: Changed to modify character object directly + trigger `$('#create_button').trigger('click')`
-- **Confidence**: VERY HIGH - This is how ST's own code works
-- **Pattern**: Update char object → Emit event → Click save button → Wait
-- **Next**: User needs to restart ST and test
+### Bug #3 (Save Errors)
+- **Root Cause #1**: Was using wrong endpoints (`/api/characters/save`, `/api/characters/edit`)
+- **Root Cause #2**: Tried clicking save button programmatically (unreliable)
+- **Root Cause #3**: Correct endpoint is `/api/characters/merge-attributes`
+- **Fix Applied**: Refactored to use `/api/characters/merge-attributes` endpoint (same as Character Creator extension)
+- **Pattern**: Send avatar filename + fields to update → API merges into existing character
+- **Confidence**: VERY HIGH - This is the proven pattern from working extensions
+- **Status**: Should be FIXED now
 
 ### Bug #1 (Settings Modal - 412 x 0)
 - **Root Cause**: Modal had no minimum height, collapsed to 0px
@@ -111,7 +145,7 @@ $('#create_button').trigger('click');
 - **Confidence**: HIGH - CSS fix should work immediately
 - **Status**: Should be FIXED after refresh
 
-### Bug #2 (Minimize Bar - Not Displaying Properly)  
+### Bug #2 (Minimize Bar - Not Displaying Properly)
 - **Root Cause**: Object.assign not applying display: flex properly in some browsers
 - **Fix Applied**: Changed to cssText with !important flags to force all styles
 - **Confidence**: HIGH - cssText is more reliable than Object.assign for inline styles

@@ -1,9 +1,7 @@
 // core/card.js
 // Character card V3 read/write, token counting, diff, field validation
 
-import { getRequestHeaders, eventSource, event_types } from '../../../../../script.js';
-
-const $ = window.jQuery;
+import { getRequestHeaders } from '../../../../../script.js';
 
 export const CARD_FIELDS = [
     'name','description','personality','scenario','first_mes','mes_example',
@@ -73,19 +71,44 @@ export class CardManager {
         if (characterId === undefined || characterId < 0) throw new Error('No character selected');
         const char = characters[characterId];
         if (!char) throw new Error('Character not found');
+        if (!char.avatar) throw new Error('Character has no avatar filename');
 
-        // Apply the field update directly to the character object
+        // Build the update payload - only include the fields we're changing
+        const updateData = { avatar: char.avatar };
+        
+        // Map field names to character structure
+        if (['name', 'description', 'personality', 'scenario', 'first_mes', 'mes_example'].includes(fieldName)) {
+            updateData[fieldName] = value;
+            // Also update in data object for consistency
+            if (!updateData.data) updateData.data = {};
+            updateData.data[fieldName] = value;
+        } else if (fieldName === 'alternate_greetings') {
+            if (!updateData.data) updateData.data = {};
+            updateData.data.alternate_greetings = value;
+        } else {
+            // Custom field in data object
+            if (!updateData.data) updateData.data = {};
+            updateData.data[fieldName] = value;
+        }
+
+        // Use /api/characters/merge-attributes endpoint (same as sillytavern-utils-lib)
+        const response = await fetch('/api/characters/merge-attributes', {
+            method: 'POST',
+            headers: getRequestHeaders(),
+            body: JSON.stringify(updateData),
+            cache: 'no-cache',
+        });
+        
+        if (!response.ok) {
+            const errorData = await response.json().catch(() => ({ message: response.statusText }));
+            throw new Error(errorData.message || `Save failed: ${response.statusText}`);
+        }
+        
+        // Update local character object after successful save
         this._updateLocalChar(char, fieldName, value);
         
-        // Trigger ST's character save mechanism via event
-        // This ensures all ST's internal state management runs properly
-        eventSource.emit(event_types.CHARACTER_EDITED, { id: characterId, field: fieldName });
-        
-        // Trigger the actual save (clicks the save button programmatically)
-        $('#create_button').trigger('click');
-        
-        // Wait a bit for the save to complete
-        await new Promise(resolve => setTimeout(resolve, 100));
+        // Refresh character data to ensure UI is in sync
+        await SillyTavern.getContext().getCharacters();
         
         return true;
     }
@@ -95,20 +118,43 @@ export class CardManager {
         if (characterId === undefined || characterId < 0) throw new Error('No character selected');
         const char = characters[characterId];
         if (!char) throw new Error('Character not found');
+        if (!char.avatar) throw new Error('Character has no avatar filename');
 
-        // Apply all field updates directly to the character object
+        // Build the update payload
+        const updateData = { avatar: char.avatar, data: {} };
+        
+        for (const [fieldName, value] of Object.entries(fieldsObj)) {
+            if (['name', 'description', 'personality', 'scenario', 'first_mes', 'mes_example'].includes(fieldName)) {
+                updateData[fieldName] = value;
+                updateData.data[fieldName] = value;
+            } else if (fieldName === 'alternate_greetings') {
+                updateData.data.alternate_greetings = value;
+            } else {
+                // Custom field
+                updateData.data[fieldName] = value;
+            }
+        }
+
+        // Use /api/characters/merge-attributes endpoint
+        const response = await fetch('/api/characters/merge-attributes', {
+            method: 'POST',
+            headers: getRequestHeaders(),
+            body: JSON.stringify(updateData),
+            cache: 'no-cache',
+        });
+        
+        if (!response.ok) {
+            const errorData = await response.json().catch(() => ({ message: response.statusText }));
+            throw new Error(errorData.message || `Save failed: ${response.statusText}`);
+        }
+        
+        // Update local character object
         for (const [f, v] of Object.entries(fieldsObj)) {
             this._updateLocalChar(char, f, v);
         }
         
-        // Trigger ST's character save mechanism
-        eventSource.emit(event_types.CHARACTER_EDITED, { id: characterId, fields: Object.keys(fieldsObj) });
-        
-        // Trigger the actual save
-        $('#create_button').trigger('click');
-        
-        // Wait for save to complete
-        await new Promise(resolve => setTimeout(resolve, 100));
+        // Refresh character data
+        await SillyTavern.getContext().getCharacters();
         
         return true;
     }
