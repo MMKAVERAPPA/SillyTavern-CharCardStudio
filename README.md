@@ -288,7 +288,7 @@ To set up a separate utility API:
 ```
 CharCardStudio/
 ├── index.js                  # Extension entry point, toolbar injection, slash commands
-├── manifest.json             # Extension metadata (v3.3.0)
+├── manifest.json             # Extension metadata (v3.5.0)
 ├── settings.html             # ST Extensions panel UI
 ├── style.css                 # Full-screen studio styles (glassmorphism, themes, animations)
 │
@@ -368,7 +368,7 @@ CharCardStudio/
 - Check the lorebook is linked to the character in ST's World Info settings
 
 **Lorebook panel shows "No lorebook selected" after searching**
-- This was a bug in earlier builds. Update to v3.3.0 — it is fixed.
+- This was a bug in earlier builds. Update to v3.5.0 — it is fixed.
 
 ---
 

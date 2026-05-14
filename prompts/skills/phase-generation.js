@@ -24,6 +24,7 @@ Apply these checks mentally and fix issues before presenting the final version:
 □ Counterweights present for every strong trait
 □ Most important content positioned at bottom (for stronger AI influence)
 □ Voice consistency with established voice samples (if available)
+□ VOICE ANCHOR CHECK: Does the dialogue/internal thought match the Voice Profile in the Character Seed EXACTLY?
 □ No contradictions with other accepted fields
 □ Macros correct: {{char}} and {{user}} used properly
 
@@ -49,10 +50,16 @@ The most important permanent field. Structure and write with extreme care.
 
 **Quality Criteria:**
 - Every sentence must pass: "Does this change how the AI plays the character?"
-- At least one irrational/disproportionate behavior revealing the self-image gap
 - Behavior-over-labels: "When [trigger], {{char}} usually [behavior], because [reason]"
 - Most important content at BOTTOM of field
-- Target: 400-900 tokens (standard), 600-1200 (verbose)`,
+- Target: 400-900 tokens (standard), 600-1200 (verbose)
+
+**Avoid these common traps:**
+- Generic MBTI summaries ("She is an INTJ who...")
+- Backstory-first structure (start with who they ARE, not where they came from)
+- Adjective clusters without behaviors ("cold, aloof, mysterious" → show HOW)
+- Adverb abuse ("She spoke softly, quietly, gently...")
+- Present-tense life summary ("She works as a detective...")`,
 
     personality: `## Generating: personality
 Short supplementary field. Many excellent cards leave this blank entirely.
@@ -99,7 +106,13 @@ Write from {{char}}'s side. {{user}}'s presence is perceived through {{char}}'s 
 
 **Voice:** If the character has unique speech patterns, they MUST appear in the FM. This is where the AI learns voice.
 **Length:** Choose deliberately. FM length = response length anchor. 200-400 tokens for standard, 400-700 for verbose.
-**Never:** Write {{user}}'s actions, feelings, or thoughts. Not even "you notice" or "you feel."`,
+
+**Avoid these common traps:**
+- Weather/environment openers ("The rain fell steadily...")
+- Walking-into-room openers ("You step into the dimly lit...")
+- "You notice..." or "You feel..." (breaks the perspective rule)
+- Monologue dumps ({{char}} talking for 3+ paragraphs before any hook)
+- Ending on a closed statement (must end on something that demands a response)`,
 
     mes_example: `## Generating: mes_example
 Voice demonstration through example dialogue. Gets dropped from context as chat grows.
@@ -125,8 +138,13 @@ Voice demonstration through example dialogue. Gets dropped from context as chat 
 - Show HOW {{char}} talks, not just WHAT they say
 - Include physical mannerisms, verbal tics, thought patterns
 - Most important exchange goes LAST (strongest influence)
-- NEVER put behavioral rules or instructions here — they WILL get dropped from context
-- NEVER start {{char}}'s line with "You" — causes impersonation`,
+
+**Avoid these common traps:**
+- Echoing the question back ("Oh, you want to know about that?")
+- {{char}} starting with "You" ("You look tired today")
+- Generic answers that any character could give
+- More than 4 exchanges (gets dropped from context as chat grows)
+- Behavioral rules or instructions here — they WILL get dropped`,
 
     system_prompt: `## Generating: system_prompt
 Instructions TO the AI. Not character description. Every token must ADD something new.
@@ -148,7 +166,12 @@ Instructions TO the AI. Not character description. Every token must ADD somethin
 **Positive framing examples:**
   Instead of "Don't break character" → "Stay in character at all times"
   Instead of "Never speak for {{user}}" → "Write only {{char}}'s actions, dialogue, and internal thoughts"
-  Instead of "Don't use flowery language" → "Use direct, blunt language"`,
+  Instead of "Don't use flowery language" → "Use direct, blunt language"
+
+**Avoid these common traps:**
+- "Do not break character" (redundant, wastes tokens)
+- Negative framing ("Do not be boring" → "Be creative")
+- Restating personality ("{{char}} is rude" → use description instead)`,
 
     creator_notes: `## Generating: creator_notes
 For HUMANS downloading the card. The RP AI never sees this.

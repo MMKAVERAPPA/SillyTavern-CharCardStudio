@@ -5,6 +5,7 @@
 import { memoryManager } from './memory.js';
 import { statsManager } from './stats.js';
 import { toastManager } from '../ui/toast.js';
+import { getRequestHeaders } from '../../../../../script.js';
 
 // ── Typed API error class ───────────────────────────────────────────────────
 export class CCSApiError extends Error {
@@ -160,7 +161,10 @@ export class ApiManager {
 
     async getProfiles() {
         try {
-            const r = await fetch('/api/profiles/list', { method: 'GET' });
+            const r = await fetch('/api/profiles/list', {
+                method: 'GET',
+                headers: getRequestHeaders(),
+            });
             if (!r.ok) return [];
             const d = await r.json();
             return d.profiles || [];
@@ -184,7 +188,10 @@ export class ApiManager {
 
     async _getCurrentProfile() {
         try {
-            const r = await fetch('/api/profiles/current', { method: 'GET' });
+            const r = await fetch('/api/profiles/current', {
+                method: 'GET',
+                headers: getRequestHeaders(),
+            });
             if (!r.ok) return null;
             const d = await r.json();
             return d.name || null;
@@ -194,7 +201,7 @@ export class ApiManager {
     async _switchProfile(name) {
         const r = await fetch('/api/profiles/apply', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: Object.assign({ 'Content-Type': 'application/json' }, getRequestHeaders()),
             body: JSON.stringify({ name }),
         });
         if (!r.ok) throw new Error(`Failed to switch profile to "${name}"`);

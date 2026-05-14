@@ -578,6 +578,26 @@
 .ccs-btn-danger:hover { background: rgba(247,118,142,0.22); }
 .ccs-btn-sm { padding: 5px 12px; font-size: 0.75rem; }
 
+/* ── Suggestion Chips ────────────────────────────────────────── */
+.ccs-chip-bar {
+    display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 8px;
+}
+.ccs-suggestion-chip {
+    background: var(--ccs-surface3); border: 1px solid var(--ccs-border2); color: var(--ccs-text2);
+    border-radius: 12px; padding: 4px 12px; font-size: 0.75rem; cursor: pointer;
+    transition: all 0.2s ease; white-space: nowrap; outline: none;
+}
+.ccs-suggestion-chip:hover {
+    background: var(--ccs-border2); color: var(--ccs-text); transform: translateY(-1px);
+}
+.ccs-chip-primary {
+    background: rgba(122,162,247,0.1); border-color: rgba(122,162,247,0.3); color: var(--ccs-accent);
+}
+.ccs-chip-primary:hover {
+    background: rgba(122,162,247,0.2);
+}
+
+
 /* ── Form elements ───────────────────────────────────────────── */
 .ccs-input, .ccs-select, .ccs-textarea {
     background: var(--ccs-surface3); border: 1px solid var(--ccs-border2);
@@ -1539,4 +1559,43 @@
     font-size: 0.75rem;
     color: var(--ccs-text3);
     line-height: 1.4;
+}
+
+/* ── v3.4 Markdown elements ──────────────────────────────────────────────── */
+.ccs-md-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 10px 0;
+    font-size: 0.85rem;
+}
+.ccs-md-table th, .ccs-md-table td {
+    border: 1px solid var(--ccs-border2);
+    padding: 6px 10px;
+    text-align: left;
+}
+.ccs-md-table th {
+    background: var(--ccs-surface2);
+    font-weight: 600;
+}
+.ccs-md-blockquote {
+    border-left: 3px solid var(--ccs-accent);
+    margin: 10px 0;
+    padding-left: 10px;
+    color: var(--ccs-text2);
+    background: var(--ccs-surface2);
+    padding: 8px 12px;
+    border-radius: 0 var(--ccs-radius) var(--ccs-radius) 0;
+}
+.ccs-md-hr {
+    border: 0;
+    height: 1px;
+    background: var(--ccs-border2);
+    margin: 16px 0;
+}
+.ccs-md-ul, .ccs-md-ol {
+    margin: 8px 0 8px 24px;
+    padding: 0;
+}
+.ccs-md-li {
+    margin-bottom: 4px;
 }

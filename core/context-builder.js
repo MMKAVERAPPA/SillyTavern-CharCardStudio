@@ -4,6 +4,7 @@
 
 import { memoryManager } from './memory.js';
 import { skillRouter } from './skill-router.js';
+import { characterSeed } from './character-seed.js';
 
 export class ContextBuilder {
 
@@ -11,7 +12,7 @@ export class ContextBuilder {
      * Build context for a conversational chat turn.
      * Returns { systemPrompt, prompt } where prompt is the full message history.
      */
-    buildContext({ session, cardFields, baseSystemPrompt, extraInstruction = '' }) {
+    buildContext({ session, cardFields, baseSystemPrompt, extraInstruction = '', phase = null }) {
         let systemPrompt = baseSystemPrompt || '';
 
         // Tone/voice profile
@@ -24,8 +25,13 @@ export class ContextBuilder {
 
         // Idea memory (includes card type, format, voice profile, psych profile)
         if (session) {
-            const ideaSummary = memoryManager.buildIdeaMemorySummary(session);
-            if (ideaSummary) systemPrompt += '\n\n' + ideaSummary;
+            if (phase === 'generation' || phase === 'lorebook') {
+                const seedStr = characterSeed.buildSeed(session);
+                if (seedStr) systemPrompt += '\n\n' + seedStr;
+            } else {
+                const ideaSummary = memoryManager.buildIdeaMemorySummary(session);
+                if (ideaSummary) systemPrompt += '\n\n' + ideaSummary;
+            }
         }
 
         // Card state — use smart sizing if a field is being generated
@@ -35,7 +41,7 @@ export class ContextBuilder {
 
         // Lorebook index
         if (session) {
-            const lbIndex = memoryManager.buildLorebookIndex(session);
+            const lbIndex = memoryManager.buildLorebookIndex(session, phase);
             if (lbIndex) systemPrompt += '\n\n' + lbIndex;
         }
 
@@ -137,7 +143,11 @@ export class ContextBuilder {
 
                 state += `[FIELD: ${field}] ${label}\n${preview}\n[/FIELD]\n\n`;
             } else {
-                state += `[FIELD: ${field}] 🔲 EMPTY\n\n`;
+                if (fullContentFields.includes(field)) {
+                    state += `[FIELD: ${field}] 🔲 NOT YET GENERATED — do not reference or invent details\n\n`;
+                } else {
+                    state += `[FIELD: ${field}] 🔲 EMPTY\n\n`;
+                }
             }
         }
 

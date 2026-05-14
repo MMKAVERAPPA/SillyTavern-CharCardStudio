@@ -18,13 +18,8 @@ import {
     MES_EXAMPLE_WARNING,
 } from '../prompts/generation.js';
 
-import {
-    extractCodeBlock,
-    parseMultiFieldResponse,
-    detectFieldFromMessage,
-    isBatchGreetingOp,
-    isGenerateAllRequest,
-} from '../core/parser.js';
+import { intentEngine } from '../core/intent-engine.js';
+import { extractCodeBlock, parseMultiFieldResponse } from '../core/parser.js';
 
 const GENERATABLE_FIELDS = ['description','personality','scenario','first_mes','mes_example','system_prompt','creator_notes'];
 
@@ -35,6 +30,7 @@ export class GenerationPhase {
         this.callbacks = {};
         this.queue = [];
         this._isProcessingQueue = false;
+        this.lastIntent = null;
     }
 
     start(session, cardFields, callbacks = {}) {
@@ -70,39 +66,51 @@ export class GenerationPhase {
     }
 
     async handleMessage(message) {
-        // Detect field-specific intent
-        const field = detectFieldFromMessage(message);
-
-        // v3.0: Character simulation / test drive
-        if (/test.?drive|simulat|test.?character|test.?card/i.test(message)) {
-            await this._characterSimulation(message);
+        // Detect follow-ups
+        const isFollowUp = /^(yes|ok|do it|that one|sure|go ahead|confirm|perfect)$/i.test(message.trim());
+        if (isFollowUp && this.lastIntent && (Date.now() - this.lastIntent.timestamp < 120_000)) {
+            await this._executeIntent(this.lastIntent);
             return;
         }
 
-        // Check for batch operations using actual parser functions
-        if (isGenerateAllRequest(message)) {
+        const intent = intentEngine.detect(message, this.session, 'generation');
+        this.lastIntent = { ...intent, timestamp: Date.now(), originalMessage: message };
+        await this._executeIntent(this.lastIntent);
+    }
+
+    async _executeIntent(intent) {
+        if (intent.type === 'simulation') {
+            await this._characterSimulation('Test drive character');
+            return;
+        }
+        if (intent.type === 'generate_all') {
             await this.generateAllFields();
             return;
         }
-        if (isBatchGreetingOp(message)) {
-            const countMatch = message.match(/(\d+)/);
-            await this._handleBatchGreetings(countMatch ? parseInt(countMatch[1]) : 3);
+        if (intent.type === 'batch_greetings') {
+            await this._handleBatchGreetings(3);
             return;
         }
-        if (field && /generat|write|create|make/i.test(message)) {
-            await this.generateField(field);
+        if (intent.type === 'generate_field' && intent.target) {
+            await this.generateField(intent.target);
             return;
         }
-        if (field && /variation|option|alternative|version/i.test(message)) {
-            await this.generateVariations(field);
+        if (intent.type === 'rewrite_field' && intent.target && intent.meta.action) {
+            await this.rewriteField(intent.target, intent.meta.action);
             return;
         }
-        if (field && /rewrite|shorten|lengthen|darker|specific|elevate|fix|voice/i.test(message)) {
-            const action = this._detectRewriteAction(message);
-            if (action) { await this.rewriteField(field, action); return; }
+        if (intent.type === 'rewrite_field' && intent.target) {
+             // Fallback if no specific action was detected
+             await this.rewriteField(intent.target, 'rewrite');
+             return;
         }
-        // General chat about the card
-        await this._generalChat(message);
+        if (intent.type === 'generate_variations' && intent.target) {
+             await this.generateVariations(intent.target);
+             return;
+        }
+        
+        // Phase switch is handled by popup.js via callbacks, but if we get it here we can just chat
+        await this._generalChat(this.lastIntent?.originalMessage || 'continue');
     }
 
     // ── Single field generation ─────────────────────────────────────────────
@@ -412,6 +420,7 @@ If you have ONE critical question that would significantly change output, ask it
                 cardFields: this.cardFields,
                 skillOptions: {
                     phase: 'generation',
+                    task: 'general_chat',
                     cardType: this.session?.ideaMemory?.cardType || 'single',
                     format: this.session?.ideaMemory?.format || 'prose',
                 },

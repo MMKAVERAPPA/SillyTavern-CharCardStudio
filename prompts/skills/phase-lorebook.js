@@ -16,16 +16,15 @@ Brainstorm all lorebook entries needed for this character card. Propose a comple
 📜 History/Lore — Past events, backstory details, legends
 🎯 Tracker/State — Constant entries tracking mutable states
 
-For each entry propose:
-- Entry title
-- 1-2 sentence description of what it will contain
-- Category tag
-- Activation strategy: Constant (always present) or Triggered (keyword-activated)
-- Estimated token count (aim for 50-150 per entry)
+For each entry, use EXACTLY this one-line format (required for system parsing):
+- [Entry Title] | [Category emoji + name] | [Constant or Triggered] | ~[N]t | [one-line description]
+
+Example:
+- The Null Tower | 🌍 World/Setting | Constant | ~90t | The tower's shifting nature, floors that rearrange, broadcast function
+- Evangeline | 👤 Character/NPC | Triggered | ~70t | Recurring caller who knows too much about the host
 
 After listing, ask:
 - Any entries to add, remove, or rename?
-- Embedded in card (character_book) or external standalone lorebook?
 - How many to generate at a time? (1, 2, or up to 5)`;
 
 export const SKILL_LOREBOOK_GENERATION = `## Lorebook Entry Generation — Full SillyTavern World Info Spec

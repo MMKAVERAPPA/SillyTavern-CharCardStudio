@@ -15,7 +15,8 @@ import { statsManager } from '../core/stats.js';
 import { ideationPhase } from '../phases/ideation.js';
 import { generationPhase } from '../phases/generation.js';
 import { lorebookPhase } from '../phases/lorebook-phase.js';
-import { detectPhaseSwitch } from '../core/parser.js';
+import { intentEngine } from '../core/intent-engine.js';
+import { suggestionEngine } from '../core/suggestion-engine.js';
 import { toastManager } from './toast.js';
 import { haptic } from '../core/haptic.js';
 
@@ -341,6 +342,7 @@ export class StudioPopup {
         lorebookPanel.onChooseLorebook = () => lorebookPhase._promptInitialBookSelection();
 
         ideaPanel.init('ccs-idea-panel-container');
+        ideaPanel.onResolvePillar = (name) => ideationPhase._manualResolvePillar(name);
         this._renderSnippetBar();
 
         // Resume banner
@@ -394,7 +396,9 @@ export class StudioPopup {
             lorebookPanel.render(
                 loreLog.acceptedEntries || [],
                 loreLog.pendingEntries || [],
-                loreLog.targetBook || ''
+                loreLog.targetBook || '',
+                this.session.ideaMemory?.loreEntryPlan || [],
+                loreLog.recursionMap || []
             );
         }
 
@@ -483,7 +487,9 @@ export class StudioPopup {
                             lorebookPanel.render(
                                 this.session.lorebookLog.acceptedEntries || [],
                                 lorebookPhase.pendingEntries,
-                                this.session.lorebookLog.targetBook || ''
+                                this.session.lorebookLog.targetBook || '',
+                                this.session.ideaMemory?.loreEntryPlan || [],
+                                this.session.lorebookLog.recursionMap || []
                             );
                             this._switchWorkspaceTab(TAB.LOREBOOK);
                         },
@@ -493,6 +499,14 @@ export class StudioPopup {
                 break;
         }
         this._updateChipBar();
+    }
+
+    _updateChipBar() {
+        const suggestions = suggestionEngine.getSuggestions(this.session, this.cardFields, this.currentPhase);
+        chatPanel.setSuggestions(suggestions, (action) => {
+            chatPanel.setInputEnabled(false);
+            chatPanel._handleSend(action);
+        });
     }
 
     async _handleUserMessage(message, editIdx) {
@@ -522,7 +536,9 @@ export class StudioPopup {
 
         // FIX: Check for phase switch FIRST — don't add duplicate user message
         // (chatPanel._handleSend already added the user message to the DOM)
-        const switchTo = detectPhaseSwitch(message);
+        const intent = intentEngine.detect(message, this.session, this.currentPhase);
+        const switchTo = intent.type === 'phase_switch' ? intent.target : null;
+        
         if (switchTo === 'lorebook') {
             // User message already rendered by _handleSend, just route
             this._routeToPhase(PHASE.LOREBOOK);
@@ -543,6 +559,7 @@ export class StudioPopup {
             case PHASE.LOREBOOK: await lorebookPhase.handleMessage(message); break;
         }
         memoryManager.saveSession(this.characterId, this.session);
+        this._updateChipBar();
     }
 
     // ── Header events — this.$() works before DOM insertion ───────────────────
@@ -697,31 +714,77 @@ export class StudioPopup {
     }
 
     _openRawContextInspector() {
-        if (!this.session.lastPayload) {
+        if (!this.session?.lastPayload) {
             toastManager.show('No raw context available yet. Generate a message first.', 'warn');
             return;
         }
         
         const payload = this.session.lastPayload;
         let content = '';
+
+        // Calculate rough token estimates (1 token ~ 4 chars)
+        const sysTok = Math.round((payload.system?.length || 0) / 4);
+        const msgTok = Math.round((payload.messages?.length || 0) / 4);
+        const totalTok = sysTok + msgTok;
+
+        content += `
+            <div class="ccs-inspector-stats" style="display:flex; gap:16px; margin-bottom:12px; background:var(--ccs-surface2); padding:10px; border-radius:8px; border:1px solid var(--ccs-border);">
+                <div style="flex:1;">
+                    <div style="font-size:0.75rem; color:var(--ccs-text3); text-transform:uppercase;">Total Payload</div>
+                    <div style="font-size:1.2rem; font-weight:bold; color:var(--ccs-accent);">${totalTok.toLocaleString()} <span style="font-size:0.8rem; font-weight:normal; color:var(--ccs-text2);">tokens</span></div>
+                </div>
+                <div style="flex:1;">
+                    <div style="font-size:0.75rem; color:var(--ccs-text3); text-transform:uppercase;">System Prompt</div>
+                    <div style="font-size:1rem; font-weight:bold;">${sysTok.toLocaleString()} <span style="font-size:0.8rem; font-weight:normal; color:var(--ccs-text2);">tokens</span></div>
+                </div>
+                <div style="flex:1;">
+                    <div style="font-size:0.75rem; color:var(--ccs-text3); text-transform:uppercase;">Chat History</div>
+                    <div style="font-size:1rem; font-weight:bold;">${msgTok.toLocaleString()} <span style="font-size:0.8rem; font-weight:normal; color:var(--ccs-text2);">tokens</span></div>
+                </div>
+            </div>
+        `;
+
         if (payload.system) {
-            content += `<div class="ccs-inspector-section" style="margin-bottom:8px;"><strong>System Prompt:</strong><pre style="background:var(--ccs-surface3); padding:8px; border-radius:4px; font-size:0.75rem; white-space:pre-wrap; word-wrap:break-word;">${this._esc(payload.system)}</pre></div>`;
+            content += `<div class="ccs-inspector-section" style="margin-bottom:12px;"><strong>System Prompt:</strong><pre style="background:var(--ccs-surface3); padding:8px; border-radius:4px; font-size:0.75rem; white-space:pre-wrap; word-wrap:break-word; border:1px solid var(--ccs-border2); max-height: 250px; overflow-y: auto;">${this._esc(payload.system)}</pre></div>`;
         }
-        if (payload.messages) {
-            content += `<div class="ccs-inspector-section" style="margin-bottom:8px;"><strong>Messages:</strong><pre style="background:var(--ccs-surface3); padding:8px; border-radius:4px; font-size:0.75rem; white-space:pre-wrap; word-wrap:break-word;">${this._esc(JSON.stringify(payload.messages, null, 2))}</pre></div>`;
+        
+        // Show actual history with pruned messages highlighted
+        if (this.session.conversationHistory) {
+            let historyHtml = '<div style="display:flex; flex-direction:column; gap:4px;">';
+            for (const msg of this.session.conversationHistory) {
+                const isPruned = msg._pruned;
+                const roleColor = msg.role === 'user' ? 'var(--ccs-accent)' : 'var(--ccs-green)';
+                const bg = isPruned ? 'rgba(0,0,0,0.2)' : 'var(--ccs-surface3)';
+                const border = isPruned ? '1px dashed var(--ccs-border2)' : '1px solid var(--ccs-border2)';
+                const opacity = isPruned ? '0.6' : '1';
+                const label = isPruned ? `<span style="float:right; font-size:0.65rem; background:rgba(255,255,255,0.1); padding:2px 6px; border-radius:4px;">PRUNED</span>` : '';
+                
+                historyHtml += `
+                    <div style="background:${bg}; border:${border}; opacity:${opacity}; padding:6px; border-radius:4px; font-size:0.75rem;">
+                        <div style="color:${roleColor}; font-weight:bold; margin-bottom:2px;">${msg.role.toUpperCase()} ${label}</div>
+                        <div style="white-space:pre-wrap; word-wrap:break-word;">${this._esc(msg.content)}</div>
+                    </div>
+                `;
+            }
+            historyHtml += '</div>';
+            content += `<div class="ccs-inspector-section" style="margin-bottom:12px;"><strong>Conversation History (${this.session.conversationHistory.length} msgs):</strong><div style="background:var(--ccs-surface2); padding:8px; border-radius:4px; border:1px solid var(--ccs-border2); max-height: 300px; overflow-y: auto;">${historyHtml}</div></div>`;
+        } else if (payload.messages) {
+            content += `<div class="ccs-inspector-section" style="margin-bottom:12px;"><strong>Messages Payload:</strong><pre style="background:var(--ccs-surface3); padding:8px; border-radius:4px; font-size:0.75rem; white-space:pre-wrap; word-wrap:break-word; border:1px solid var(--ccs-border2); max-height: 250px; overflow-y: auto;">${this._esc(JSON.stringify(payload.messages, null, 2))}</pre></div>`;
         }
+
         if (payload.generationOptions) {
-            content += `<div class="ccs-inspector-section"><strong>Options:</strong><pre style="background:var(--ccs-surface3); padding:8px; border-radius:4px; font-size:0.75rem; white-space:pre-wrap; word-wrap:break-word;">${this._esc(JSON.stringify(payload.generationOptions, null, 2))}</pre></div>`;
+            content += `<div class="ccs-inspector-section"><strong>Options:</strong><pre style="background:var(--ccs-surface3); padding:8px; border-radius:4px; font-size:0.75rem; white-space:pre-wrap; word-wrap:break-word; border:1px solid var(--ccs-border2);">${this._esc(JSON.stringify(payload.generationOptions, null, 2))}</pre></div>`;
         }
 
         const modal = document.createElement('div');
         modal.className = 'ccs-shortcut-help'; // reuse the modal styling
+        modal.style.zIndex = '99999';
         modal.innerHTML = `
             <div class="ccs-shortcut-header">
                 <div class="ccs-shortcut-title">🔬 Raw Context Inspector</div>
                 <button class="ccs-shortcut-close">✕</button>
             </div>
-            <div class="ccs-shortcut-body" style="text-align:left; max-height: 60vh; overflow-y: auto;">
+            <div class="ccs-shortcut-body" style="text-align:left; max-height: 75vh; overflow-y: auto;">
                 ${content}
             </div>
         `;

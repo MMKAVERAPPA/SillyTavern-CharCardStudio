@@ -6,6 +6,24 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [3.5.0] - 2026-05-14
+
+### Added
+- **Semantic Intent Engine** — Completely replaced legacy regex parsing with a scored semantic intent engine (`core/intent-engine.js`) to accurately dispatch user actions.
+- **Zero-Cost Suggestion Engine** — Added contextual action chips above the chat input to guide users through phases (e.g. "Suggest an idea", "Generate description", "Test drive character").
+- **Phase-Aware Chat Skills** — General chatting in any phase now uses specific conversational prompts without erroneously triggering generation tasks.
+- **Token Budget Inspector** — The Raw Context Inspector now displays estimated token counts for the System Prompt vs Chat History, and visually highlights pruned messages.
+
+### Changed
+- **Context Optimization** — Long generation responses are now "pruned" into lightweight stubs (`[FIELD_ACCEPTED]`) within the conversation history, dramatically reducing context bloat and extending session length.
+- **Character Seed Injection** — Ideation memory is now compacted into a dense <150 token character seed and injected during generation, bypassing the need to feed raw ideation history into the context window.
+- **Avoidance Directives & Voice Anchors** — Generation prompts now explicitly ban common AI traps (e.g., weather openers, "you notice" phrases) and forcefully anchor the `voiceProfile` into generation.
+
+### Fixed
+- Fixed the "brief accumulation" memory leak where `compressOldMessages` was endlessly stacking session briefs instead of merging them.
+
+---
+
 ## [3.3.0] - 2026-05-13
 
 ### Added

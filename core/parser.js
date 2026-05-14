@@ -2,6 +2,7 @@
 // All text parsing: code blocks, fields, lorebook entries, concept ratings
 
 import { CARD_FIELDS } from './card.js';
+import { intentEngine } from './intent-engine.js';
 
 export function extractCodeBlock(text) {
     if (!text) return '';
@@ -206,11 +207,14 @@ export function parseConceptRating(text) {
     const overallMatch = text.match(/Overall:\s*(.+?)(?:\n|$)/);
     if (overallMatch) result.overall = overallMatch[1].trim();
 
-    // BUG-7 FIX: Accept □, •, -, *, or numbered bullets for pillars
-    const pillarMatches = [...text.matchAll(/^[\s]*[□•\-\*]\s+(.+)/gm)];
+    // BUG-7 FIX & v3.4 FIX: Anchor pillar parsing to the specific section to avoid catching table rows
+    const pillarsSectionMatch = text.match(/structural pillars[^:]*:?([\s\S]*?)(?:\n\n(?:Then|Next|After|---)|$)/i);
+    const pillarText = pillarsSectionMatch ? pillarsSectionMatch[1] : text;
+
+    const pillarMatches = [...pillarText.matchAll(/^[\s]*[□•\-\*]\s+(.+)/gm)];
     // Also accept numbered "1. ..." style if □ style not found
     const numberedPillars = pillarMatches.length === 0
-        ? [...text.matchAll(/^\s*\d+\.\s+(.+)/gm)]
+        ? [...pillarText.matchAll(/^\s*\d+\.\s+(.+)/gm)]
         : [];
     const allPillarLines = [...pillarMatches, ...numberedPillars];
     result.pillars = allPillarLines
@@ -218,6 +222,35 @@ export function parseConceptRating(text) {
         .filter(p => p.name.length > 3 && p.name.length < 200);
 
     return result;
+}
+
+export function parseLorePlan(text) {
+    if (!text) return [];
+    const entries = [];
+    // Match lines like: - Entry Title | 🌍 World/Setting | Constant | ~80t | description
+    const linePattern = /^-\s+(.+?)\s*\|\s*(.+?)\s*\|\s*(Constant|Triggered)\s*\|\s*~?(\d+)t\s*\|\s*(.+)$/gim;
+    let match;
+    while ((match = linePattern.exec(text)) !== null) {
+        entries.push({
+            title: match[1].trim(),
+            category: match[2].trim(),
+            activation: match[3].trim(),
+            estimatedTokens: parseInt(match[4]),
+            description: match[5].trim(),
+        });
+    }
+    // Fallback: if no structured entries found, try to extract just titles from bullets
+    if (!entries.length) {
+        const bulletPattern = /^[-•*]\s+(.{5,80})$/gm;
+        let m;
+        while ((m = bulletPattern.exec(text)) !== null) {
+            const line = m[1].trim();
+            if (!line.includes('|') && !line.toLowerCase().startsWith('each') && !line.toLowerCase().startsWith('for')) {
+                entries.push({ title: line, category: 'General', activation: 'Triggered', estimatedTokens: 80, description: '' });
+            }
+        }
+    }
+    return entries;
 }
 
 
@@ -237,39 +270,29 @@ export function parseCardReview(text) {
 }
 
 export function detectFieldFromMessage(text) {
-    const lower = text.toLowerCase();
-    const fieldKeywords = {
-        description: ['description','desc','who she is','who he is','appearance','backstory','background'],
-        personality:  ['personality','traits','character traits'],
-        scenario:     ['scenario','setting','scene context','situation','opening context'],
-        first_mes:    ['first message','opening message','first mes','intro message','first greeting','opening scene'],
-        mes_example:  ['example message','example dialogue','mes example','dialogue example','sample dialogue'],
-        system_prompt:['system prompt','ai instructions','behavior instructions','format rules'],
-        creator_notes:['creator notes','card description','card page','chub description','download page'],
-        alternate_greetings: ['alternate greeting','alt greeting','new greeting','add greeting','another greeting'],
-        tags:         ['tags','tag the card','suggest tags','generate tags','card tags'],
-        name:         ['character name','what should we name','name her','name him'],
-    };
-    for (const [field, keywords] of Object.entries(fieldKeywords)) {
-        if (keywords.some(k => lower.includes(k))) return field;
+    const intent = intentEngine.detect(text);
+    if ((intent.type === 'generate_field' || intent.type === 'rewrite_field') && intent.target) {
+        return intent.target;
     }
     return null;
 }
 
 export function isBatchGreetingOp(text) {
-    const lower = text.toLowerCase();
-    return ['all greetings','all alternate','every greeting','all the greeting','each greeting'].some(s => lower.includes(s));
+    const intent = intentEngine.detect(text);
+    return intent.type === 'batch_greetings';
 }
 
 export function isGenerateAllRequest(text) {
-    const lower = text.toLowerCase();
-    return ['generate all','generate everything','fill all fields','do all fields','full card','write everything'].some(s => lower.includes(s));
+    const intent = intentEngine.detect(text);
+    return intent.type === 'generate_all';
 }
 
 export function detectPhaseSwitch(text) {
+    const intent = intentEngine.detect(text);
+    if (intent.type === 'phase_switch' && intent.target) {
+        return intent.target;
+    }
     const lower = text.toLowerCase();
-    if (['work on lorebook','lorebook now','start lorebook','build lorebook','add lore entries'].some(s => lower.includes(s))) return 'lorebook';
-    if (['go back to building','back to fields','back to card','work on card fields'].some(s => lower.includes(s))) return 'building';
     if (['start building','start writing','let\'s build','begin writing','ready to write','fill the fields','approve'].some(s => lower.includes(s))) return 'build_start';
     return null;
 }

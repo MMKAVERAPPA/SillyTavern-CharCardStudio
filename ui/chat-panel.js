@@ -243,6 +243,31 @@ export class ChatPanel {
         this._scrollToBottom();
     }
 
+    setSuggestions(suggestions, onClick) {
+        const bar = this.container?.closest('.ccs-chat-input-area')?.querySelector('#ccs-chip-bar');
+        if (!bar) return;
+        
+        if (!suggestions || !suggestions.length) {
+            bar.style.display = 'none';
+            return;
+        }
+
+        bar.innerHTML = '';
+        suggestions.forEach(s => {
+            const btn = document.createElement('button');
+            btn.className = `ccs-suggestion-chip ccs-chip-${s.type || 'secondary'}`;
+            btn.textContent = s.label;
+            btn.title = s.action;
+            btn.addEventListener('click', () => {
+                bar.style.display = 'none';
+                onClick(s.action);
+            });
+            bar.appendChild(btn);
+        });
+        
+        bar.style.display = 'flex';
+    }
+
     // FIX: Cancel/remove streaming element when generation is aborted or errors out
     cancelStreaming() {
         if (this.streamingEl) {
@@ -487,12 +512,44 @@ export class ChatPanel {
         // Step 3: Escape HTML in remaining text
         processed = processed.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
-        // Step 4: Apply inline formatting (bold, italic, headings)
-        processed = processed
-            .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
-            .replace(/\*(.+?)\*/g, '<em>$1</em>')
-            .replace(/^#{1,3} (.+)$/gm, (_, h) => `<div class="ccs-md-heading">${h}</div>`)
-            .replace(/\n/g, '<br>');
+        // Step 4: Apply block-level and inline formatting
+        // Blockquotes
+        processed = processed.replace(/^>\s*(.+)$/gm, '<blockquote class="ccs-md-blockquote">$1</blockquote>');
+        // Horizontal Rules
+        processed = processed.replace(/^---+$/gm, '<hr class="ccs-md-hr">');
+        
+        // Tables
+        processed = processed.replace(/((?:^\|.+?\|(?:\n|$))+)/gm, (match) => {
+            const rows = match.trim().split('\n');
+            let html = '<table class="ccs-md-table">';
+            rows.forEach((row, i) => {
+                if (row.includes('---')) return;
+                const isHeader = i === 0;
+                const cells = row.split('|').slice(1, -1).map(c => c.trim());
+                html += '<tr>' + cells.map(c => isHeader ? `<th>${c}</th>` : `<td>${c}</td>`).join('') + '</tr>';
+            });
+            html += '</table>';
+            return html;
+        });
+
+        // Lists (wrap consecutive li's in ul/ol)
+        processed = processed.replace(/((?:^[-*]\s+.+(?:\n|$))+)/gm, (match) => {
+            return '<ul class="ccs-md-ul">' + match.trim().split('\n').map(l => `<li>${l.replace(/^[-*]\s+/, '')}</li>`).join('') + '</ul>\n';
+        });
+        processed = processed.replace(/((?:^\d+\.\s+.+(?:\n|$))+)/gm, (match) => {
+            return '<ol class="ccs-md-ol">' + match.trim().split('\n').map(l => `<li>${l.replace(/^\d+\.\s+/, '')}</li>`).join('') + '</ol>\n';
+        });
+
+        // Headings
+        processed = processed.replace(/^#{1,3}\s+(.+)$/gm, (_, h) => `<div class="ccs-md-heading">${h}</div>`);
+        
+        // Bold/Italic
+        processed = processed.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+                             .replace(/\*(.+?)\*/g, '<em>$1</em>');
+
+        // Newlines (skip newlines immediately following block elements)
+        processed = processed.replace(/(<\/(?:table|ul|ol|div|blockquote|hr)>)\n/g, '$1')
+                             .replace(/\n/g, '<br>');
 
         // Step 5: Restore code blocks and inline code
         for (let i = 0; i < codeBlocks.length; i++) {

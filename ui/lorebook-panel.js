@@ -20,10 +20,12 @@ export class LorebookPanel {
         this.onDiscardEntry = callbacks.onDiscardEntry;
     }
 
-    render(acceptedEntries = [], pendingEntries = [], targetBook = '') {
+    render(acceptedEntries = [], pendingEntries = [], targetBook = '', loreEntryPlan = [], recursionMap = []) {
         if (!this.container) return;
-        // Persist targetBook so search/filter re-renders don't lose it
+        // Persist params so search/filter re-renders don't lose them
         if (targetBook) this._targetBook = targetBook;
+        this._lastLoreEntryPlan = loreEntryPlan;
+        this._lastRecursionMap = recursionMap;
 
         const categories = [...new Set([
             ...acceptedEntries.map(e => e.category || 'General'),
@@ -48,12 +50,54 @@ export class LorebookPanel {
                     <span class="ccs-lore-stat">~${Math.round(acceptedEntries.reduce((a,e) => a + (e.content?.length || 0), 0) / 4)}t total</span>
                 </div>
 
+                ${loreEntryPlan.length ? `
+                    <div class="ccs-lore-section">
+                        <div class="ccs-lore-section-header">
+                            <span>📋 Lore Plan (${loreEntryPlan.length} planned)</span>
+                            <button class="ccs-lore-toggle-btn">▼</button>
+                        </div>
+                        <div class="ccs-lore-section-body" style="display:flex; flex-direction:column; gap:6px;">
+                            ${loreEntryPlan.map(e => {
+                                const exists = acceptedEntries.some(a => a.comment === e.title);
+                                return `
+                                    <div style="background:var(--ccs-surface2); border:1px solid var(--ccs-border); padding:6px 10px; border-radius:var(--ccs-radius-sm); font-size:0.8rem; opacity:${exists ? '0.5' : '1'};">
+                                        <div style="font-weight:600; display:flex; justify-content:space-between;">
+                                            <span>${this._escapeHtml(e.category)} | ${this._escapeHtml(e.title)} ${exists ? '(Generated)' : ''}</span>
+                                            <span class="ccs-badge ccs-tok-badge">~${e.estimatedTokens}t</span>
+                                        </div>
+                                    </div>
+                                `;
+                            }).join('')}
+                        </div>
+                    </div>
+                ` : ''}
+
+                ${recursionMap.length ? `
+                    <div class="ccs-lore-section">
+                        <div class="ccs-lore-section-header">
+                            <span>🔗 Recursion Links (${recursionMap.length})</span>
+                            <button class="ccs-lore-toggle-btn">▼</button>
+                        </div>
+                        <div class="ccs-lore-section-body" style="display:flex; flex-direction:column; gap:4px; font-size:0.8rem;">
+                            ${recursionMap.map(link => `
+                                <div style="background:var(--ccs-surface2); padding:4px 8px; border-radius:4px; border-left:2px solid var(--ccs-accent);">
+                                    <strong>${this._escapeHtml(link.from)}</strong> → triggers <strong>${this._escapeHtml(link.to)}</strong> (via "${this._escapeHtml(link.trigger)}")
+                                </div>
+                            `).join('')}
+                        </div>
+                    </div>
+                ` : ''}
+
                 ${pendingEntries.length > 0 ? this._renderSection('📋 Staged (not yet inserted)', pendingEntries, 'pending') : ''}
                 ${this._renderAcceptedByCategory(acceptedEntries)}
             </div>
         `;
 
         this._bindControls(acceptedEntries, pendingEntries);
+    }
+
+    _escapeHtml(str) {
+        return String(str || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
     }
 
     // ── Target banner ───────────────────────────────────────────────────────
@@ -199,11 +243,11 @@ export class LorebookPanel {
 
         searchEl?.addEventListener('input', () => {
             this.searchQuery = searchEl.value;
-            this.render(acceptedEntries, pendingEntries, this._targetBook);
+            this.render(acceptedEntries, pendingEntries, this._targetBook, this._lastLoreEntryPlan, this._lastRecursionMap);
         });
         filterEl?.addEventListener('change', () => {
             this.filterCategory = filterEl.value;
-            this.render(acceptedEntries, pendingEntries, this._targetBook);
+            this.render(acceptedEntries, pendingEntries, this._targetBook, this._lastLoreEntryPlan, this._lastRecursionMap);
         });
 
         // Section toggles
@@ -229,7 +273,7 @@ export class LorebookPanel {
                 e.stopPropagation();
                 const tempId = parseFloat(btn.dataset.tempid);
                 this.onDiscardEntry?.(tempId);
-                this.render(acceptedEntries, pendingEntries.filter(p => p._tempId !== tempId));
+                this.render(acceptedEntries, pendingEntries.filter(p => p._tempId !== tempId), this._targetBook, this._lastLoreEntryPlan, this._lastRecursionMap);
             });
         });
         // Banner buttons (choose / change lorebook)

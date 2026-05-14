@@ -6,7 +6,7 @@ import { chatEngine } from '../core/chat.js';
 import { memoryManager } from '../core/memory.js';
 import { contextBuilder } from '../core/context-builder.js';
 import { skillRouter } from '../core/skill-router.js';
-import { parseConceptRating } from '../core/parser.js';
+import { parseConceptRating, parseLorePlan } from '../core/parser.js';
 import { auditEngine } from '../core/audit.js';
 import { chatPanel } from '../ui/chat-panel.js';
 import { ideaPanel } from '../ui/idea-panel.js';
@@ -17,6 +17,8 @@ export class IdeationPhase {
         this.session = null;
         this.cardFields = null;
         this.onComplete = null;
+        this.onManualResolve = null;
+        this.lastIntent = null;
     }
 
     start(session, cardFields, onComplete) {
@@ -31,10 +33,21 @@ export class IdeationPhase {
     }
 
     async handleMessage(message) {
+        const isFollowUp = /^(yes|ok|do it|that one|sure|go ahead|confirm|perfect)$/i.test(message.trim());
+        if (isFollowUp && this.lastIntent && (Date.now() - this.lastIntent.timestamp < 120_000)) {
+            await this._executeIntent(this.lastIntent);
+            return;
+        }
+
         const idea = this.session.ideaMemory;
+        
+        // Basic intent mapping for ideation since IntentEngine mostly targets generation/phases
+        let mappedIntent = { type: 'chat', originalMessage: message, timestamp: Date.now() };
 
         // Route to the right handler based on ideation state
         if (message.toLowerCase().includes('suggest') || message.toLowerCase().includes('ideas')) {
+            mappedIntent.type = 'suggest';
+            this.lastIntent = mappedIntent;
             await this._generateIdeas(message);
             return;
         }
@@ -70,10 +83,20 @@ export class IdeationPhase {
             return;
         }
         if (this._allPillarsResolved() && idea.voiceProfile && !idea.proposedProfileGenerated) {
+            mappedIntent.type = 'proposed_profile';
+            this.lastIntent = mappedIntent;
             await this._offerProposedProfile(message);
             return;
         }
+        
+        this.lastIntent = mappedIntent;
         await this._continueIdeation(message);
+    }
+
+    async _executeIntent(intent) {
+        if (intent.type === 'suggest') await this._generateIdeas(intent.originalMessage);
+        else if (intent.type === 'proposed_profile') await this._offerProposedProfile(intent.originalMessage);
+        else await this._continueIdeation(intent.originalMessage || 'continue');
     }
 
     // ── Build skill-based system prompt ──────────────────────────────────────
@@ -248,7 +271,7 @@ ${pillarContext || 'No pillars established yet.'}`;
                 extraInstruction,
                 skillOptions: {
                     phase: 'ideation',
-                    task: 'pillar_discussion',
+                    task: 'general_chat',
                     cardType: idea.cardType || 'single',
                     format: idea.format || 'prose',
                 },
@@ -359,6 +382,7 @@ ${pillarContext || 'No pillars established yet.'}`;
             chatPanel.finalizeStream(response);
             memoryManager.addMessage(this.session, 'assistant', response);
             this._extractPsychProfile(response, idea);
+            this._captureLorePlan(response);
             idea.proposedProfileGenerated = true;
             ideaPanel.render(idea);
         } catch (err) {
@@ -378,8 +402,12 @@ ${pillarContext || 'No pillars established yet.'}`;
 
         for (const pillar of pending) {
             try {
+                const recentHistory = (this.session.conversationHistory || [])
+                    .slice(-6)
+                    .map(m => `${m.role}: ${m.content.substring(0, 300)}`)
+                    .join('\n');
                 // detectPillarResolution returns a string summary if resolved, or null if not
-                const summary = await auditEngine.detectPillarResolution(userMessage, pillar.name, '');
+                const summary = await auditEngine.detectPillarResolution(userMessage, pillar.name, recentHistory);
                 if (summary) {
                     pillar.resolved = true;
                     pillar.answer = summary;
@@ -447,6 +475,37 @@ ${pillarContext || 'No pillars established yet.'}`;
 
         idea.psychProfile = psych;
     }
+
+    _captureLorePlan(response) {
+        const plan = parseLorePlan(response);
+        if (plan && plan.length) {
+            this.session.ideaMemory.loreEntryPlan = plan;
+            memoryManager.saveSession(this.session.characterId, this.session);
+        }
+    }
+
+    async _manualResolvePillar(pillarName) {
+        const idea = this.session.ideaMemory;
+        const pillar = idea.pillars.find(p => p.name === pillarName && !p.resolved);
+        if (!pillar) return;
+
+        // Get last user message from history
+        const lastMsg = [...(this.session.conversationHistory || [])]
+            .reverse().find(m => m.role === 'user')?.content || '';
+            
+        const recentHistory = (this.session.conversationHistory || [])
+            .slice(-6).map(m => `${m.role}: ${m.content.substring(0, 300)}`).join('\n');
+            
+        const summary = await auditEngine.detectPillarResolution(lastMsg, pillarName, recentHistory);
+        if (summary) {
+            pillar.resolved = true;
+            pillar.answer = summary;
+            idea.keyDecisions.push({ decision: `${pillarName}: ${summary}`, timestamp: Date.now() });
+            memoryManager.saveSession(this.session.characterId, this.session);
+            ideaPanel.render(idea);
+        }
+    }
+
 
     // ── Helpers ──────────────────────────────────────────────────────────────
 

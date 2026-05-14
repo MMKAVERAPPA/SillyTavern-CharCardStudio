@@ -9,7 +9,7 @@ import { chatPanel } from '../ui/chat-panel.js';
 import { lorebookPanel } from '../ui/lorebook-panel.js';
 import { skillRouter } from '../core/skill-router.js';
 import { CCSApiError } from '../core/api.js';
-import { parseLorebookEntriesFromResponse } from '../core/parser.js';
+import { parseLorebookEntriesFromResponse, parseLorePlan } from '../core/parser.js';
 import { haptic } from '../core/haptic.js';
 
 export class LorebookPhase {
@@ -124,6 +124,10 @@ export class LorebookPhase {
             await this._organizeEntries();;
             return;
         }
+        if (/recursion|check links|entry links|cross.?ref/i.test(lower)) {
+            await this._showRecursionReport();
+            return;
+        }
 
         // General lorebook chat
         await this._generalChat(message);
@@ -151,6 +155,15 @@ export class LorebookPhase {
                 skillOptions: { phase: 'lorebook', task: 'brainstorm' },
                 onComplete: (response) => {
                     chatPanel.finalizeStream(response);
+                    const plan = parseLorePlan(response);
+                    if (plan && plan.length) {
+                        this.session.ideaMemory.loreEntryPlan = plan;
+                        memoryManager.saveSession(this.session.characterId, this.session);
+                        chatPanel.addSystemMessage(
+                            `📋 Lore plan saved: **${plan.length}** entries planned. Say "generate entries" to start building.`,
+                            'info'
+                        );
+                    }
                     this._parseEntryList(response);
                 },
                 onError: (err) => {
@@ -178,6 +191,16 @@ export class LorebookPhase {
 
         const taskPrompt = skillRouter.getLorebookPrompt('generate');
 
+        const lorePlan = this.session.ideaMemory.loreEntryPlan || [];
+        const lorePlanContext = lorePlan.length
+            ? `\n\n--- Planned Entry List ---\nGenerate entries from this plan. For each entry you generate, use the planned title, category, and description as your starting point:\n${lorePlan.map(e => `- ${e.title} | ${e.category} | ${e.activation} | ${e.description}`).join('\n')}`
+            : '';
+
+        const acceptedEntries = this.session.lorebookLog.acceptedEntries || [];
+        const existingEntriesContext = acceptedEntries.length
+            ? `\n\n--- Already Generated Entries ---\nDo NOT duplicate these. You may reference their keywords for recursion chains:\n${acceptedEntries.map(e => `- "${e.comment}" | Keys: ${(e.keys||[]).join(', ')} | ~${Math.round((e.content||'').length/4)}t`).join('\n')}`
+            : '';
+
         chatPanel.startStreaming();
         chatPanel.setInputEnabled(false);
 
@@ -186,7 +209,7 @@ export class LorebookPhase {
                 userMessage,
                 session: this.session,
                 cardFields: this.cardFields,
-                extraInstruction: `${taskPrompt}\n\n--- Card Summary ---\n${cardSummary}`,
+                extraInstruction: `${taskPrompt}${lorePlanContext}${existingEntriesContext}\n\n--- Card Summary ---\n${cardSummary}`,
                 skillOptions: { phase: 'lorebook', task: 'generate' },
                 onComplete: (response) => {
                     chatPanel.finalizeStream(response);
@@ -373,6 +396,9 @@ export class LorebookPhase {
                 loreLog.acceptedEntries = loreLog.acceptedEntries || [];
                 loreLog.acceptedEntries.push(entry);
                 loreLog.pendingEntries = this.pendingEntries;
+                
+                // Rebuild recursion map on insert
+                loreLog.recursionMap = this._buildRecursionMap() || [];
 
                 haptic.pulse(10);
                 chatPanel.addSystemMessage(`✅ Inserted: **${entry.comment || 'Untitled'}** → ${loreLog.targetBook}`, 'info');
@@ -409,6 +435,36 @@ export class LorebookPhase {
             ? err.userMessage
             : `❌ ${context}: ${err?.message || 'Unknown error'}`;
         chatPanel.addSystemMessage(userMessage, 'error');
+    }
+
+    _buildRecursionMap() {
+        const accepted = this.session.lorebookLog.acceptedEntries || [];
+        if (accepted.length < 2) return null;
+        
+        const links = [];
+        for (const entry of accepted) {
+            const content = (entry.content || '').toLowerCase();
+            for (const other of accepted) {
+                if (other === entry) continue;
+                const matchedKey = (other.keys || []).find(k => 
+                    k.length > 3 && content.includes(k.toLowerCase())
+                );
+                if (matchedKey) {
+                    links.push({ from: entry.comment, to: other.comment, trigger: matchedKey });
+                }
+            }
+        }
+        return links.length ? links : null;
+    }
+
+    async _showRecursionReport() {
+        const map = this._buildRecursionMap();
+        if (!map) {
+            chatPanel.addSystemMessage('No recursion links found (need 2+ accepted entries).', 'info');
+            return;
+        }
+        const report = map.map(l => `• "${l.from}" → triggers "${l.to}" via keyword "${l.trigger}"`).join('\n');
+        chatPanel.addSystemMessage(`🔗 **Recursion Links Found:**\n${report}`, 'info');
     }
 }
 

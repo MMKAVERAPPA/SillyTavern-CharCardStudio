@@ -2,6 +2,7 @@
 // Lorebook (World Info) CRUD with full metadata
 
 import { parseLorebookEntriesFromResponse } from './parser.js';
+import { getRequestHeaders } from '../../../../../script.js';
 
 export const WI_POSITION = { BEFORE_CHAR:0, AFTER_CHAR:1, BEFORE_EXAMPLES:2, AFTER_EXAMPLES:3, AN_TOP:4, AN_BOTTOM:5, AT_DEPTH:6, OUTLET:7 };
 export const WI_SELECTIVE_LOGIC = { AND_ANY:0, NOT_ANY:1, NOT_ALL:2, AND_ALL:3 };
@@ -15,7 +16,10 @@ export class WorldInfoManager {
 
     async getLorebookList() {
         try {
-            const r = await fetch('/api/worldinfo/list', { method: 'GET' });
+            const r = await fetch('/api/worldinfo/list', {
+                method: 'GET',
+                headers: getRequestHeaders(),
+            });
             if (!r.ok) throw new Error('Failed');
             const d = await r.json();
             return d.files || [];
@@ -29,7 +33,7 @@ export class WorldInfoManager {
         try {
             const r = await fetch('/api/worldinfo/get', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: Object.assign({ 'Content-Type': 'application/json' }, getRequestHeaders()),
                 body: JSON.stringify({ name }),
             });
             if (!r.ok) throw new Error('Failed');
@@ -44,7 +48,7 @@ export class WorldInfoManager {
     async saveLorebook(name, entries) {
         const r = await fetch('/api/worldinfo/save', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: Object.assign({ 'Content-Type': 'application/json' }, getRequestHeaders()),
             body: JSON.stringify({ name, entries }),
         });
         if (!r.ok) throw new Error(`Save failed: ${r.statusText}`);
@@ -98,7 +102,7 @@ export class WorldInfoManager {
         };
         const r = await fetch('/api/characters/save', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: Object.assign({ 'Content-Type': 'application/json' }, getRequestHeaders()),
             body: JSON.stringify(payload),
         });
         if (!r.ok) throw new Error('Failed to save embedded lorebook');

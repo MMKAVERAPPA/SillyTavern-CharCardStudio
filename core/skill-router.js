@@ -22,6 +22,7 @@ import {
     SKILL_COHERENCE_AUDIT, SKILL_SMART_SUGGESTIONS, SKILL_MES_EXAMPLE_AUDIT,
     SKILL_CHARACTER_SIMULATION, SKILL_CONFLICT_CHECK, SKILL_CARD_REVIEW,
 } from '../prompts/skills/phase-audit.js';
+import { IDEATION_CHAT_SKILL, BUILDING_CHAT_SKILL } from '../prompts/skills/chat-skills.js';
 
 // Field dependency graph: when generating field X, which other fields need FULL content (not truncated)
 const FIELD_DEPENDENCIES = {
@@ -100,7 +101,7 @@ export class SkillRouter {
                 this._addIdeationSkills(skills, task);
                 break;
             case 'generation':
-                this._addGenerationSkills(skills, field, nsfw);
+                this._addGenerationSkills(skills, field, nsfw, task);
                 break;
             case 'lorebook':
                 this._addLorebookSkills(skills, task);
@@ -202,10 +203,17 @@ export class SkillRouter {
         // Voice calibration skill is loaded when needed
         if (task === 'voice_calibration') {
             skills.push(SKILL_VOICE_CALIBRATION);
+        } else if (task === 'general_chat') {
+            skills.push(IDEATION_CHAT_SKILL);
         }
     }
 
-    _addGenerationSkills(skills, field, nsfw) {
+    _addGenerationSkills(skills, field, nsfw, task) {
+        if (task === 'general_chat') {
+            skills.push(BUILDING_CHAT_SKILL);
+            return; // Skip COT and field instructions for general chat
+        }
+
         skills.push(SKILL_GENERATION_COT);
 
         // Field-specific deep expertise

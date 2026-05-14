@@ -35,6 +35,7 @@ export class ChatEngine {
             cardFields,
             baseSystemPrompt,
             extraInstruction,
+            phase: skillOptions?.phase || null,
         });
 
         this.isGenerating = true;
@@ -121,6 +122,7 @@ export class ChatEngine {
             cardFields,
             baseSystemPrompt: '',      // system already built above
             extraInstruction: userPrompt,
+            phase: skillOptions?.phase || null,
         });
 
         this.abortController = new AbortController();
@@ -131,7 +133,15 @@ export class ChatEngine {
                 historyPrompt || userPrompt,
                 this.abortController.signal
             );
-            return result || '';
+            const fullResponse = result || '';
+            
+            if (session && memoryManager.shouldCompress(session)) {
+                this._compressSession(session).catch(err => 
+                    console.warn('[CCS] Background compression failed in context gen:', err)
+                );
+            }
+            
+            return fullResponse;
         } catch (err) {
             const classified = (err instanceof CCSApiError) ? err : classifyApiError(err, 'Contextual generation');
             if (classified.errorType === 'aborted') return null;

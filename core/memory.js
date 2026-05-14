@@ -140,6 +140,7 @@ export class MemoryManager {
                 proposedProfileGenerated: false,
                 distributionStrategy: {},
                 platformTarget: this.settings.globalSettings.platformTarget,
+                loreEntryPlan: [],        // [{ title, description, category, activation, estimatedTokens }]
                 // v3.0 additions
                 cardType: 'single',       // 'single' | 'multi' | 'scenario'
                 format: 'prose',          // 'prose' | 'plist_alichat'
@@ -195,13 +196,21 @@ export class MemoryManager {
 
     addMessage(session, role, content) {
         session.conversationHistory.push({ role, content, timestamp: Date.now() });
+        return this.shouldCompress(session);
+    }
+
+    shouldCompress(session) {
         const threshold = this.settings.globalSettings.compressionThreshold || DEFAULT_COMPRESSION_THRESHOLD;
         return session.conversationHistory.length >= threshold;
     }
 
     compressOldMessages(session, brief) {
         const toCompress = session.conversationHistory.slice(0, -5);
-        session.sessionBriefs.push({ brief, messageCount: toCompress.length, timestamp: Date.now() });
+        // Merge existing briefs into one entry
+        const mergedBrief = session.sessionBriefs.length > 0
+            ? '[Merged history] ' + session.sessionBriefs.map(b => b.brief).join(' | ') + ' [Latest] ' + brief
+            : brief;
+        session.sessionBriefs = [{ brief: mergedBrief, messageCount: toCompress.length, timestamp: Date.now() }];
         session.conversationHistory = session.conversationHistory.slice(-5);
     }
 
@@ -211,6 +220,18 @@ export class MemoryManager {
             session.conversationHistory[index].editedAt = Date.now();
             // Truncate everything after the edited message so history stays coherent
             session.conversationHistory = session.conversationHistory.slice(0, index + 1);
+        }
+    }
+
+    pruneGenerationResponse(session, fieldName) {
+        const history = session.conversationHistory;
+        // Find the last assistant message that generated this field (has a code block)
+        for (let i = history.length - 1; i >= 0; i--) {
+            if (history[i].role === 'assistant' && history[i].content.includes('```')) {
+                history[i]._pruned = true;
+                history[i].content = `[Generated ${fieldName} — accepted. Content preserved in CARD_STATE.]`;
+                break;
+            }
         }
     }
 
@@ -303,9 +324,12 @@ export class MemoryManager {
         return s;
     }
 
-    buildLorebookIndex(session) {
+    buildLorebookIndex(session, phase) {
         const entries = session.lorebookLog.acceptedEntries;
         if (!entries.length) return '';
+        if (phase !== 'lorebook') {
+            return `[LOREBOOK: ${entries.length} entries accepted — use "check lorebook" to see details]\n`;
+        }
         let index = `[LOREBOOK_INDEX — ${entries.length} entries]\n`;
         const byCat = {};
         for (const e of entries) {
@@ -360,6 +384,14 @@ export class MemoryManager {
             if (psych.theWound) s += `  The Wound: ${psych.theWound}\n`;
             if (psych.stressBehavior) s += `  Stress Behavior: ${psych.stressBehavior}\n`;
             if (psych.socialMask) s += `  Social Mask: ${psych.socialMask}\n`;
+        }
+        // v3.4: Lore plan summary
+        if (idea.loreEntryPlan && idea.loreEntryPlan.length) {
+            s += `\n[LORE_PLAN — ${idea.loreEntryPlan.length} entries planned]\n`;
+            for (const entry of idea.loreEntryPlan) {
+                s += `  - ${entry.category}: "${entry.title}" (${entry.activation}, ~${entry.estimatedTokens}t)\n`;
+            }
+            s += '[/LORE_PLAN]\n';
         }
         s += '[/IDEA_MEMORY]';
         return s;
