@@ -505,7 +505,7 @@ export class StudioPopup {
         const suggestions = suggestionEngine.getSuggestions(this.session, this.cardFields, this.currentPhase);
         chatPanel.setSuggestions(suggestions, (action) => {
             chatPanel.setInputEnabled(false);
-            chatPanel._handleSend(action);
+            this._handleUserMessage(action);
         });
     }
 
