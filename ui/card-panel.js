@@ -42,7 +42,17 @@ export class CardPanel {
         for (const field of BOARD_FIELDS) {
             const v = this.cardFields[field];
             const hasContent = Array.isArray(v) ? v.length > 0 : (typeof v === 'string' && v.trim().length > 0);
-            if (hasContent) this.fieldStatuses[field] = FIELD_STATUS.ACCEPTED;
+            const current = this.fieldStatuses[field];
+            
+            if (hasContent) {
+                if (current !== FIELD_STATUS.GENERATED && current !== FIELD_STATUS.ACCEPTED) {
+                    this.fieldStatuses[field] = FIELD_STATUS.ACCEPTED;
+                }
+            } else {
+                if (current !== FIELD_STATUS.IN_PROGRESS) {
+                    this.fieldStatuses[field] = FIELD_STATUS.EMPTY;
+                }
+            }
         }
     }
 

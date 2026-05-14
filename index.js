@@ -77,7 +77,7 @@ async function init() {
     // Register ST event listeners
     registerSTEvents();
 
-    console.log(`[${EXT_NAME}] v3.2.0 loaded ✓`);
+    console.log(`[${EXT_NAME}] v3.5.0 loaded ✓`);
 }
 
 // ── Wand-menu entry (the ONLY entry point — works on desktop and mobile) ──────

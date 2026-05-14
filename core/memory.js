@@ -132,7 +132,7 @@ export class MemoryManager {
             conversationHistory: [],
             sessionBriefs: [],
             ideaMemory: {
-                conceptName: '',
+                conceptName: (char?.description || char?.first_mes) ? `${char.name} - Existing Card` : '',
                 conceptRating: null,
                 pillars: [],
                 keyDecisions: [],

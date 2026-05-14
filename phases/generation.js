@@ -245,11 +245,27 @@ If you have ONE critical question that would significantly change output, ask it
     // ── Generate all fields at once ─────────────────────────────────────────
 
     async generateAllFields() {
+        // Fallback: If session wasn't explicitly started (e.g., clicked from Ideation phase),
+        // try to fetch it from the globally injected studioPopup session
+        if (!this.session) {
+            const popupSession = document.getElementById('ccs-studio') ? window.__ccs_popup_session : null;
+            if (popupSession) this.session = popupSession;
+            else {
+                toastManager?.show('Session not ready. Please select a character.', 'warn');
+                return;
+            }
+        }
+        
         chatPanel.addSystemMessage('⚡ Generating all card fields...', 'info');
         chatPanel.startStreaming();
         chatPanel.setInputEnabled(false);
 
-        GENERATABLE_FIELDS.forEach(f => cardPanel.setFieldStatus(f, FIELD_STATUS.IN_PROGRESS));
+        // Store previous statuses to restore on failure
+        const prevStatuses = {};
+        GENERATABLE_FIELDS.forEach(f => {
+            prevStatuses[f] = cardPanel.fieldStatuses[f];
+            cardPanel.setFieldStatus(f, FIELD_STATUS.IN_PROGRESS);
+        });
 
         const generateAllPrompt = skillRouter.getGenerateAllPrompt();
 
@@ -272,13 +288,13 @@ If you have ONE critical question that would significantly change output, ask it
                 },
                 onError: (err) => {
                     chatPanel.cancelStreaming();
-                    GENERATABLE_FIELDS.forEach(f => cardPanel.setFieldStatus(f, FIELD_STATUS.EMPTY));
+                    GENERATABLE_FIELDS.forEach(f => cardPanel.setFieldStatus(f, prevStatuses[f] || FIELD_STATUS.EMPTY));
                     this._showError(err, 'Failed to generate all fields');
                 },
             });
         } catch (err) {
             chatPanel.cancelStreaming();
-            GENERATABLE_FIELDS.forEach(f => cardPanel.setFieldStatus(f, FIELD_STATUS.EMPTY));
+            GENERATABLE_FIELDS.forEach(f => cardPanel.setFieldStatus(f, prevStatuses[f] || FIELD_STATUS.EMPTY));
             this._showError(err, 'Failed to generate all fields');
         } finally {
             chatPanel.setInputEnabled(true);
@@ -396,9 +412,9 @@ If you have ONE critical question that would significantly change output, ask it
             try {
                 await this.generateField(field);
             } catch (err) {
-                // If rate limited or balance error, stop the entire queue
-                if (err instanceof CCSApiError && (err.errorType === 'rate_limit' || err.errorType === 'balance')) {
-                    chatPanel.addSystemMessage(`⏹ Queue stopped: ${err.userMessage}`, 'error');
+                // If any API error occurs, stop the entire queue to prevent spam and memory leaks
+                if (err instanceof CCSApiError) {
+                    chatPanel.addSystemMessage(`⏹ Queue stopped: ${err.userMessage || err.message}`, 'error');
                     this.queue = [];
                     break;
                 }

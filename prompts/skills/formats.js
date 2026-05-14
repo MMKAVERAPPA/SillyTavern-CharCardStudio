@@ -35,7 +35,7 @@ Needs to be needed — but only in ways she can control. Helping strangers is sa
 
 export const SKILL_FORMAT_PLIST = `## PList Format Guide
 
-PList (Property List) is a compressed trait notation that's more token-efficient than prose. Best for local models, token-constrained setups, or when paired with Ali:Chat.
+PList (Property List) is a compressed trait notation that focuses on high token-efficiency and structural clarity. It is an excellent format for users who prefer strict categorization, local models, or when paired with Ali:Chat.
 
 ### PList Placement
 - **SillyTavern:** Character Note at depth 4, frequency 1, role System.
@@ -109,6 +109,6 @@ Interviewer: "What do you actually want?"
 \`\`\`
 
 ### When to Use Ali:Chat vs Prose
-- **Prose**: Better for complex inner psychology, world-building context, nuanced backstory. Uses more tokens.
-- **PList + Ali:Chat**: Better for token efficiency, behavioral clarity, voice demonstration. Generally more effective for smaller/local models.
-- **Default to Prose** unless the user specifically requests PList+Ali:Chat or is working with a constrained model.`;
+- **Prose**: Excellent for complex inner psychology, world-building context, and nuanced backstory.
+- **PList + Ali:Chat**: Excellent for token efficiency, explicit behavioral clarity, and direct voice demonstration.
+- **Note**: Both formats are fully supported and equally valid. Choose the one that best fits the desired card structure.`;

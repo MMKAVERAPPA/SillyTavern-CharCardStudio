@@ -16,13 +16,14 @@ export class WorldInfoManager {
 
     async getLorebookList() {
         try {
-            const r = await fetch('/api/worldinfo/list', {
-                method: 'GET',
-                headers: getRequestHeaders(),
+            const r = await fetch('/api/worldinfo/get', {
+                method: 'POST',
+                headers: Object.assign({ 'Content-Type': 'application/json' }, getRequestHeaders()),
+                body: JSON.stringify({}),
             });
             if (!r.ok) throw new Error('Failed');
             const d = await r.json();
-            return d.files || [];
+            return Object.keys(d || {});
         } catch (err) {
             console.error('[CCS] getLorebookList:', err);
             return [];
@@ -57,7 +58,12 @@ export class WorldInfoManager {
 
     async createLorebook(name) {
         if (!name?.trim()) throw new Error('Lorebook name cannot be empty');
-        await this.saveLorebook(name.trim(), {});
+        const r = await fetch('/api/worldinfo/create', {
+            method: 'POST',
+            headers: Object.assign({ 'Content-Type': 'application/json' }, getRequestHeaders()),
+            body: JSON.stringify({ name: name.trim() }),
+        });
+        if (!r.ok) throw new Error(`Create failed: ${r.statusText}`);
         return name.trim();
     }
 

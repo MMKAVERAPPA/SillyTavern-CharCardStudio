@@ -24,6 +24,8 @@ Perform a comprehensive coherence audit on this character card.
 - Opening scene location duplicated in both scenario and first_mes
 - System prompt restates personality/description content (wasted tokens)
 
+> Note: PList, W++, and Ali:Chat are valid formats. Do not flag them as errors or weaknesses simply because they are not Prose. Judge the *content* (e.g., missing counterweights, generic traits) rather than the format itself.
+
 ### 💡 Smart Suggestions (Missing Best Practices)
 - system_prompt empty but complex card mechanics need it
 - Critical behavioral rules placed in mes_example (gets dropped)
@@ -157,7 +159,7 @@ Analyze this character card comprehensively as a card reviewer would.
 - **Concept Clarity:** Is the core idea immediately understandable?
 - **Character Depth:** Layers, contradictions, psychological complexity?
 - **Voice Uniqueness:** Would you recognize this character with the name hidden?
-- **Structural Cleanliness:** Right content in right fields, no duplication?
+- **Structural Cleanliness:** Right content in right fields, no duplication? (CRITICAL: Do NOT penalize PList, W++, or Ali:Chat formats as "relics" or "keyword soup." These are valid, token-efficient structures. Judge the *quality of the traits* inside the format, not the format choice itself.)
 - **Immersion Strength:** Does the first_mes make you want to respond?
 - **Long-Term Stability:** Will this character stay consistent over a long RP?
 

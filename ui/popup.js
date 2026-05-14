@@ -78,8 +78,19 @@ export class StudioPopup {
 
         this._initPanels();             // safe to use document.getElementById now
 
+        // Expose session globally for fallback access if phases lose context
+        window.__ccs_popup_session = this.session;
+
         // ✅ FIX: Restore saved conversation history into chat panel DOM
         this._restoreSessionToUI();
+
+        // Immediately pass session to all phases to prevent null reference errors on cross-phase actions
+        ideationPhase.session = this.session;
+        ideationPhase.cardFields = this.cardFields;
+        generationPhase.session = this.session;
+        generationPhase.cardFields = this.cardFields;
+        lorebookPhase.session = this.session;
+        lorebookPhase.cardFields = this.cardFields;
 
         this._routeToPhase(this.session.currentPhase || PHASE.IDEATION);
     }
@@ -680,6 +691,8 @@ export class StudioPopup {
         this.el.addEventListener('click', (e) => {
             // Only close if both the pointerdown AND click were on the overlay backdrop itself
             if (e.target === this.el && _pointerDownTarget === this.el) {
+                // Do not close if in ghost mode to avoid accidental exits
+                if (this.el.classList.contains('ccs-ghost-mode')) return;
                 this.close();
             }
         });
@@ -782,14 +795,14 @@ export class StudioPopup {
         modal.innerHTML = `
             <div class="ccs-shortcut-header">
                 <div class="ccs-shortcut-title">🔬 Raw Context Inspector</div>
-                <button class="ccs-shortcut-close">✕</button>
+                <button class="ccs-shortcut-close" id="ccs-inspector-close">✕</button>
             </div>
-            <div class="ccs-shortcut-body" style="text-align:left; max-height: 75vh; overflow-y: auto;">
+            <div class="ccs-shortcut-body" style="text-align:left; max-height: 75vh; overflow-y: auto; padding: 16px;">
                 ${content}
             </div>
         `;
         
-        modal.querySelector('.ccs-shortcut-close').addEventListener('click', () => modal.remove());
+        modal.querySelector('#ccs-inspector-close').addEventListener('click', () => modal.remove());
         this.el.appendChild(modal);
     }
 
@@ -1069,7 +1082,10 @@ export class StudioPopup {
         chatPanel.addSystemMessage('🔍 Running coherence audit...', 'info');
         try {
             const result = await auditEngine.runCoherenceAudit(this.session, this.cardFields);
-            chatPanel.addMessage('assistant', result.raw || 'Audit complete — no issues found.');
+            const msg = result.raw || 'Audit complete — no issues found.';
+            chatPanel.addMessage('assistant', msg);
+            memoryManager.addMessage(this.session, 'assistant', `[Audit Report]\n${msg}`);
+            memoryManager.saveSession(this.characterId, this.session);
         } catch (err) {
             chatPanel.addSystemMessage('❌ Audit failed: ' + err.message, 'error');
         }
@@ -1080,6 +1096,14 @@ export class StudioPopup {
         try {
             const result = await auditEngine.reviewExistingCard(this.cardFields);
             chatPanel.addMessage('assistant', result.raw);
+            memoryManager.addMessage(this.session, 'assistant', `[Card Review]\n${result.raw}`);
+            
+            // Link existing card to concept page if empty
+            if (!this.session.ideaMemory.conceptName) {
+                this.session.ideaMemory.conceptName = this.cardFields.name ? `${this.cardFields.name} - Existing Card` : 'Existing Character';
+                ideaPanel.render(this.session.ideaMemory);
+            }
+            memoryManager.saveSession(this.characterId, this.session);
         } catch (err) {
             chatPanel.addSystemMessage('❌ Review failed: ' + err.message, 'error');
         }
