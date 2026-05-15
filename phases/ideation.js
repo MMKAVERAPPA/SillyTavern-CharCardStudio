@@ -54,14 +54,26 @@ export class IdeationPhase {
             await this._loadExistingCard(message);
             return;
         }
-        // v3.0: Format change request
-        if (/plist|ali.?chat/i.test(message) && /switch|change|use|format/i.test(message)) {
+        // v3.0: Format change request - only trigger on explicit format switches
+        // Check for negation words to avoid false positives like "don't use PList"
+        const hasNegation = /don't|dont|do not|avoid|not|never|stop/i.test(message);
+        const hasFormatMention = /plist|ali.?chat/i.test(message);
+        const hasFormatAction = /switch|change|use|format/i.test(message);
+        
+        if (!hasNegation && hasFormatMention && hasFormatAction && message.length < 150) {
             idea.format = 'plist_alichat';
             memoryManager.saveSession(this.session.characterId, this.session);
             chatPanel.addSystemMessage('📝 Format switched to **PList + Ali:Chat**. PList will go in Character Note (system_prompt at depth 4), Ali:Chat in description.', 'info');
             ideaPanel.render(idea);
             return;
         }
+        
+        // Concept selection - user picks a specific concept to work on
+        if (/^(pick|select|choose|use|work on|let's do|go with|i want).*?(concept|idea|option|number|#)\s*[#\d]/i.test(message)) {
+            await this._rateConceptAndSetupPillars(message);
+            return;
+        }
+        
         if (!idea.conceptName && !idea.pillars?.length) {
             await this._rateConceptAndSetupPillars(message);
             return;
@@ -166,6 +178,9 @@ export class IdeationPhase {
             this.session.ideaMemory.conceptRating = rating;
             if (rating?.pillars?.length) {
                 this.session.ideaMemory.pillars = rating.pillars;
+                chatPanel.addSystemMessage(`✅ Found ${rating.pillars.length} pillar(s) to explore: ${rating.pillars.map(p => p.name).join(', ')}`, 'info');
+            } else {
+                chatPanel.addSystemMessage('⚠️ No pillars found in response. You can manually tell me what questions/pillars to explore.', 'warning');
             }
             const nameMatch = response.match(/Concept:\s*"?([^"\n]+)"?/i);
             if (nameMatch) {

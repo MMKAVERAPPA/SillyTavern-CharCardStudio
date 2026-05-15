@@ -70,8 +70,10 @@ Short supplementary field. Many excellent cards leave this blank entirely.
 **If generating:**
 - Compressed trait-behavior snapshot: 50-150 tokens max
 - Do NOT repeat anything from description
-- Use pipe-separated format for efficiency: "stoic | observant | dry humor | fiercely loyal but won't show it"
-- Every trait gets a counterweight or qualifier`,
+- Use natural prose format (NOT pipe-separated, NOT bullet points)
+- Example: "{{char}} is stoic and observant, with a dry sense of humor. While fiercely loyal, they rarely show affection openly."
+- Every trait gets a counterweight or qualifier
+- Keep it flowing and readable - the AI needs to understand this at a glance`,
 
     scenario: `## Generating: scenario
 Sets the permanent situational frame. Be surgical — every token is permanent.

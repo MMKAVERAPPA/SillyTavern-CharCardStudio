@@ -142,10 +142,11 @@ export class LorebookPhase {
     }
 
     async handleMessage(message) {
-        const lower = message.toLowerCase();
+        const lower = message.toLowerCase().trim();
+        const isShortCommand = message.length < 100; // Commands are typically short
 
-        // Change lorebook target
-        if (/change lorebook|switch lorebook|select lorebook|pick lorebook/i.test(lower)) {
+        // Change lorebook target - only trigger on explicit commands
+        if (isShortCommand && /^(change|switch|select|pick)\s+(the\s+)?lorebook/i.test(lower)) {
             chatPanel.addSystemMessage(
                 `📖 Current lorebook: **${this.session.lorebookLog.targetBook || 'None'}** — Choose a different one below.`,
                 'info'
@@ -154,28 +155,28 @@ export class LorebookPhase {
             return;
         }
 
-        // Detect user intent
-        if (/brainstorm|plan|what entries|suggest entries/i.test(lower)) {
+        // Detect user intent - only on short messages to avoid false positives
+        if (isShortCommand && /^(brainstorm|plan|what entries|suggest entries)/i.test(lower)) {
             await this._brainstormEntries(message);
             return;
         }
-        if (/generate.*entr|create.*entr|write.*entr/i.test(lower)) {
+        if (isShortCommand && /^(generate|create|write).*entr/i.test(lower)) {
             await this._generateEntries(message);
             return;
         }
-        if (/insert all|accept all|save all/i.test(lower)) {
+        if (isShortCommand && /^(insert all|accept all|save all)/i.test(lower)) {
             await this._insertAllPending();
             return;
         }
-        if (/check.*key|keyword.*quality|audit.*key/i.test(lower)) {
+        if (isShortCommand && /^(check|audit).*key/i.test(lower)) {
             await this._checkKeywordQuality();
             return;
         }
-        if (/organiz|sort|reorder/i.test(lower)) {
+        if (isShortCommand && /^(organiz|sort|reorder)/i.test(lower)) {
             await this._organizeEntries();;
             return;
         }
-        if (/recursion|check links|entry links|cross.?ref/i.test(lower)) {
+        if (isShortCommand && /^(recursion|check links|entry links|cross.?ref)/i.test(lower)) {
             await this._showRecursionReport();
             return;
         }

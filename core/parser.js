@@ -211,15 +211,29 @@ export function parseConceptRating(text) {
     const pillarsSectionMatch = text.match(/structural pillars[^:]*:?([\s\S]*?)(?:\n\n(?:Then|Next|After|---)|$)/i);
     const pillarText = pillarsSectionMatch ? pillarsSectionMatch[1] : text;
 
-    const pillarMatches = [...pillarText.matchAll(/^[\s]*[□•\-\*]\s+(.+)/gm)];
-    // Also accept numbered "1. ..." style if □ style not found
-    const numberedPillars = pillarMatches.length === 0
-        ? [...pillarText.matchAll(/^\s*\d+\.\s+(.+)/gm)]
-        : [];
-    const allPillarLines = [...pillarMatches, ...numberedPillars];
+    // Try multiple bullet/list formats
+    const pillarMatches = [...pillarText.matchAll(/^[\s]*[□•\-\*▪▫]\/s+(.+)/gm)];
+    const numberedPillars = [...pillarText.matchAll(/^\s*\d+\.\s+(.+)/gm)];
+    const questionMarks = [...pillarText.matchAll(/^[\s]*[❓❔⁇⁈]\s*(.+)/gm)]; // ? emoji style
+    
+    const allPillarLines = [...pillarMatches, ...numberedPillars, ...questionMarks];
     result.pillars = allPillarLines
-        .map(m => ({ name: m[1].trim().replace(/[*_]/g, ''), resolved: false, answer: '' }))
+        .map(m => {
+            let name = m[1].trim().replace(/[*_]/g, '');
+            // Remove common prefixes
+            name = name.replace(/^(What|How|Why|Where|When|Who)\s+(is|are|would|does|do|should|can)/i, (match) => match);
+            return { name, resolved: false, answer: '' };
+        })
         .filter(p => p.name.length > 3 && p.name.length < 200);
+
+    // Fallback: if no pillars found, try to extract questions from text
+    if (result.pillars.length === 0) {
+        const questions = [...pillarText.matchAll(/\?([^?]{10,150}\?)(?:\s|$)/g)];
+        result.pillars = questions
+            .map(m => ({ name: m[0].trim(), resolved: false, answer: '' }))
+            .filter(p => p.name.length > 10)
+            .slice(0, 5); // Max 5 auto-detected questions
+    }
 
     return result;
 }

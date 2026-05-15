@@ -113,7 +113,11 @@ export class AuditEngine {
                 }
             }
             return [];
-        } catch { return []; }
+        } catch (err) {
+            // Re-throw error so UI can show toast message
+            console.error('[CCS] Tag inference failed:', err);
+            throw new Error(`Tag inference failed: ${err.message || 'Unknown error'}`);
+        }
     }
 
     // ── Pillar resolution detection (UTILITY tier) ───────────────────────────

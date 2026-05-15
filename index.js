@@ -154,12 +154,9 @@ function registerSTEvents() {
 
 function cleanup() {
     try {
-        // Remove event listeners
-        if (eventSource && event_types) {
-            eventSource.off(event_types.APP_READY, createUI);
-            eventSource.off(event_types.APP_READY, init);
-            eventSource.off(event_types.CHARACTER_EDITED, () => studioPopup.refreshCardFields());
-        }
+        // Note: ST's eventSource doesn't support removing event listeners
+        // This is acceptable since ST doesn't currently support extension hot-reload
+        // Event listeners will be cleaned up when the page reloads
 
         // Remove jQuery delegated events
         $(document).off('click', SELECTORS.menuItem);

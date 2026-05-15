@@ -823,11 +823,11 @@ export class StudioPopup {
 
         const modal = document.createElement('div');
         modal.className = 'ccs-shortcut-help'; // reuse the modal styling
-        modal.style.zIndex = '99999';
+        modal.style.cssText = 'z-index: 99999; max-width: 90vw; max-height: 90vh;';
         modal.innerHTML = `
-            <div class="ccs-shortcut-header">
-                <div class="ccs-shortcut-title">🔬 Raw Context Inspector</div>
-                <button class="ccs-shortcut-close" id="ccs-inspector-close">✕</button>
+            <div class="ccs-shortcut-header" style="position: sticky; top: 0; background: var(--ccs-surface1); z-index: 10; border-bottom: 2px solid var(--ccs-accent); padding: 12px 16px; display: flex; justify-content: space-between; align-items: center;">
+                <div class="ccs-shortcut-title" style="font-size: 1.1rem; font-weight: bold;">🔬 Raw Context Inspector</div>
+                <button class="ccs-shortcut-close" id="ccs-inspector-close" style="font-size: 1.5rem; font-weight: bold; color: var(--ccs-text1); background: var(--ccs-surface3); border: 2px solid var(--ccs-border); border-radius: 4px; padding: 4px 12px; cursor: pointer;">✕</button>
             </div>
             <div class="ccs-shortcut-body" style="text-align:left; max-height: 75vh; overflow-y: auto; padding: 16px;">
                 ${content}
@@ -1030,7 +1030,7 @@ export class StudioPopup {
                     && !this.session.ideaMemory.proposedProfileApproved) {
                     if (!confirm('Move to building phase without approving the concept profile?')) return;
                 }
-                chatPanel.addSystemMessage(`Switching to ${phase} mode...`, 'info');
+                // Don't add "Switching to X mode" message - clutters chat
                 this._routeToPhase(phase);
             });
         });

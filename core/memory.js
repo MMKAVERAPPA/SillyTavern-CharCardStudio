@@ -3,11 +3,12 @@
 
 const SETTINGS_KEY = 'CharCardStudio';
 const MAX_FIELD_VERSIONS = 5;
-const DEFAULT_COMPRESSION_THRESHOLD = 15;
+const DEFAULT_COMPRESSION_THRESHOLD = 30; // Compress when conversation reaches 30 messages
 
 export class MemoryManager {
     constructor() {
         this.settings = null;
+        this._saveTimer = null; // For throttled session auto-save
     }
 
     init() {
@@ -196,6 +197,12 @@ export class MemoryManager {
 
     addMessage(session, role, content) {
         session.conversationHistory.push({ role, content, timestamp: Date.now() });
+        
+        // Auto-save session after adding message (throttled to avoid excessive writes)
+        if (session.characterId) {
+            this._throttledSaveSession(session.characterId, session);
+        }
+        
         return this.shouldCompress(session);
     }
 
@@ -205,13 +212,21 @@ export class MemoryManager {
     }
 
     compressOldMessages(session, brief) {
-        const toCompress = session.conversationHistory.slice(0, -5);
+        const toCompress = session.conversationHistory.slice(0, -20); // Keep last 20 messages
         // Merge existing briefs into one entry
         const mergedBrief = session.sessionBriefs.length > 0
             ? '[Merged history] ' + session.sessionBriefs.map(b => b.brief).join(' | ') + ' [Latest] ' + brief
             : brief;
         session.sessionBriefs = [{ brief: mergedBrief, messageCount: toCompress.length, timestamp: Date.now() }];
-        session.conversationHistory = session.conversationHistory.slice(-5);
+        session.conversationHistory = session.conversationHistory.slice(-20); // Keep last 20 messages
+    }
+
+    // Throttled auto-save to prevent excessive localStorage writes
+    _throttledSaveSession(characterId, session) {
+        clearTimeout(this._saveTimer);
+        this._saveTimer = setTimeout(() => {
+            this.saveSession(characterId, session);
+        }, 1000); // 1 second debounce
     }
 
     editMessage(session, index, newContent) {

@@ -118,8 +118,11 @@ export class GenerationPhase {
         const detailLevel = document.getElementById('ccs-detail-level')?.value || 'standard';
         const tokens = DETAIL_LEVELS[detailLevel]?.[fieldName] || '300-500t';
         const fieldInstruction = skillRouter.getFieldInstruction(fieldName);
+        
+        // Add variation hint to prevent caching/repetition
+        const variationHint = `[Generation timestamp: ${Date.now()}]\n[Note: If generating this field multiple times, provide fresh variation each time]\n\n`;
 
-        const genPrompt = `Generate the **${fieldName}** field for this character card.
+        const genPrompt = `${variationHint}Generate the **${fieldName}** field for this character card.
 
 ${fieldInstruction}
 
@@ -466,13 +469,64 @@ If you have ONE critical question that would significantly change output, ask it
     // ── Process generated field content ──────────────────────────────────────
 
     _processGeneratedField(fieldName, response) {
-        const content = extractCodeBlock(response);
+        // Smart field extraction - try code block first, then field-specific parsing
+        let content = extractCodeBlock(response);
+        
+        // If no code block found, try field-specific parsing
+        if (!content && fieldName === 'name') {
+            content = this._parseNameField(response);
+        }
+        
         if (content) {
             cardPanel.setFieldStatus(fieldName, FIELD_STATUS.GENERATED);
             chatPanel.addAcceptBar(fieldName, content, (f, c) => this._acceptField(f, c));
         } else {
             cardPanel.setFieldStatus(fieldName, FIELD_STATUS.EMPTY);
+            // Give user feedback about what went wrong
+            if (fieldName === 'name') {
+                chatPanel.addSystemMessage('⚠️ No code block or clear name found. Please wrap the name in triple backticks or try again.', 'warning');
+            }
         }
+    }
+
+    // Parse name field when no code block is present
+    _parseNameField(rawResponse) {
+        // Try multiple strategies to extract a name
+        
+        // 1. Look for quoted names first
+        const quoted = rawResponse.match(/["']([^"']{2,40})["']/);
+        if (quoted && quoted[1] && !/which|would you|option/i.test(quoted[1])) {
+            return quoted[1].trim();
+        }
+        
+        // 2. Look for name in table/list format (Option 1, 1., etc.)
+        const tableMatch = rawResponse.match(/(?:Option\s+\d+|\d+\.?)\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)?)/i);
+        if (tableMatch && tableMatch[1] && tableMatch[1].length < 40) {
+            return tableMatch[1].trim();
+        }
+        
+        // 3. Look for standalone capitalized name on its own line (2-40 chars)
+        const lines = rawResponse.split('\n');
+        for (const line of lines) {
+            const trimmed = line.trim();
+            // Skip lines that are clearly headers, questions, or explanations
+            if (/^(option|which|here|the|name|suggestion)/i.test(trimmed)) continue;
+            if (trimmed.includes('?') || trimmed.includes(':')) continue;
+            
+            // Check if it looks like a name
+            if (/^[A-Z][a-z]+(?:\s+[A-Z][a-z]+)?$/.test(trimmed) && trimmed.length >= 2 && trimmed.length <= 40) {
+                return trimmed;
+            }
+        }
+        
+        // 4. Fallback: extract first capitalized word/phrase from start
+        const firstMatch = rawResponse.match(/^\s*(?:Option\s+\d+:?\s*)?([A-Z][a-z]+(?:\s+[A-Z][a-z]+)?)/);
+        if (firstMatch && firstMatch[1] && firstMatch[1].length < 40) {
+            return firstMatch[1].trim();
+        }
+        
+        // If all strategies fail, return null (no clear name found)
+        return null;
     }
 
     _processMultiFieldResponse(response) {
