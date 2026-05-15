@@ -20,16 +20,18 @@ export class LorebookPanel {
         this.onDiscardEntry = callbacks.onDiscardEntry;
     }
 
-    render(acceptedEntries = [], pendingEntries = [], targetBook = '', loreEntryPlan = [], recursionMap = []) {
+    render(acceptedEntries = [], pendingEntries = [], targetBook = '', loreEntryPlan = [], recursionMap = [], existingEntries = []) {
         if (!this.container) return;
         // Persist params so search/filter re-renders don't lose them
         if (targetBook) this._targetBook = targetBook;
         this._lastLoreEntryPlan = loreEntryPlan;
         this._lastRecursionMap = recursionMap;
+        this._lastExistingEntries = existingEntries;
 
         const categories = [...new Set([
             ...acceptedEntries.map(e => e.category || 'General'),
             ...pendingEntries.map(e => e.category || 'General'),
+            ...existingEntries.map(e => e.category || 'General'),
         ])].sort();
 
         this.container.innerHTML = `
@@ -45,9 +47,10 @@ export class LorebookPanel {
                 </div>
 
                 <div class="ccs-lore-stats">
-                    <span class="ccs-lore-stat">✅ ${acceptedEntries.length} accepted</span>
+                    <span class="ccs-lore-stat">📖 ${existingEntries.length} existing</span>
+                    <span class="ccs-lore-stat">✅ ${acceptedEntries.length} generated</span>
                     <span class="ccs-lore-stat">📋 ${pendingEntries.length} staged</span>
-                    <span class="ccs-lore-stat">~${Math.round(acceptedEntries.reduce((a,e) => a + (e.content?.length || 0), 0) / 4)}t total</span>
+                    <span class="ccs-lore-stat">~${Math.round((existingEntries.reduce((a,e) => a + (e.content?.length || 0), 0) + acceptedEntries.reduce((a,e) => a + (e.content?.length || 0), 0)) / 4)}t total</span>
                 </div>
 
                 ${loreEntryPlan.length ? `
@@ -89,11 +92,12 @@ export class LorebookPanel {
                 ` : ''}
 
                 ${pendingEntries.length > 0 ? this._renderSection('📋 Staged (not yet inserted)', pendingEntries, 'pending') : ''}
+                ${existingEntries.length > 0 ? this._renderSection(`📖 Existing Entries (${existingEntries.length})`, existingEntries, 'existing') : ''}
                 ${this._renderAcceptedByCategory(acceptedEntries)}
             </div>
         `;
 
-        this._bindControls(acceptedEntries, pendingEntries);
+        this._bindControls(acceptedEntries, pendingEntries, existingEntries);
     }
 
     _escapeHtml(str) {
@@ -202,20 +206,22 @@ export class LorebookPanel {
     }
 
     _renderEntryCard(entry, type) {
-        const keys = (entry.keys || []).slice(0, 4).join(', ');
-        const secKeys = (entry.secondary_keys || []).slice(0, 3).join(', ');
+        const keys = (entry.keys || entry.key || []).slice(0, 4).join(', ');
+        const secKeys = (entry.secondary_keys || entry.keysecondary || []).slice(0, 3).join(', ');
         const tokens = Math.round((entry.content || '').length / 4);
         const posLabels = ['Before Char Defs','After Char Defs','Before Examples','After Examples','AN Top','AN Bottom','At Depth','Outlet'];
         const posLabel = posLabels[entry.position] || 'After Char Defs';
         const isConstant = entry.constant ? '🔵 Constant' : '';
         const tempId = entry._tempId || entry.uid || '';
+        const isExisting = type === 'existing';
 
         return `
-            <div class="ccs-lore-entry ${type === 'pending' ? 'ccs-lore-pending' : ''}" data-tempid="${tempId}">
+            <div class="ccs-lore-entry ${type === 'pending' ? 'ccs-lore-pending' : isExisting ? 'ccs-lore-existing' : ''}" data-tempid="${tempId}">
                 <div class="ccs-lore-entry-header">
-                    <span class="ccs-lore-title">${entry.comment || 'Untitled'}</span>
+                    <span class="ccs-lore-title">${entry.comment || entry.name || 'Untitled'}</span>
                     <span class="ccs-lore-badges">
                         ${isConstant ? `<span class="ccs-badge ccs-badge-constant">${isConstant}</span>` : ''}
+                        ${isExisting ? '<span class="ccs-badge ccs-badge-existing">📖 Existing</span>' : ''}
                         <span class="ccs-badge">${posLabel}</span>
                         <span class="ccs-badge ccs-tok-badge">~${tokens}t</span>
                         ${type === 'pending' ? `
@@ -227,7 +233,7 @@ export class LorebookPanel {
                 <div class="ccs-lore-entry-meta">
                     ${keys ? `<div class="ccs-lore-meta-row"><span class="ccs-meta-label">Keys:</span> <span class="ccs-meta-keys">${keys}</span></div>` : ''}
                     ${secKeys ? `<div class="ccs-lore-meta-row"><span class="ccs-meta-label">Secondary:</span> ${secKeys}</div>` : ''}
-                    <div class="ccs-lore-meta-row"><span class="ccs-meta-label">Order:</span> ${entry.insertion_order || 100} | Prob: ${entry.probability ?? 100}%</div>
+                    <div class="ccs-lore-meta-row"><span class="ccs-meta-label">Order:</span> ${entry.insertion_order || entry.order || 100} | Prob: ${entry.probability ?? 100}%</div>
                 </div>
                 <details class="ccs-lore-entry-content-details">
                     <summary>Show content</summary>
@@ -237,17 +243,17 @@ export class LorebookPanel {
         `;
     }
 
-    _bindControls(acceptedEntries, pendingEntries) {
+    _bindControls(acceptedEntries, pendingEntries, existingEntries = []) {
         const searchEl = document.getElementById('ccs-lore-search');
         const filterEl = document.getElementById('ccs-lore-filter');
 
         searchEl?.addEventListener('input', () => {
             this.searchQuery = searchEl.value;
-            this.render(acceptedEntries, pendingEntries, this._targetBook, this._lastLoreEntryPlan, this._lastRecursionMap);
+            this.render(acceptedEntries, pendingEntries, this._targetBook, this._lastLoreEntryPlan, this._lastRecursionMap, existingEntries);
         });
         filterEl?.addEventListener('change', () => {
             this.filterCategory = filterEl.value;
-            this.render(acceptedEntries, pendingEntries, this._targetBook, this._lastLoreEntryPlan, this._lastRecursionMap);
+            this.render(acceptedEntries, pendingEntries, this._targetBook, this._lastLoreEntryPlan, this._lastRecursionMap, existingEntries);
         });
 
         // Section toggles
@@ -273,7 +279,7 @@ export class LorebookPanel {
                 e.stopPropagation();
                 const tempId = parseFloat(btn.dataset.tempid);
                 this.onDiscardEntry?.(tempId);
-                this.render(acceptedEntries, pendingEntries.filter(p => p._tempId !== tempId), this._targetBook, this._lastLoreEntryPlan, this._lastRecursionMap);
+                this.render(acceptedEntries, pendingEntries.filter(p => p._tempId !== tempId), this._targetBook, this._lastLoreEntryPlan, this._lastRecursionMap, existingEntries);
             });
         });
         // Banner buttons (choose / change lorebook)

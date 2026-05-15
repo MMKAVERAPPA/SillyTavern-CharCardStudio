@@ -403,13 +403,14 @@ export class StudioPopup {
 
         // Restore lorebook panel if entries exist
         const loreLog = this.session.lorebookLog;
-        if (loreLog.acceptedEntries?.length || loreLog.targetBook) {
+        if (loreLog.acceptedEntries?.length || loreLog.existingEntries?.length || loreLog.targetBook) {
             lorebookPanel.render(
                 loreLog.acceptedEntries || [],
                 loreLog.pendingEntries || [],
                 loreLog.targetBook || '',
                 this.session.ideaMemory?.loreEntryPlan || [],
-                loreLog.recursionMap || []
+                loreLog.recursionMap || [],
+                loreLog.existingEntries || []
             );
         }
 
@@ -500,7 +501,8 @@ export class StudioPopup {
                                 lorebookPhase.pendingEntries,
                                 this.session.lorebookLog.targetBook || '',
                                 this.session.ideaMemory?.loreEntryPlan || [],
-                                this.session.lorebookLog.recursionMap || []
+                                this.session.lorebookLog.recursionMap || [],
+                                this.session.lorebookLog.existingEntries || []
                             );
                             this._switchWorkspaceTab(TAB.LOREBOOK);
                         },
@@ -967,7 +969,10 @@ export class StudioPopup {
         if (tabName === TAB.LOREBOOK) lorebookPanel.render(
             this.session.lorebookLog.acceptedEntries || [],
             lorebookPhase.pendingEntries,
-            this.session.lorebookLog.targetBook || ''
+            this.session.lorebookLog.targetBook || '',
+            this.session.ideaMemory?.loreEntryPlan || [],
+            this.session.lorebookLog.recursionMap || [],
+            this.session.lorebookLog.existingEntries || []
         );
         if (tabName === TAB.IDEA) ideaPanel.render(this.session.ideaMemory);
 

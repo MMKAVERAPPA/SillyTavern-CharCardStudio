@@ -47,13 +47,21 @@ export class LorebookPhase {
             '📖 No lorebook selected. Choose an existing lorebook or create a new one below.',
             'warning'
         );
+        await this._showBookSelector();
+    }
+
+    async _promptBookChange() {
+        await this._showBookSelector();
+    }
+
+    async _showBookSelector() {
         try {
             const books = await worldInfoManager.getLorebookList();
             lorebookPanel.renderBookSelector(books, async (choice) => {
                 if (choice === '__create_new__') {
                     await this._createNewLorebook();
                 } else {
-                    this._setTargetBook(choice);
+                    await this._setTargetBook(choice);
                 }
             }, { showCreateNew: true });
         } catch (err) {
@@ -73,10 +81,29 @@ export class LorebookPhase {
         }
     }
 
-    _setTargetBook(name) {
+    async _setTargetBook(name) {
         this.session.lorebookLog.targetBook = name;
+        
+        // Load existing entries from the lorebook file
+        try {
+            const existingEntries = await worldInfoManager.getLorebookEntries(name);
+            // Convert from object with uid keys to array
+            const entriesArray = Object.values(existingEntries || {});
+            this.session.lorebookLog.existingEntries = entriesArray;
+            chatPanel.addSystemMessage(
+                `📖 Lorebook set: **${name}** (${entriesArray.length} existing entries) — start generating more!`,
+                'info'
+            );
+        } catch (err) {
+            console.error('[CCS] Failed to load existing entries:', err);
+            this.session.lorebookLog.existingEntries = [];
+            chatPanel.addSystemMessage(
+                `📖 Lorebook set: **${name}** — start generating entries!`,
+                'info'
+            );
+        }
+        
         memoryManager.saveSession(this.session.characterId, this.session);
-        chatPanel.addSystemMessage(`📖 Lorebook set: **${name}** — start generating entries!`, 'info');
         this.callbacks.onUpdated?.();
     }
 
@@ -99,7 +126,11 @@ export class LorebookPhase {
 
         // Change lorebook target
         if (/change lorebook|switch lorebook|select lorebook|pick lorebook/i.test(lower)) {
-            await this._promptInitialBookSelection();
+            chatPanel.addSystemMessage(
+                `📖 Current lorebook: **${this.session.lorebookLog.targetBook || 'None'}** — Choose a different one below.`,
+                'info'
+            );
+            await this._promptBookChange();
             return;
         }
 
