@@ -821,9 +821,17 @@ export class StudioPopup {
             content += `<div class="ccs-inspector-section"><strong>Options:</strong><pre style="background:var(--ccs-surface3); padding:8px; border-radius:4px; font-size:0.75rem; white-space:pre-wrap; word-wrap:break-word; border:1px solid var(--ccs-border2);">${this._esc(JSON.stringify(payload.generationOptions, null, 2))}</pre></div>`;
         }
 
+        // Create dark overlay
+        const overlay = document.createElement('div');
+        overlay.style.cssText = 'position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0, 0, 0, 0.85); z-index: 99998; backdrop-filter: blur(3px);';
+        overlay.addEventListener('click', () => {
+            overlay.remove();
+            modal.remove();
+        });
+
         const modal = document.createElement('div');
         modal.className = 'ccs-shortcut-help'; // reuse the modal styling
-        modal.style.cssText = 'z-index: 99999; max-width: 90vw; max-height: 90vh;';
+        modal.style.cssText = 'z-index: 99999; max-width: 90vw; max-height: 90vh; position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);';
         modal.innerHTML = `
             <div class="ccs-shortcut-header" style="position: sticky; top: 0; background: var(--ccs-surface1); z-index: 10; border-bottom: 2px solid var(--ccs-accent); padding: 12px 16px; display: flex; justify-content: space-between; align-items: center;">
                 <div class="ccs-shortcut-title" style="font-size: 1.1rem; font-weight: bold;">🔬 Raw Context Inspector</div>
@@ -834,8 +842,13 @@ export class StudioPopup {
             </div>
         `;
         
-        modal.querySelector('#ccs-inspector-close').addEventListener('click', () => modal.remove());
-        this.el.appendChild(modal);
+        modal.querySelector('#ccs-inspector-close').addEventListener('click', () => {
+            overlay.remove();
+            modal.remove();
+        });
+        
+        document.body.appendChild(overlay);
+        document.body.appendChild(modal);
     }
 
     _toggleShortcutHelp() {

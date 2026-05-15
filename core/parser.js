@@ -212,11 +212,20 @@ export function parseConceptRating(text) {
     const pillarText = pillarsSectionMatch ? pillarsSectionMatch[1] : text;
 
     // Try multiple bullet/list formats
-    const pillarMatches = [...pillarText.matchAll(/^[\s]*[□•\-\*▪▫]\/s+(.+)/gm)];
+    const pillarMatches = [...pillarText.matchAll(/^[\s]*[□•\-\*▪▫]\s+(.+)/gm)];
     const numberedPillars = [...pillarText.matchAll(/^\s*\d+\.\s+(.+)/gm)];
     const questionMarks = [...pillarText.matchAll(/^[\s]*[❓❔⁇⁈]\s*(.+)/gm)]; // ? emoji style
     
     const allPillarLines = [...pillarMatches, ...numberedPillars, ...questionMarks];
+    
+    console.log('[CCS Parser] Pillar detection:', {
+        pillarsSectionFound: !!pillarsSectionMatch,
+        bulletMatches: pillarMatches.length,
+        numberedMatches: numberedPillars.length,
+        questionMatches: questionMarks.length,
+        totalMatches: allPillarLines.length
+    });
+    
     result.pillars = allPillarLines
         .map(m => {
             let name = m[1].trim().replace(/[*_]/g, '');
@@ -228,13 +237,15 @@ export function parseConceptRating(text) {
 
     // Fallback: if no pillars found, try to extract questions from text
     if (result.pillars.length === 0) {
-        const questions = [...pillarText.matchAll(/\?([^?]{10,150}\?)(?:\s|$)/g)];
+        console.log('[CCS Parser] No pillars found via bullets, trying question extraction');
+        const questions = [...pillarText.matchAll(/(\w[^?]{10,150}\?)(?:\s|$)/g)];
         result.pillars = questions
             .map(m => ({ name: m[0].trim(), resolved: false, answer: '' }))
             .filter(p => p.name.length > 10)
             .slice(0, 5); // Max 5 auto-detected questions
     }
 
+    console.log('[CCS Parser] Final pillars found:', result.pillars.length, result.pillars.map(p => p.name));
     return result;
 }
 

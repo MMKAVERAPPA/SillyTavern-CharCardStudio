@@ -142,46 +142,11 @@ export class LorebookPhase {
     }
 
     async handleMessage(message) {
-        const lower = message.toLowerCase().trim();
-        const isShortCommand = message.length < 100; // Commands are typically short
-
-        // Change lorebook target - only trigger on explicit commands
-        if (isShortCommand && /^(change|switch|select|pick)\s+(the\s+)?lorebook/i.test(lower)) {
-            chatPanel.addSystemMessage(
-                `📖 Current lorebook: **${this.session.lorebookLog.targetBook || 'None'}** — Choose a different one below.`,
-                'info'
-            );
-            await this._promptBookChange();
-            return;
-        }
-
-        // Detect user intent - only on short messages to avoid false positives
-        if (isShortCommand && /^(brainstorm|plan|what entries|suggest entries)/i.test(lower)) {
-            await this._brainstormEntries(message);
-            return;
-        }
-        if (isShortCommand && /^(generate|create|write).*entr/i.test(lower)) {
-            await this._generateEntries(message);
-            return;
-        }
-        if (isShortCommand && /^(insert all|accept all|save all)/i.test(lower)) {
-            await this._insertAllPending();
-            return;
-        }
-        if (isShortCommand && /^(check|audit).*key/i.test(lower)) {
-            await this._checkKeywordQuality();
-            return;
-        }
-        if (isShortCommand && /^(organiz|sort|reorder)/i.test(lower)) {
-            await this._organizeEntries();;
-            return;
-        }
-        if (isShortCommand && /^(recursion|check links|entry links|cross.?ref)/i.test(lower)) {
-            await this._showRecursionReport();
-            return;
-        }
-
-        // General lorebook chat
+        // All command-based triggers removed per user request
+        // User will manually switch to lorebook phase when needed
+        // Future v5 agentic mode will handle automatic phase switching
+        
+        // General lorebook chat - AI determines intent naturally
         await this._generalChat(message);
     }
 

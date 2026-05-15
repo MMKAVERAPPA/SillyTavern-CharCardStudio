@@ -198,9 +198,10 @@ export class MemoryManager {
     addMessage(session, role, content) {
         session.conversationHistory.push({ role, content, timestamp: Date.now() });
         
-        // Auto-save session after adding message (throttled to avoid excessive writes)
+        // Auto-save session after adding message (immediate save to prevent data loss)
         if (session.characterId) {
-            this._throttledSaveSession(session.characterId, session);
+            this.saveSession(session.characterId, session);
+            console.log(`[CCS] Auto-saved session after message (${session.conversationHistory.length} messages)`);
         }
         
         return this.shouldCompress(session);
