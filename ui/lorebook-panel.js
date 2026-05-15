@@ -12,6 +12,12 @@ export class LorebookPanel {
         this.onInsertEntry = null;
         this.onDiscardEntry = null;
         this.onChooseLorebook = null;   // set by popup.js to trigger the book-selector flow
+        this.onSummarizeLorebook = null; // callback for summary generation
+        this.onSummaryToggle = null;     // callback when include toggle changes
+        this.onSummaryEdit = null;       // callback when summary is manually edited
+        this._currentSummary = '';       // current summary text
+        this._summaryGenerating = false; // summary generation in progress
+        this._summaryIncludeInContext = true; // include in AI context
     }
 
     init(containerId, callbacks = {}) {
@@ -27,6 +33,8 @@ export class LorebookPanel {
         this._lastLoreEntryPlan = loreEntryPlan;
         this._lastRecursionMap = recursionMap;
         this._lastExistingEntries = existingEntries;
+        this._lastAcceptedEntries = acceptedEntries;
+        this._lastPendingEntries = pendingEntries;
 
         const categories = [...new Set([
             ...acceptedEntries.map(e => e.category || 'General'),
@@ -37,6 +45,7 @@ export class LorebookPanel {
         this.container.innerHTML = `
             <div class="ccs-lore-panel">
                 ${this._renderTargetBanner(targetBook)}
+                ${this._renderSummarySection(targetBook)}
 
                 <div class="ccs-lore-controls">
                     <input class="ccs-lore-search" id="ccs-lore-search" type="text" placeholder="🔍 Search entries..." value="${this.searchQuery}">
@@ -120,6 +129,43 @@ export class LorebookPanel {
             <div class="ccs-lore-target-banner ccs-lore-target-unset">
                 <span>⚠️ No lorebook selected</span>
                 <button class="ccs-btn ccs-btn-sm ccs-btn-primary" id="ccs-choose-lorebook-btn">Choose Lorebook</button>
+            </div>
+        `;
+    }
+
+    // ── Summary section ────────────────────────────────────────
+
+    _renderSummarySection(targetBook) {
+        if (!targetBook) return '';
+        
+        const summary = this._currentSummary || '';
+        const isGenerating = this._summaryGenerating || false;
+        const includeInContext = this._summaryIncludeInContext !== false;
+        
+        return `
+            <div class="ccs-lore-section ccs-lore-summary-section">
+                <div class="ccs-lore-section-header" style="cursor:pointer" id="ccs-summary-header">
+                    <span>📝 Lorebook Summary (Editable)</span>
+                    <button class="ccs-lore-toggle-btn" id="ccs-summary-toggle">▼</button>
+                </div>
+                <div class="ccs-lore-section-body" id="ccs-summary-body" style="${summary ? '' : 'display:none'}">
+                    <textarea 
+                        class="ccs-textarea ccs-w100" 
+                        id="ccs-lore-summary-text" 
+                        rows="6" 
+                        placeholder="${isGenerating ? 'Generating summary...' : 'Click \"Summarize Lorebook\" to generate an AI summary of all entries...'}"
+                        ${isGenerating ? 'disabled' : ''}>${this._escapeHtml(summary)}</textarea>
+                    <div style="display:flex; gap:8px; margin-top:8px; flex-wrap:wrap; align-items:center">
+                        <button class="ccs-btn ccs-btn-primary" id="ccs-summarize-btn" ${isGenerating ? 'disabled' : ''}>
+                            ${isGenerating ? '⏳ Generating...' : '🔄 Summarize Lorebook'}
+                        </button>
+                        <label class="ccs-toggle-label" style="margin:0; font-size:0.85rem">
+                            <input type="checkbox" id="ccs-summary-include-toggle" ${includeInContext ? 'checked' : ''}>
+                            <span>📤 Include in AI Context</span>
+                        </label>
+                        ${summary ? `<span class="ccs-badge" style="margin-left:auto">~${Math.round(summary.length / 4)}t</span>` : ''}
+                    </div>
+                </div>
             </div>
         `;
     }
@@ -287,6 +333,78 @@ export class LorebookPanel {
             ?.addEventListener('click', () => this.onChooseLorebook?.());
         this.container.querySelector('#ccs-change-lorebook-btn')
             ?.addEventListener('click', () => this.onChooseLorebook?.());
+        
+        // Summary section toggle
+        this.container.querySelector('#ccs-summary-header')?.addEventListener('click', () => {
+            const body = document.getElementById('ccs-summary-body');
+            const toggle = document.getElementById('ccs-summary-toggle');
+            if (body && toggle) {
+                body.style.display = body.style.display === 'none' ? '' : 'none';
+                toggle.textContent = body.style.display === 'none' ? '▶' : '▼';
+            }
+        });
+        
+        // Summary generation button
+        this.container.querySelector('#ccs-summarize-btn')?.addEventListener('click', () => {
+            this.onSummarizeLorebook?.();
+        });
+        
+        // Summary include toggle
+        this.container.querySelector('#ccs-summary-include-toggle')?.addEventListener('change', (e) => {
+            this._summaryIncludeInContext = e.target.checked;
+            this.onSummaryToggle?.(e.target.checked);
+        });
+        
+        // Summary text editing
+        this.container.querySelector('#ccs-lore-summary-text')?.addEventListener('input', (e) => {
+            this._currentSummary = e.target.value;
+            this.onSummaryEdit?.(e.target.value);
+        });
+    }
+    
+    // ── Summary management ──────────────────────────────────────
+    
+    setSummary(summary, includeInContext = true) {
+        this._currentSummary = summary || '';
+        this._summaryIncludeInContext = includeInContext;
+        // Re-render to update UI if container exists
+        if (this.container && this._lastAcceptedEntries) {
+            this.render(
+                this._lastAcceptedEntries,
+                this._lastPendingEntries || [],
+                this._targetBook,
+                this._lastLoreEntryPlan || [],
+                this._lastRecursionMap || [],
+                this._lastExistingEntries || []
+            );
+        }
+    }
+    
+    setSummaryGenerating(isGenerating) {
+        this._summaryGenerating = isGenerating;
+        // Update button text and disable state
+        if (this.container) {
+            const btn = this.container.querySelector('#ccs-summarize-btn');
+            const textarea = this.container.querySelector('#ccs-lore-summary-text');
+            if (btn) {
+                btn.disabled = isGenerating;
+                btn.innerHTML = isGenerating ? '⏳ Generating...' : '🔄 Summarize Lorebook';
+            }
+            if (textarea) {
+                textarea.disabled = isGenerating;
+                if (isGenerating && !textarea.value) {
+                    textarea.placeholder = 'Generating summary...';
+                }
+            }
+        }
+    }
+    
+    getSummary() {
+        return this._currentSummary;
+    }
+    
+    getSummaryIncludeInContext() {
+        return this._summaryIncludeInContext;
     }
 }
 

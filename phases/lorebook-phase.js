@@ -11,6 +11,7 @@ import { skillRouter } from '../core/skill-router.js';
 import { CCSApiError } from '../core/api.js';
 import { parseLorebookEntriesFromResponse, parseLorePlan } from '../core/parser.js';
 import { haptic } from '../core/haptic.js';
+import { lorebookSummarizer } from '../core/lorebook-summarizer.js';
 
 export class LorebookPhase {
     constructor() {
@@ -27,6 +28,25 @@ export class LorebookPhase {
 
         // Restore pending entries from session
         this.pendingEntries = session.lorebookLog.pendingEntries || [];
+        
+        // Set up lorebook panel callbacks
+        lorebookPanel.onSummarizeLorebook = () => this._generateLorebookSummary();
+        lorebookPanel.onSummaryToggle = (includeInContext) => {
+            session.lorebookLog.summaryIncludeInContext = includeInContext;
+            memoryManager.saveSession(session.characterId, session);
+        };
+        lorebookPanel.onSummaryEdit = (newSummary) => {
+            session.lorebookLog.summary = newSummary;
+            memoryManager.saveSession(session.characterId, session);
+        };
+        
+        // Restore summary state
+        if (session.lorebookLog.summary) {
+            lorebookPanel.setSummary(
+                session.lorebookLog.summary,
+                session.lorebookLog.summaryIncludeInContext !== false
+            );
+        }
 
         // v3.3: embedded mode removed — always require a named external lorebook.
         // If none is set yet, prompt immediately instead of silently failing later.
@@ -182,7 +202,7 @@ export class LorebookPhase {
                 userMessage,
                 session: this.session,
                 cardFields: this.cardFields,
-                extraInstruction: `${taskPrompt}\n\n--- Card Summary ---\n${cardSummary}`,
+                extraInstruction: `${taskPrompt}${this._getLorebookSummaryContext()}\n\n--- Card Summary ---\n${cardSummary}`,
                 skillOptions: { phase: 'lorebook', task: 'brainstorm' },
                 onComplete: (response) => {
                     chatPanel.finalizeStream(response);
@@ -240,7 +260,7 @@ export class LorebookPhase {
                 userMessage,
                 session: this.session,
                 cardFields: this.cardFields,
-                extraInstruction: `${taskPrompt}${lorePlanContext}${existingEntriesContext}\n\n--- Card Summary ---\n${cardSummary}`,
+                extraInstruction: `${taskPrompt}${lorePlanContext}${existingEntriesContext}${this._getLorebookSummaryContext()}\n\n--- Card Summary ---\n${cardSummary}`,
                 skillOptions: { phase: 'lorebook', task: 'generate' },
                 onComplete: (response) => {
                     chatPanel.finalizeStream(response);
@@ -460,6 +480,15 @@ export class LorebookPhase {
         }
         return true;
     }
+    
+    _getLorebookSummaryContext() {
+        const summary = this.session.lorebookLog.summary;
+        const includeInContext = this.session.lorebookLog.summaryIncludeInContext !== false;
+        
+        if (!summary || !includeInContext) return '';
+        
+        return `\n\n--- Lorebook Summary ---\nThe "${this.session.lorebookLog.targetBook}" lorebook context:\n${summary}`;
+    }
 
     _showError(err, context) {
         const userMessage = (err instanceof CCSApiError)
@@ -496,6 +525,56 @@ export class LorebookPhase {
         }
         const report = map.map(l => `• "${l.from}" → triggers "${l.to}" via keyword "${l.trigger}"`).join('\n');
         chatPanel.addSystemMessage(`🔗 **Recursion Links Found:**\n${report}`, 'info');
+    }
+
+    // ── Lorebook summarization ───────────────────────────────────
+
+    async _generateLorebookSummary() {
+        if (!this._guardTarget()) return;
+        
+        const targetBook = this.session.lorebookLog.targetBook;
+        const existingEntries = this.session.lorebookLog.existingEntries || [];
+        const generatedEntries = this.session.lorebookLog.acceptedEntries || [];
+        
+        if (!existingEntries.length && !generatedEntries.length) {
+            chatPanel.addSystemMessage('⚠️ Lorebook is empty. Generate some entries first!', 'warning');
+            return;
+        }
+        
+        chatPanel.addSystemMessage('🔄 Generating lorebook summary...', 'info');
+        lorebookPanel.setSummaryGenerating(true);
+        
+        try {
+            const summary = await lorebookSummarizer.summarizeLorebook(
+                targetBook,
+                existingEntries,
+                generatedEntries,
+                (percent, message) => {
+                    // Optional: Show progress in chat
+                    if (percent % 25 === 0) {
+                        chatPanel.addSystemMessage(`🔄 ${message} (${percent}%)`, 'info');
+                    }
+                }
+            );
+            
+            // Save summary to session
+            this.session.lorebookLog.summary = summary;
+            this.session.lorebookLog.summaryIncludeInContext = true;
+            memoryManager.saveSession(this.session.characterId, this.session);
+            
+            // Update UI
+            lorebookPanel.setSummary(summary, true);
+            
+            chatPanel.addSystemMessage(
+                `✅ Summary generated! (~${Math.round(summary.length / 4)} tokens)\n\nYou can edit it in the Lore tab or toggle "Include in AI Context".`,
+                'success'
+            );
+            
+        } catch (err) {
+            this._showError(err, 'Summary generation failed');
+        } finally {
+            lorebookPanel.setSummaryGenerating(false);
+        }
     }
 }
 

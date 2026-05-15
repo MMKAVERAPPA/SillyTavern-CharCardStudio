@@ -70,6 +70,7 @@ export class SettingsModal {
                     <button class="ccs-stab active" data-tab="api">🔗 API</button>
                     <button class="ccs-stab" data-tab="appearance">🎨 Appearance</button>
                     <button class="ccs-stab" data-tab="tone">🎙 Tone</button>
+                    <button class="ccs-stab" data-tab="lorebook">📖 Lorebook</button>
                     <button class="ccs-stab" data-tab="snippets">📌 Snippets</button>
                     <button class="ccs-stab" data-tab="session">🔧 Session</button>
                     <button class="ccs-stab" data-tab="stats">📊 Stats</button>
@@ -159,6 +160,52 @@ export class SettingsModal {
                         </div>
                         <div class="ccs-snippet-list" id="ccs-snippet-list">
                             ${snippets.length ? snippets.map(s => this._renderSnippet(s)).join('') : '<div class="ccs-muted">No snippets yet.</div>'}
+                        </div>
+                    </div>
+
+                    <!-- Lorebook Tab -->
+                    <div class="ccs-stab-panel" id="ccs-tab-panel-lorebook">
+                        <div class="ccs-setting-section">
+                            <div class="ccs-setting-label">Summary Generation Mode</div>
+                            <select class="ccs-select ccs-w100" id="ccs-lore-summary-mode">
+                                <option value="full" ${s.lorebookSummaryMode==='full'||!s.lorebookSummaryMode?'selected':''}>Full summary (all entries at once)</option>
+                                <option value="partial" ${s.lorebookSummaryMode==='partial'?'selected':''}>Partial summary (rate-limited batches)</option>
+                            </select>
+                            <div class="ccs-setting-hint">Full mode sends all entries in one API call. Partial mode splits into batches to avoid token limits (useful for large lorebooks or low-tier API plans).</div>
+                        </div>
+                        
+                        <div class="ccs-setting-section" id="ccs-lore-partial-settings" style="${s.lorebookSummaryMode==='partial'?'':'display:none'}">
+                            <div class="ccs-setting-label">Entries per Batch</div>
+                            <input class="ccs-input" type="number" id="ccs-lore-batch-size" value="${s.lorebookBatchSize||5}" min="1" max="20">
+                            <div class="ccs-setting-hint">Number of entries to summarize per API call.</div>
+                            
+                            <div class="ccs-setting-label" style="margin-top:12px">Delay Between Batches (seconds)</div>
+                            <input class="ccs-input" type="number" id="ccs-lore-batch-delay" value="${s.lorebookBatchDelay||2}" min="0" max="10" step="0.5">
+                            <div class="ccs-setting-hint">Wait time between batches to avoid rate limiting.</div>
+                        </div>
+                        
+                        <div class="ccs-setting-section">
+                            <div class="ccs-setting-label">Summary in AI Context</div>
+                            <label class="ccs-toggle-label">
+                                <input type="checkbox" id="ccs-lore-summary-in-context" ${s.lorebookSummaryInContext!==false?'checked':''}>
+                                <span>Include lorebook summary in AI messages</span>
+                            </label>
+                            <div class="ccs-setting-hint">When enabled, the lorebook summary is automatically added to AI context during character creation. This helps the AI understand the world without sending full entries (~300 tokens vs. 5000+).</div>
+                        </div>
+                        
+                        <div class="ccs-setting-section">
+                            <div class="ccs-setting-label">Summary Max Length</div>
+                            <input class="ccs-input" type="number" id="ccs-lore-summary-max-tokens" value="${s.lorebookSummaryMaxTokens||500}" min="100" max="2000" step="50">
+                            <div class="ccs-setting-hint">Maximum tokens for the lorebook summary. Longer summaries provide more detail but use more context.</div>
+                        </div>
+                        
+                        <div class="ccs-setting-section">
+                            <div class="ccs-setting-label">Use Parallel API</div>
+                            <label class="ccs-toggle-label">
+                                <input type="checkbox" id="ccs-lore-use-parallel" ${s.lorebookUseParallel!==false?'checked':''}>
+                                <span>Use parallel API setting for summary generation</span>
+                            </label>
+                            <div class="ccs-setting-hint">Respects the "Parallel API Calls" setting in Session tab. When partial mode + parallel are both enabled, batches may be sent simultaneously.</div>
                         </div>
                     </div>
 
@@ -261,6 +308,11 @@ export class SettingsModal {
         document.getElementById('ccs-util-mode')?.addEventListener('change', (e) => {
             document.getElementById('ccs-util-custom-row').style.display = e.target.value === 'custom' ? '' : 'none';
         });
+        
+        // Lorebook summary mode toggle
+        document.getElementById('ccs-lore-summary-mode')?.addEventListener('change', (e) => {
+            document.getElementById('ccs-lore-partial-settings').style.display = e.target.value === 'partial' ? '' : 'none';
+        });
 
         // Snippet add
         document.getElementById('ccs-snip-add-btn')?.addEventListener('click', () => {
@@ -348,6 +400,13 @@ export class SettingsModal {
             inputLimitEnabled: document.getElementById('ccs-input-limit')?.checked !== false,
             hapticFeedback:    document.getElementById('ccs-haptic')?.checked || false,
             theme,
+            // Lorebook settings
+            lorebookSummaryMode: document.getElementById('ccs-lore-summary-mode')?.value || 'full',
+            lorebookBatchSize: parseInt(document.getElementById('ccs-lore-batch-size')?.value) || 5,
+            lorebookBatchDelay: parseFloat(document.getElementById('ccs-lore-batch-delay')?.value) || 2,
+            lorebookSummaryInContext: document.getElementById('ccs-lore-summary-in-context')?.checked !== false,
+            lorebookSummaryMaxTokens: parseInt(document.getElementById('ccs-lore-summary-max-tokens')?.value) || 500,
+            lorebookUseParallel: document.getElementById('ccs-lore-use-parallel')?.checked !== false,
             voiceToneProfile: {
                 pov:               document.getElementById('ccs-tone-pov')?.value || 'third',
                 actionFormat:      document.getElementById('ccs-tone-action')?.value || 'asterisk',
