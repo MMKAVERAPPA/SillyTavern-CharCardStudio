@@ -4,7 +4,6 @@
 
 import { chatEngine } from '../core/chat.js';
 import { memoryManager } from '../core/memory.js';
-import { contextBuilder } from '../core/context-builder.js';
 import { skillRouter } from '../core/skill-router.js';
 import { parseConceptRating, parseLorePlan } from '../core/parser.js';
 import { auditEngine } from '../core/audit.js';
@@ -485,24 +484,29 @@ ${pillarContext || 'No pillars established yet.'}`;
     }
 
     async _manualResolvePillar(pillarName) {
-        const idea = this.session.ideaMemory;
-        const pillar = idea.pillars.find(p => p.name === pillarName && !p.resolved);
-        if (!pillar) return;
+        try {
+            const idea = this.session.ideaMemory;
+            const pillar = idea.pillars.find(p => p.name === pillarName && !p.resolved);
+            if (!pillar) return;
 
-        // Get last user message from history
-        const lastMsg = [...(this.session.conversationHistory || [])]
-            .reverse().find(m => m.role === 'user')?.content || '';
-            
-        const recentHistory = (this.session.conversationHistory || [])
-            .slice(-6).map(m => `${m.role}: ${m.content.substring(0, 300)}`).join('\n');
-            
-        const summary = await auditEngine.detectPillarResolution(lastMsg, pillarName, recentHistory);
-        if (summary) {
-            pillar.resolved = true;
-            pillar.answer = summary;
-            idea.keyDecisions.push({ decision: `${pillarName}: ${summary}`, timestamp: Date.now() });
-            memoryManager.saveSession(this.session.characterId, this.session);
-            ideaPanel.render(idea);
+            // Get last user message from history
+            const lastMsg = [...(this.session.conversationHistory || [])]
+                .reverse().find(m => m.role === 'user')?.content || '';
+                
+            const recentHistory = (this.session.conversationHistory || [])
+                .slice(-6).map(m => `${m.role}: ${m.content.substring(0, 300)}`).join('\n');
+                
+            const summary = await auditEngine.detectPillarResolution(lastMsg, pillarName, recentHistory);
+            if (summary) {
+                pillar.resolved = true;
+                pillar.answer = summary;
+                idea.keyDecisions.push({ decision: `${pillarName}: ${summary}`, timestamp: Date.now() });
+                memoryManager.saveSession(this.session.characterId, this.session);
+                ideaPanel.render(idea);
+            }
+        } catch (err) {
+            console.error('[CCS] _manualResolvePillar:', err);
+            chatPanel.addSystemMessage(`❌ Failed to resolve pillar "${pillarName}": ${err.message}`, 'error');
         }
     }
 

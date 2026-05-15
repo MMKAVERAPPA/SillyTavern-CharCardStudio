@@ -8,9 +8,8 @@ import { cardManager } from '../core/card.js';
 import { auditEngine } from '../core/audit.js';
 import { chatPanel } from '../ui/chat-panel.js';
 import { cardPanel, FIELD_STATUS } from '../ui/card-panel.js';
-import { contextBuilder } from '../core/context-builder.js';
 import { skillRouter } from '../core/skill-router.js';
-import { CCSApiError, apiManager } from '../core/api.js';
+import { CCSApiError } from '../core/api.js';
 
 import {
     DETAIL_LEVELS,

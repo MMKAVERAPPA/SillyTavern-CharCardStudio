@@ -7,9 +7,25 @@ export class IdeaPanel {
     constructor() {
         this.container = null;
         this.onResolvePillar = null; // callback(pillarName) -> set by popup.js
+        this.abortController = null;  // For event listener cleanup
+    }
+
+    // ── Cleanup method for event listeners ──────────────────────────────────
+    cleanup() {
+        if (this.abortController) {
+            this.abortController.abort();
+            this.abortController = null;
+        }
     }
 
     init(containerId) {
+        // ✅ MEMORY LEAK FIX: Cleanup old listeners before attaching new ones
+        this.cleanup();
+        
+        // Create new AbortController for this binding session
+        this.abortController = new AbortController();
+        const signal = this.abortController.signal;
+
         this.container = document.getElementById(containerId);
         
         // Use event delegation for resolve buttons
@@ -18,7 +34,7 @@ export class IdeaPanel {
                 const name = e.target.dataset.name;
                 if (name) this.onResolvePillar?.(name);
             }
-        });
+        }, { signal });
     }
 
     render(ideaMemory) {

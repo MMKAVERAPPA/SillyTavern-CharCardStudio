@@ -386,13 +386,24 @@ export class LorebookPhase {
 
     // ── Stage entries ───────────────────────────────────────────────────────
 
-    _stageEntriesFromResponse(response) {
+    async _stageEntriesFromResponse(response) {
         const entries = parseLorebookEntriesFromResponse(response);
         if (!entries.length) {
             chatPanel.addSystemMessage('No entries found in response. Try asking for specific entries.', 'info');
             return;
         }
-        this._stageEntries(entries);
+        
+        // Check if auto-insert is enabled (default: true)
+        const settings = memoryManager.getGlobalSettings();
+        const autoInsert = settings.lorebookAutoInsert !== false;
+        
+        if (autoInsert) {
+            // Auto-insert workflow (like card building)
+            await this._autoInsertEntries(entries);
+        } else {
+            // Manual staging workflow (old behavior)
+            this._stageEntries(entries);
+        }
     }
 
     _stageEntries(entries) {
@@ -425,6 +436,67 @@ export class LorebookPhase {
 
     _parseEntryList(response) {
         this.session.lorebookLog.entryList = response;
+    }
+
+    // ── Auto-insert entries (like card building) ───────────────────────────
+
+    async _autoInsertEntries(entries) {
+        if (!this._guardTarget()) return;
+        
+        const loreLog = this.session.lorebookLog;
+        const inserted = [];
+        const skipped = [];
+        
+        for (const entry of entries) {
+            // Check for duplicates
+            const entryKeyStr = (entry.keys || []).sort().join(',');
+            const isDupe = (loreLog.acceptedEntries || []).some(a => {
+                const aKeyStr = (a.keys || []).sort().join(',');
+                return a.comment === entry.comment && aKeyStr === entryKeyStr;
+            }) || (loreLog.existingEntries || []).some(e => {
+                const eKeyStr = (e.keys || e.key || []).sort().join(',');
+                return (e.comment || e.name) === entry.comment && eKeyStr === entryKeyStr;
+            });
+            
+            if (isDupe) {
+                skipped.push(entry.comment || 'Untitled');
+                continue;
+            }
+            
+            try {
+                // Insert immediately
+                await worldInfoManager.addEntries(loreLog.targetBook, [entry]);
+                
+                // Add to accepted list
+                loreLog.acceptedEntries = loreLog.acceptedEntries || [];
+                loreLog.acceptedEntries.push(entry);
+                inserted.push(entry.comment || 'Untitled');
+                
+            } catch (err) {
+                console.error(`[CCS] Failed to insert entry "${entry.comment}":`, err);
+                skipped.push(`${entry.comment} (error)`);
+            }
+        }
+        
+        // Save session and update UI
+        memoryManager.saveSession(this.session.characterId, this.session);
+        this.callbacks.onUpdated?.();
+        haptic.pulse(20);
+        
+        // Report results
+        if (inserted.length > 0) {
+            chatPanel.addSystemMessage(
+                `✅ Inserted **${inserted.length}** entries: ${inserted.slice(0, 3).join(', ')}${inserted.length > 3 ? `, +${inserted.length - 3} more` : ''}`,
+                'success'
+            );
+        }
+        
+        if (skipped.length > 0) {
+            chatPanel.addSystemMessage(
+                `⏭ Skipped ${skipped.length} duplicate(s): ${skipped.slice(0, 3).join(', ')}${skipped.length > 3 ? '...' : ''}`,
+                'info'
+            );
+        }
     }
 
     // ── Insert entries ──────────────────────────────────────────────────────
@@ -463,11 +535,16 @@ export class LorebookPhase {
     }
 
     async _insertAllPending() {
-        if (!this.pendingEntries.length) {
-            chatPanel.addSystemMessage('No pending entries to insert.', 'info');
-            return;
+        try {
+            if (!this.pendingEntries.length) {
+                chatPanel.addSystemMessage('No pending entries to insert.', 'info');
+                return;
+            }
+            await this._insertEntries([...this.pendingEntries]);
+        } catch (err) {
+            console.error('[CCS] _insertAllPending:', err);
+            chatPanel.addSystemMessage(`❌ Failed to insert pending entries: ${err.message}`, 'error');
         }
-        await this._insertEntries([...this.pendingEntries]);
     }
 
     // ── Helpers ──────────────────────────────────────────────────────────────

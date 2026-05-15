@@ -11,7 +11,7 @@ import {
     DEPTH_ANALYSIS_PROMPT, STYLE_CONSISTENCY_PROMPT, CROSS_REF_PROMPT,
 } from '../prompts/audit.js';
 import { KEYWORD_QUALITY_CHECK_PROMPT } from '../prompts/lorebook.js';
-import { AUTO_TAG_PROMPT, PILLAR_RESOLUTION_PROMPT, VERSION_SUMMARY_PROMPT } from '../prompts/utility.js';
+import { AUTO_TAG_PROMPT, PILLAR_RESOLUTION_PROMPT } from '../prompts/utility.js';
 import { parseCardReview } from './parser.js';
 
 export class AuditEngine {

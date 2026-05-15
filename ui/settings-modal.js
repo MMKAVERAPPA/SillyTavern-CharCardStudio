@@ -10,6 +10,15 @@ export class SettingsModal {
     constructor() {
         this.el = null;
         this.snippetEditId = null;
+        this.abortController = null;  // For event listener cleanup
+    }
+
+    // ── Cleanup method for event listeners ──────────────────────────────────
+    cleanup() {
+        if (this.abortController) {
+            this.abortController.abort();
+            this.abortController = null;
+        }
     }
 
     open(container = null) {
@@ -166,6 +175,15 @@ export class SettingsModal {
                     <!-- Lorebook Tab -->
                     <div class="ccs-stab-panel" id="ccs-tab-panel-lorebook">
                         <div class="ccs-setting-section">
+                            <div class="ccs-setting-label">Entry Insertion</div>
+                            <label class="ccs-toggle-label">
+                                <input type="checkbox" id="ccs-lore-auto-insert" ${s.lorebookAutoInsert!==false?'checked':''}>
+                                <span>Auto-insert generated entries (like card building)</span>
+                            </label>
+                            <div class="ccs-setting-hint">When enabled, AI-generated entries are immediately inserted into the lorebook (like card fields). When disabled, entries are staged for manual review before insertion.</div>
+                        </div>
+                        
+                        <div class="ccs-setting-section">
                             <div class="ccs-setting-label">Summary Generation Mode</div>
                             <select class="ccs-select ccs-w100" id="ccs-lore-summary-mode">
                                 <option value="full" ${s.lorebookSummaryMode==='full'||!s.lorebookSummaryMode?'selected':''}>Full summary (all entries at once)</option>
@@ -289,6 +307,13 @@ export class SettingsModal {
     }
 
     _bind() {
+        // ✅ MEMORY LEAK FIX: Cleanup old listeners before attaching new ones
+        this.cleanup();
+        
+        // Create new AbortController for this binding session
+        this.abortController = new AbortController();
+        const signal = this.abortController.signal;
+
         const s = memoryManager.getGlobalSettings();
 
         // Tab switching
@@ -298,21 +323,21 @@ export class SettingsModal {
                 this.el.querySelectorAll('.ccs-stab-panel').forEach(p => p.classList.remove('active'));
                 tab.classList.add('active');
                 document.getElementById(`ccs-tab-panel-${tab.dataset.tab}`)?.classList.add('active');
-            });
+            }, { signal });
         });
 
         // API mode toggle
         document.getElementById('ccs-api-mode')?.addEventListener('change', (e) => {
             document.getElementById('ccs-profile-row').style.display = e.target.value === 'profile' ? '' : 'none';
-        });
+        }, { signal });
         document.getElementById('ccs-util-mode')?.addEventListener('change', (e) => {
             document.getElementById('ccs-util-custom-row').style.display = e.target.value === 'custom' ? '' : 'none';
-        });
+        }, { signal });
         
         // Lorebook summary mode toggle
         document.getElementById('ccs-lore-summary-mode')?.addEventListener('change', (e) => {
             document.getElementById('ccs-lore-partial-settings').style.display = e.target.value === 'partial' ? '' : 'none';
-        });
+        }, { signal });
 
         // Snippet add
         document.getElementById('ccs-snip-add-btn')?.addEventListener('click', () => {
@@ -330,7 +355,7 @@ export class SettingsModal {
             }
             document.getElementById('ccs-snip-name').value = '';
             document.getElementById('ccs-snip-content').value = '';
-        });
+        }, { signal });
 
         this._bindSnippetButtons(document.getElementById('ccs-snippet-list'));
 
@@ -341,7 +366,7 @@ export class SettingsModal {
                 memoryManager.save();
                 alert('All sessions cleared.');
             }
-        });
+        }, { signal });
 
         // Session export / import
         document.getElementById('ccs-export-session-btn')?.addEventListener('click', () => {
@@ -354,10 +379,10 @@ export class SettingsModal {
                 a.href = url; a.download = 'ccs_session_export.json'; a.click();
                 URL.revokeObjectURL(url);
             } catch (err) { alert('Export failed: ' + err.message); }
-        });
+        }, { signal });
         document.getElementById('ccs-import-session-btn')?.addEventListener('click', () => {
             document.getElementById('ccs-import-session-file')?.click();
-        });
+        }, { signal });
         document.getElementById('ccs-import-session-file')?.addEventListener('change', async (e) => {
             const file = e.target.files[0];
             if (!file) return;
@@ -366,23 +391,23 @@ export class SettingsModal {
                 memoryManager.importSession(text);
                 alert('✅ Session imported! Reload the studio to see it.');
             } catch (err) { alert('Import failed: ' + err.message); }
-        });
+        }, { signal });
 
         // Load profiles into dropdown asynchronously
         this._loadProfileDropdown();
 
         // Close
-        document.getElementById('ccs-settings-close')?.addEventListener('click', () => this.close());
-        document.getElementById('ccs-settings-cancel')?.addEventListener('click', () => this.close());
+        document.getElementById('ccs-settings-close')?.addEventListener('click', () => this.close(), { signal });
+        document.getElementById('ccs-settings-cancel')?.addEventListener('click', () => this.close(), { signal });
         // BUG-008 FIX: iOS Safari doesn't reliably fire 'click' on non-interactive elements.
         // Add both click and touchend on the overlay backdrop so tapping outside dismisses on mobile.
         const backdropClose = (e) => { if (e.target === this.el) this.close(); };
-        this.el.addEventListener('click', backdropClose);
-        this.el.addEventListener('touchend', backdropClose, { passive: true });
+        this.el.addEventListener('click', backdropClose, { signal });
+        this.el.addEventListener('touchend', backdropClose, { passive: true, signal });
 
 
         // Save
-        document.getElementById('ccs-settings-save')?.addEventListener('click', () => this._save());
+        document.getElementById('ccs-settings-save')?.addEventListener('click', () => this._save(), { signal });
     }
 
     async _save() {
@@ -401,6 +426,7 @@ export class SettingsModal {
             hapticFeedback:    document.getElementById('ccs-haptic')?.checked || false,
             theme,
             // Lorebook settings
+            lorebookAutoInsert: document.getElementById('ccs-lore-auto-insert')?.checked !== false,
             lorebookSummaryMode: document.getElementById('ccs-lore-summary-mode')?.value || 'full',
             lorebookBatchSize: parseInt(document.getElementById('ccs-lore-batch-size')?.value) || 5,
             lorebookBatchDelay: parseFloat(document.getElementById('ccs-lore-batch-delay')?.value) || 2,
@@ -463,6 +489,7 @@ export class SettingsModal {
     }
 
     close() {
+        this.cleanup();  // ✅ MEMORY LEAK FIX: Cleanup listeners before removing modal
         this.el?.remove();
         this.el = null;
     }

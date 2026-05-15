@@ -3,7 +3,6 @@
 
 import { cardManager, FIELD_LABELS } from '../core/card.js';
 import { memoryManager } from '../core/memory.js';
-import { auditEngine } from '../core/audit.js';
 
 export const FIELD_STATUS = {
     EMPTY:       'empty',
@@ -25,6 +24,15 @@ export class CardPanel {
         this.session = null;
         this.callbacks = {};
         this.expandedField = null;
+        this.abortController = null;  // For event listener cleanup
+    }
+
+    // ── Cleanup method for event listeners ──────────────────────────────────
+    cleanup() {
+        if (this.abortController) {
+            this.abortController.abort();
+            this.abortController = null;
+        }
     }
 
     init(containerId, cardFields, session, callbacks = {}) {
@@ -217,14 +225,21 @@ export class CardPanel {
     }
 
     _bindEvents() {
+        // ✅ MEMORY LEAK FIX: Cleanup old listeners before attaching new ones
+        this.cleanup();
+        
+        // Create new AbortController for this binding session
+        this.abortController = new AbortController();
+        const signal = this.abortController.signal;
+
         const list = document.getElementById('ccs-field-list');
         list?.querySelectorAll('.ccs-field-row').forEach(row => this._bindFieldRow(row));
 
-        document.getElementById('ccs-gen-all-btn')?.addEventListener('click', () => this.callbacks.onGenerateAll?.());
-        document.getElementById('ccs-audit-btn')?.addEventListener('click', () => this.callbacks.onAudit?.());
-        document.getElementById('ccs-export-btn')?.addEventListener('click', () => this.callbacks.onExport?.());
-        document.getElementById('ccs-review-existing-btn')?.addEventListener('click', () => this.callbacks.onReviewExisting?.());
-        document.getElementById('ccs-infer-tags-btn')?.addEventListener('click', () => this.callbacks.onInferTags?.());
+        document.getElementById('ccs-gen-all-btn')?.addEventListener('click', () => this.callbacks.onGenerateAll?.(), { signal });
+        document.getElementById('ccs-audit-btn')?.addEventListener('click', () => this.callbacks.onAudit?.(), { signal });
+        document.getElementById('ccs-export-btn')?.addEventListener('click', () => this.callbacks.onExport?.(), { signal });
+        document.getElementById('ccs-review-existing-btn')?.addEventListener('click', () => this.callbacks.onReviewExisting?.(), { signal });
+        document.getElementById('ccs-infer-tags-btn')?.addEventListener('click', () => this.callbacks.onInferTags?.(), { signal });
 
         // Platform select
         const platformSel = document.getElementById('ccs-platform-select');
@@ -233,7 +248,7 @@ export class CardPanel {
             platformSel.addEventListener('change', () => {
                 memoryManager.updateGlobalSettings({ platformTarget: platformSel.value });
                 if (this.session) this.session.ideaMemory.platformTarget = platformSel.value;
-            });
+            }, { signal });
         }
 
         // Tag input
@@ -243,7 +258,7 @@ export class CardPanel {
                 this.callbacks.onAddTag?.(tagInput.value.trim());
                 tagInput.value = '';
             }
-        });
+        }, { signal });
     }
 
     _bindFieldRow(row) {

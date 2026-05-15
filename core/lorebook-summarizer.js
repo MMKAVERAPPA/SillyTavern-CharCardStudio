@@ -85,10 +85,10 @@ Be concise but informative. This summary will be used to give AI context about t
 
 Summary:`;
 
-        const response = await apiManager.utilityChat({
-            userMessage: prompt,
-            systemPrompt: 'You are a concise lorebook analyst. Summarize lorebooks for AI context.',
-        });
+        const response = await apiManager.generateUtility(
+            'You are a concise lorebook analyst. Summarize lorebooks for AI context.',
+            prompt
+        );
         
         onProgress?.(90, 'Processing response...');
         
@@ -128,10 +128,10 @@ Summary:`;
             
             const prompt = `Summarize these ${batch.length} lorebook entries in 2-3 sentences:\n\n${entryList}\n\nSummary:`;
             
-            const response = await apiManager.utilityChat({
-                userMessage: prompt,
-                systemPrompt: 'You are a concise summarizer. Keep summaries under 100 words.',
-            });
+            const response = await apiManager.generateUtility(
+                'You are a concise summarizer. Keep summaries under 100 words.',
+                prompt
+            );
             
             batchSummaries.push(response.trim());
             
@@ -159,10 +159,10 @@ Be concise but comprehensive. This summary will be used to give AI context about
 
 Final Summary:`;
 
-        const finalSummary = await apiManager.utilityChat({
-            userMessage: combinedPrompt,
-            systemPrompt: 'You are a concise lorebook analyst. Combine summaries coherently.',
-        });
+        const finalSummary = await apiManager.generateUtility(
+            'You are a concise lorebook analyst. Combine summaries coherently.',
+            combinedPrompt
+        );
         
         return finalSummary.trim();
     }

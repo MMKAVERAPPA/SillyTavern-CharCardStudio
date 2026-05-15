@@ -18,6 +18,15 @@ export class LorebookPanel {
         this._currentSummary = '';       // current summary text
         this._summaryGenerating = false; // summary generation in progress
         this._summaryIncludeInContext = true; // include in AI context
+        this.abortController = null;  // For event listener cleanup
+    }
+
+    // ── Cleanup method for event listeners ──────────────────────────────────
+    cleanup() {
+        if (this.abortController) {
+            this.abortController.abort();
+            this.abortController = null;
+        }
     }
 
     init(containerId, callbacks = {}) {
@@ -290,17 +299,24 @@ export class LorebookPanel {
     }
 
     _bindControls(acceptedEntries, pendingEntries, existingEntries = []) {
+        // ✅ MEMORY LEAK FIX: Cleanup old listeners before attaching new ones
+        this.cleanup();
+        
+        // Create new AbortController for this binding session
+        this.abortController = new AbortController();
+        const signal = this.abortController.signal;
+
         const searchEl = document.getElementById('ccs-lore-search');
         const filterEl = document.getElementById('ccs-lore-filter');
 
         searchEl?.addEventListener('input', () => {
             this.searchQuery = searchEl.value;
             this.render(acceptedEntries, pendingEntries, this._targetBook, this._lastLoreEntryPlan, this._lastRecursionMap, existingEntries);
-        });
+        }, { signal });
         filterEl?.addEventListener('change', () => {
             this.filterCategory = filterEl.value;
             this.render(acceptedEntries, pendingEntries, this._targetBook, this._lastLoreEntryPlan, this._lastRecursionMap, existingEntries);
-        });
+        }, { signal });
 
         // Section toggles
         this.container.querySelectorAll('.ccs-lore-toggle-btn').forEach(btn => {
@@ -308,7 +324,7 @@ export class LorebookPanel {
                 const body = btn.closest('.ccs-lore-section').querySelector('.ccs-lore-section-body');
                 body.style.display = body.style.display === 'none' ? '' : 'none';
                 btn.textContent = body.style.display === 'none' ? '▶' : '▼';
-            });
+            }, { signal });
         });
 
         // Individual entry insert/discard (for pending)
@@ -318,7 +334,7 @@ export class LorebookPanel {
                 const tempId = parseFloat(btn.dataset.tempid);
                 const entry = pendingEntries.find(p => p._tempId === tempId);
                 if (entry) this.onInsertEntry?.(entry);
-            });
+            }, { signal });
         });
         this.container.querySelectorAll('.ccs-discard-btn').forEach(btn => {
             btn.addEventListener('click', (e) => {
@@ -326,13 +342,13 @@ export class LorebookPanel {
                 const tempId = parseFloat(btn.dataset.tempid);
                 this.onDiscardEntry?.(tempId);
                 this.render(acceptedEntries, pendingEntries.filter(p => p._tempId !== tempId), this._targetBook, this._lastLoreEntryPlan, this._lastRecursionMap, existingEntries);
-            });
+            }, { signal });
         });
         // Banner buttons (choose / change lorebook)
         this.container.querySelector('#ccs-choose-lorebook-btn')
-            ?.addEventListener('click', () => this.onChooseLorebook?.());
+            ?.addEventListener('click', () => this.onChooseLorebook?.(), { signal });
         this.container.querySelector('#ccs-change-lorebook-btn')
-            ?.addEventListener('click', () => this.onChooseLorebook?.());
+            ?.addEventListener('click', () => this.onChooseLorebook?.(), { signal });
         
         // Summary section toggle
         this.container.querySelector('#ccs-summary-header')?.addEventListener('click', () => {
@@ -342,24 +358,24 @@ export class LorebookPanel {
                 body.style.display = body.style.display === 'none' ? '' : 'none';
                 toggle.textContent = body.style.display === 'none' ? '▶' : '▼';
             }
-        });
+        }, { signal });
         
         // Summary generation button
         this.container.querySelector('#ccs-summarize-btn')?.addEventListener('click', () => {
             this.onSummarizeLorebook?.();
-        });
+        }, { signal });
         
         // Summary include toggle
         this.container.querySelector('#ccs-summary-include-toggle')?.addEventListener('change', (e) => {
             this._summaryIncludeInContext = e.target.checked;
             this.onSummaryToggle?.(e.target.checked);
-        });
+        }, { signal });
         
         // Summary text editing
         this.container.querySelector('#ccs-lore-summary-text')?.addEventListener('input', (e) => {
             this._currentSummary = e.target.value;
             this.onSummaryEdit?.(e.target.value);
-        });
+        }, { signal });
     }
     
     // ── Summary management ──────────────────────────────────────

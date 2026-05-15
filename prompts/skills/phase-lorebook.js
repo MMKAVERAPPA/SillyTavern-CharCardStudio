@@ -3,6 +3,10 @@
 
 export const SKILL_LOREBOOK_IDEATION = `## Lorebook Planning
 
+**IMPORTANT:** When you generate lorebook entries, they are AUTOMATICALLY inserted into the active lorebook file. You do not need to tell the user to copy-paste anything. Just generate entries in the correct format.
+
+---
+
 Brainstorm all lorebook entries needed for this character card. Propose a complete entry list organized by category.
 
 ### Entry Categories
@@ -28,6 +32,24 @@ After listing, ask:
 - How many to generate at a time? (1, 2, or up to 5)`;
 
 export const SKILL_LOREBOOK_GENERATION = `## Lorebook Entry Generation — Full SillyTavern World Info Spec
+
+### CRITICAL: How This Works
+**YOUR OUTPUT IS AUTOMATICALLY PARSED AND INSERTED INTO THE LOREBOOK.**
+
+- You generate entries in the format below
+- The system automatically parses your response
+- Entries are immediately inserted into the active lorebook file
+- **DO NOT** tell the user to "copy and paste" anything
+- **DO NOT** give manual instructions like "Open the Lorebook tab and click Add Entry"
+- Just generate the entries in the correct format and the system handles the rest
+
+When the user says "add these entries" or "generate entries for X, Y, Z", you:
+1. Generate entries in the format below
+2. The system parses them automatically
+3. The user sees: "✅ Inserted 3 entries: X, Y, Z"
+4. Done! No manual work required.
+
+---
 
 ### Critical Rule: Only Content is Injected
 The entry title, keys, and all metadata are INVISIBLE to the AI during roleplay. Only the Content field gets sent. Therefore every entry must be:

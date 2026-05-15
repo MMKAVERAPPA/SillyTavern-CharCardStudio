@@ -35,6 +35,15 @@ export class StudioPopup {
         this.cardFields = null;
         this.characterId = null;
         this._escHandler = null;
+        this.abortController = null;  // For event listener cleanup
+    }
+
+    // ── Cleanup method for event listeners ──────────────────────────────────
+    cleanup() {
+        if (this.abortController) {
+            this.abortController.abort();
+            this.abortController = null;
+        }
     }
 
     // ── Scoped selectors — work whether el is in DOM or not ──────────────────
@@ -467,6 +476,16 @@ export class StudioPopup {
         this.session.currentPhase = phase;
         this._updatePhaseBadge(phase);
         this._updatePhaseTabs(phase);
+
+        // ✅ MEMORY LEAK FIX: Cleanup current phase's event listeners before switching
+        // Clean up panel-specific listeners
+        if (prevPhase === PHASE.IDEATION && ideaPanel.cleanup) {
+            ideaPanel.cleanup();
+        } else if (prevPhase === PHASE.BUILDING && cardPanel.cleanup) {
+            cardPanel.cleanup();
+        } else if (prevPhase === PHASE.LOREBOOK && lorebookPanel.cleanup) {
+            lorebookPanel.cleanup();
+        }
 
         // BUG-019 FIX: Wrap phase start in try/catch; revert badge on failure
         const revertPhase = () => {
@@ -1127,33 +1146,48 @@ export class StudioPopup {
     }
 
     async _addTag(tag) {
-        const current = [...(this.cardFields.tags || [])];
-        if (!current.includes(tag)) {
-            current.push(tag);
-            await cardManager.writeField('tags', current);
-            this.cardFields.tags = current;
-            cardPanel.refreshTags(current, (t) => this._removeTag(t));
+        try {
+            const current = [...(this.cardFields.tags || [])];
+            if (!current.includes(tag)) {
+                current.push(tag);
+                await cardManager.writeField('tags', current);
+                this.cardFields.tags = current;
+                cardPanel.refreshTags(current, (t) => this._removeTag(t));
+            }
+        } catch (err) {
+            console.error('[CCS] _addTag:', err);
+            chatPanel.addSystemMessage(`❌ Failed to add tag: ${err.message}`, 'error');
         }
     }
 
     async _addTags(tags) { for (const t of tags) await this._addTag(t); }
 
     async _removeTag(tag) {
-        const current = (this.cardFields.tags || []).filter(t => t !== tag);
-        await cardManager.writeField('tags', current);
-        this.cardFields.tags = current;
-        cardPanel.refreshTags(current, (t) => this._removeTag(t));
+        try {
+            const current = (this.cardFields.tags || []).filter(t => t !== tag);
+            await cardManager.writeField('tags', current);
+            this.cardFields.tags = current;
+            cardPanel.refreshTags(current, (t) => this._removeTag(t));
+        } catch (err) {
+            console.error('[CCS] _removeTag:', err);
+            chatPanel.addSystemMessage(`❌ Failed to remove tag: ${err.message}`, 'error');
+        }
     }
 
     async _restoreVersion(fieldName, idx) {
-        const content = memoryManager.getFieldVersion(this.session, fieldName, idx);
-        if (!content) return;
-        if (!confirm(`Restore ${fieldName} to v${idx + 1}?`)) return;
-        await cardManager.writeField(fieldName, content);
-        this.cardFields[fieldName] = content;
-        cardPanel.setFieldStatus(fieldName, 'accepted');
-        cardPanel.updateCardFields(this.cardFields);
-        chatPanel.addSystemMessage(`↩ Restored ${fieldName} to v${idx + 1}`, 'info');
+        try {
+            const content = memoryManager.getFieldVersion(this.session, fieldName, idx);
+            if (!content) return;
+            if (!confirm(`Restore ${fieldName} to v${idx + 1}?`)) return;
+            await cardManager.writeField(fieldName, content);
+            this.cardFields[fieldName] = content;
+            cardPanel.setFieldStatus(fieldName, 'accepted');
+            cardPanel.updateCardFields(this.cardFields);
+            chatPanel.addSystemMessage(`↩ Restored ${fieldName} to v${idx + 1}`, 'info');
+        } catch (err) {
+            console.error('[CCS] _restoreVersion:', err);
+            chatPanel.addSystemMessage(`❌ Failed to restore ${fieldName}: ${err.message}`, 'error');
+        }
     }
 
 
@@ -1161,14 +1195,19 @@ export class StudioPopup {
     // (calling non-existent memoryManager.logFieldGeneration) has been removed.
 
     async _handleAnnotationRequest(selectedText, action) {
-        const messages = {
-            expand:   `Expand on this: "${selectedText}" — add more detail while matching the existing tone.`,
-            specific: `Make this more specific: "${selectedText}" — replace vague language with concrete detail.`,
-            explain:  `Why was this choice made? "${selectedText}" — explain the creative reasoning.`,
-        };
-        const msg = messages[action] || `${action}: "${selectedText}"`;
-        chatPanel.addMessage('user', msg);
-        await this._handleUserMessage(msg);
+        try {
+            const messages = {
+                expand:   `Expand on this: "${selectedText}" — add more detail while matching the existing tone.`,
+                specific: `Make this more specific: "${selectedText}" — replace vague language with concrete detail.`,
+                explain:  `Why was this choice made? "${selectedText}" — explain the creative reasoning.`,
+            };
+            const msg = messages[action] || `${action}: "${selectedText}"`;
+            chatPanel.addMessage('user', msg);
+            await this._handleUserMessage(msg);
+        } catch (err) {
+            console.error('[CCS] _handleAnnotationRequest:', err);
+            chatPanel.addSystemMessage(`❌ Failed to process annotation: ${err.message}`, 'error');
+        }
     }
 
     _exportSessionLog() {

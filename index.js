@@ -150,6 +150,36 @@ function registerSTEvents() {
     }
 }
 
+// ── Cleanup function (unload extension properly) ─────────────────────────────
+
+function cleanup() {
+    try {
+        // Remove event listeners
+        if (eventSource && event_types) {
+            eventSource.off(event_types.APP_READY, createUI);
+            eventSource.off(event_types.APP_READY, init);
+            eventSource.off(event_types.CHARACTER_EDITED, () => studioPopup.refreshCardFields());
+        }
+
+        // Remove jQuery delegated events
+        $(document).off('click', SELECTORS.menuItem);
+        $(document).off('click', '#ccs-open-studio-btn');
+
+        // Remove DOM elements
+        $(SELECTORS.menuItem).parent().remove(); // Remove container
+
+        // Close any open panels/modals
+        if (studioPopup) studioPopup.close();
+        if (settingsModal) settingsModal.close();
+
+        // Clear initialization flag
+        window._ccsInitialized = false;
+
+        console.log(`[${EXT_NAME}] Cleanup complete ✓`);
+    } catch (err) {
+        console.warn(`[${EXT_NAME}] Cleanup failed:`, err);
+    }
+}
 
 // ── Open studio ───────────────────────────────────────────────────────────────
 
@@ -176,3 +206,13 @@ $(document).ready(() => {
     // Fallback: run after 2 seconds regardless
     setTimeout(init, 2000);
 });
+
+// ── Export for ST extension API (enables hot-reload support) ─────────────────
+
+if (typeof window.SillyTavern === 'undefined') {
+    window.SillyTavern = {};
+}
+if (typeof window.SillyTavern.extensions === 'undefined') {
+    window.SillyTavern.extensions = {};
+}
+window.SillyTavern.extensions.CharCardStudio = { init, cleanup };

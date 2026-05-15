@@ -15,6 +15,19 @@ export class ChatPanel {
         this._annotationAbort = null; // AbortController for annotation listener
         this._windowSize = 50;        // max .ccs-msg nodes in DOM at once
         this._firstVisibleIdx = 0;    // index in this.messages of first DOM-rendered msg
+        this.abortController = null;  // For main event listener cleanup
+    }
+
+    // ── Cleanup method for event listeners ──────────────────────────────────
+    cleanup() {
+        if (this.abortController) {
+            this.abortController.abort();
+            this.abortController = null;
+        }
+        if (this._annotationAbort) {
+            this._annotationAbort.abort();
+            this._annotationAbort = null;
+        }
     }
 
     init(containerId, onSend, onAbort) {
@@ -24,6 +37,13 @@ export class ChatPanel {
     }
 
     bindInput(inputId, sendBtnId, abortBtnId) {
+        // ✅ MEMORY LEAK FIX: Cleanup old listeners before attaching new ones
+        this.cleanup();
+        
+        // Create new AbortController for this binding session
+        this.abortController = new AbortController();
+        const signal = this.abortController.signal;
+
         this.inputEl  = document.getElementById(inputId);
         this.sendBtn  = document.getElementById(sendBtnId);
         this.abortBtn = document.getElementById(abortBtnId);
@@ -31,22 +51,22 @@ export class ChatPanel {
         // Abort button hidden by default — shown during generation
         if (this.abortBtn) this.abortBtn.style.display = 'none';
 
-        this.sendBtn?.addEventListener('click', () => this._handleSend());
+        this.sendBtn?.addEventListener('click', () => this._handleSend(), { signal });
         this.abortBtn?.addEventListener('click', () => {
             this.onAbort?.();
             this.cancelStreaming(); // FIX: also clean up streaming element
             this.setInputEnabled(true); // re-enable immediately on stop
-        });
+        }, { signal });
 
         this.inputEl?.addEventListener('keydown', (e) => {
             if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); this._handleSend(); }
-        });
+        }, { signal });
 
         // Auto-grow textarea
         this.inputEl?.addEventListener('input', () => {
             this.inputEl.style.height = 'auto';
             this.inputEl.style.height = Math.min(this.inputEl.scrollHeight, 200) + 'px';
-        });
+        }, { signal });
     }
 
     _handleSend() {

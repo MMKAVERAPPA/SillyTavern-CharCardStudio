@@ -228,10 +228,24 @@ export class ApiManager {
             const result = await retryWithBackoff(() => {
                 if (settings.apiMode === 'profile' && settings.selectedProfile) {
                     return this.withProfile(settings.selectedProfile, () =>
-                        generateRaw(prompt, undefined, false, false, systemPrompt, signal)
+                        generateRaw({
+                            prompt,
+                            api: undefined,
+                            instructOverride: false,
+                            quietToConsole: false,
+                            systemPrompt,
+                            signal
+                        })
                     );
                 }
-                return generateRaw(prompt, undefined, false, false, systemPrompt, signal);
+                return generateRaw({
+                    prompt,
+                    api: undefined,
+                    instructOverride: false,
+                    quietToConsole: false,
+                    systemPrompt,
+                    signal
+                });
             });
 
             // Estimate tokens (approx 4 chars per token)
