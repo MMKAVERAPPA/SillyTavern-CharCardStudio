@@ -50,6 +50,18 @@ template picker, depth radar, style consistency & cross-reference audit, haptic 
 - **Why**: This merges attributes into existing character without needing FormData or file uploads
 - **Source**: Character Creator extension by bmen25124 uses sillytavern-utils-lib which uses this pattern
 
+### SillyTavern Worldinfo API - CRITICAL PATTERNS
+- **NO `/api/worldinfo/create` endpoint** - Use `/edit` for both create and update
+- **NO `/api/worldinfo/save` endpoint** - Use `/edit` for all modifications
+- **List endpoint**: `/api/worldinfo/list` (POST, no body) → Returns array `[{file_id, name, extensions}]`
+- **Get endpoint**: `/api/worldinfo/get` (POST, body: `{name}`) → Returns `{name, entries: {}, ...}`
+- **Create/Update endpoint**: `/api/worldinfo/edit` (POST, body: `{name, data}`) → Returns `{ok: true}`
+  - `data` must include: `{name, description, scan_depth, token_budget, recursive_scanning, extensions, entries}`
+  - `entries` MUST be an object (can be empty `{}`), not undefined or array
+  - Entry keys are numeric strings: `"0"`, `"1"`, `"2"` (not numbers or UUIDs)
+- **Delete endpoint**: `/api/worldinfo/delete` (POST, body: `{name}`) → Returns success
+- **CRITICAL**: `/get` with empty body `{}` returns 400 Bad Request (must include `name` field)
+
 ### `isolation: isolate` Breaks `position: fixed` - CRITICAL BUG
 - **Problem**: `.ccs-studio-overlay` had `isolation: isolate` in CSS
 - **Effect**: Creates a new containing block for `position: fixed` descendants
@@ -254,3 +266,77 @@ causing them to be positioned relative to the transformed element instead of the
 /* Min bar — was position:fixed, now position:absolute */
 .ccs-min-bar { position: absolute; bottom: 0; left: 0; right: 0; z-index: 50; }
 ```
+
+## Lorebook/Worldinfo API Fixes (2026-05-15)
+
+### Bug: Lorebook dropdown empty + Create fails
+- **Symptom #1**: Dropdown shows no lorebooks (400 Bad Request error)
+- **Symptom #2**: Create New Lorebook fails (404 Not Found error)
+- **Root Cause**: Using 3 incorrect/non-existent API endpoints
+
+### Fixes Applied to `core/worldinfo.js`:
+
+#### 1. `getLorebookList()` - Fixed 400 Bad Request
+**Before:**
+```javascript
+fetch('/api/worldinfo/get', { body: JSON.stringify({}) })  // ❌ Wrong endpoint, empty body
+return Object.keys(d || {});  // ❌ Wrong format
+```
+
+**After:**
+```javascript
+fetch('/api/worldinfo/list')  // ✅ Correct endpoint, no body needed
+return lorebooks.map(lb => lb.file_id);  // ✅ Extract names from array
+```
+
+#### 2. `createLorebook()` - Fixed 404 Not Found
+**Before:**
+```javascript
+fetch('/api/worldinfo/create', { ... })  // ❌ Endpoint doesn't exist
+body: JSON.stringify({ name })  // ❌ Wrong format
+```
+
+**After:**
+```javascript
+fetch('/api/worldinfo/edit', {  // ✅ Use /edit to create
+    body: JSON.stringify({ 
+        name, 
+        data: { 
+            entries: {},  // ✅ Required empty object
+            ...other fields 
+        }
+    })
+})
+```
+
+#### 3. `saveLorebook()` - Fixed 404 Not Found
+**Before:**
+```javascript
+fetch('/api/worldinfo/save', { ... })  // ❌ Endpoint doesn't exist
+body: JSON.stringify({ name, entries })  // ❌ Wrong format
+```
+
+**After:**
+```javascript
+fetch('/api/worldinfo/edit', {  // ✅ Same endpoint for create/update
+    body: JSON.stringify({ 
+        name,
+        data: {
+            entries,  // ✅ Wrapped in data object
+            ...full lorebook structure
+        }
+    })
+})
+```
+
+#### 4. Removed duplicate `Content-Type` header
+All methods now use just `getRequestHeaders()` instead of `Object.assign({ 'Content-Type': ... }, getRequestHeaders())`
+
+### Testing
+Run `/mnt/d/.../CharCardStudio/test-lorebook-api.js` in browser console to verify all 4 operations work.
+
+### Files Changed
+- `core/worldinfo.js` - Fixed 3 methods, cleaned up headers
+- `AGENT.md` - Documented worldinfo API patterns
+- `test-lorebook-api.js` - Created comprehensive test script
+

@@ -16,14 +16,15 @@ export class WorldInfoManager {
 
     async getLorebookList() {
         try {
-            const r = await fetch('/api/worldinfo/get', {
+            // ST uses /list endpoint, returns array of {file_id, name, extensions}
+            const r = await fetch('/api/worldinfo/list', {
                 method: 'POST',
-                headers: Object.assign({ 'Content-Type': 'application/json' }, getRequestHeaders()),
-                body: JSON.stringify({}),
+                headers: getRequestHeaders(),
             });
             if (!r.ok) throw new Error('Failed');
-            const d = await r.json();
-            return Object.keys(d || {});
+            const lorebooks = await r.json();
+            // Return array of file_id (lorebook names)
+            return lorebooks.map(lb => lb.file_id);
         } catch (err) {
             console.error('[CCS] getLorebookList:', err);
             return [];
@@ -34,7 +35,7 @@ export class WorldInfoManager {
         try {
             const r = await fetch('/api/worldinfo/get', {
                 method: 'POST',
-                headers: Object.assign({ 'Content-Type': 'application/json' }, getRequestHeaders()),
+                headers: getRequestHeaders(),
                 body: JSON.stringify({ name }),
             });
             if (!r.ok) throw new Error('Failed');
@@ -47,23 +48,51 @@ export class WorldInfoManager {
     }
 
     async saveLorebook(name, entries) {
-        const r = await fetch('/api/worldinfo/save', {
+        // ST uses /edit endpoint for both create and update
+        // Must provide full lorebook data structure
+        const data = {
+            name: name,
+            description: '',
+            scan_depth: 50,
+            token_budget: 2048,
+            recursive_scanning: false,
+            extensions: {},
+            entries: entries  // Object with numeric string keys ("0", "1", etc.)
+        };
+        const r = await fetch('/api/worldinfo/edit', {
             method: 'POST',
-            headers: Object.assign({ 'Content-Type': 'application/json' }, getRequestHeaders()),
-            body: JSON.stringify({ name, entries }),
+            headers: getRequestHeaders(),
+            body: JSON.stringify({ name, data }),
         });
-        if (!r.ok) throw new Error(`Save failed: ${r.statusText}`);
-        return true;
+        if (!r.ok) {
+            const errText = await r.text().catch(() => r.statusText);
+            throw new Error(`Save failed: ${errText}`);
+        }
+        const result = await r.json();
+        return result.ok;
     }
 
     async createLorebook(name) {
         if (!name?.trim()) throw new Error('Lorebook name cannot be empty');
-        const r = await fetch('/api/worldinfo/create', {
+        // ST has no /create endpoint - use /edit with empty entries
+        const data = {
+            name: name.trim(),
+            description: 'Created by CharCardStudio',
+            scan_depth: 50,
+            token_budget: 2048,
+            recursive_scanning: false,
+            extensions: {},
+            entries: {}  // REQUIRED - empty object for new lorebook
+        };
+        const r = await fetch('/api/worldinfo/edit', {
             method: 'POST',
-            headers: Object.assign({ 'Content-Type': 'application/json' }, getRequestHeaders()),
-            body: JSON.stringify({ name: name.trim() }),
+            headers: getRequestHeaders(),
+            body: JSON.stringify({ name: name.trim(), data }),
         });
-        if (!r.ok) throw new Error(`Create failed: ${r.statusText}`);
+        if (!r.ok) {
+            const errText = await r.text().catch(() => r.statusText);
+            throw new Error(`Create failed: ${errText}`);
+        }
         return name.trim();
     }
 
