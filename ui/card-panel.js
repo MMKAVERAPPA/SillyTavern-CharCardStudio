@@ -350,7 +350,10 @@ export class CardPanel {
     }
 
     _renderTags() {
-        const tags = this.cardFields?.tags || [];
+        // Defensive: ensure tags is always an array (fix for corrupted data)
+        const rawTags = this.cardFields?.tags;
+        const tags = Array.isArray(rawTags) ? rawTags : [];
+        
         if (!tags.length) return '<span class="ccs-tag-empty">No tags yet — click ✨ to auto-infer</span>';
         return tags.map(t =>
             `<span class="ccs-tag-chip">${t} <button class="ccs-tag-remove" data-tag="${t}">✕</button></span>`

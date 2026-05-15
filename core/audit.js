@@ -98,10 +98,19 @@ export class AuditEngine {
                 AUTO_TAG_PROMPT + `\nPlatform: ${platformTarget || 'chub'}`,
                 content
             );
-            // Parse comma-separated tags from result
-            const tagLine = result?.split('\n').find(l => l.includes(',') || /^[a-z]/.test(l.trim()));
-            if (tagLine) {
-                return tagLine.split(',').map(t => t.trim()).filter(t => t.length > 0 && t.length < 40);
+            // Robust parsing: find line with comma-separated tags
+            // Ignore lines that look like field definitions (e.g., "first_mes:", "tags:")
+            const lines = result?.split('\n') || [];
+            for (const line of lines) {
+                // Skip empty lines or lines that look like JSON/field keys
+                const trimmed = line.trim();
+                if (!trimmed || trimmed.includes(':') || trimmed.startsWith('{') || trimmed.startsWith('[')) continue;
+                
+                // Must contain commas and start with lowercase (tag format)
+                if (trimmed.includes(',') && /^[a-z]/.test(trimmed)) {
+                    const tags = trimmed.split(',').map(t => t.trim()).filter(t => t.length > 0 && t.length < 40);
+                    if (tags.length > 0) return tags;
+                }
             }
             return [];
         } catch { return []; }

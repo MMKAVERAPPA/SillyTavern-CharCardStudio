@@ -68,7 +68,7 @@ export class StudioPopup {
         }
 
         this.characterId = characterId;
-        this.cardFields = cardManager.readCurrentCard();
+        this.cardFields = this._sanitizeCardFields(cardManager.readCurrentCard());
         if (!this.cardFields) {
             // Character ID exists but card read failed — open in no-char mode
             this._buildNoCharDOM();
@@ -229,11 +229,22 @@ export class StudioPopup {
         if (!this.isOpen || this.isMinimized || chatEngine.isGenerating) return;
         const fresh = cardManager.readCurrentCard();
         if (!fresh) return;
-        this.cardFields = fresh;
+        this.cardFields = this._sanitizeCardFields(fresh);
         cardPanel.updateCardFields(this.cardFields);
         // Also update the name label in the header
         const nameEl = this.$('#ccs-char-name');
         if (nameEl) nameEl.textContent = fresh.name || 'Character';
+    }
+
+    // Ensure critical fields have correct types (defensive programming)
+    _sanitizeCardFields(fields) {
+        if (!fields) return fields;
+        // Fix tags: must always be an array
+        if (fields.tags && !Array.isArray(fields.tags)) {
+            console.warn('[CCS] Corrupted tags field detected, resetting to empty array');
+            fields.tags = [];
+        }
+        return fields;
     }
 
     // ── DOM build — NO document.getElementById here ───────────────────────────
