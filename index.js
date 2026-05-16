@@ -1,215 +1,241 @@
-// index.js
-// SillyTavern Extension entry point for Character Card Studio v3.0.0
-// Uses the same proven pattern as SillyTavern-MemoryBooks for maximum compatibility.
+/**
+ * CharCardStudio v4.0.0 — index.js
+ * Entry point. Loaded by SillyTavern as type="module".
+ *
+ * Responsibilities:
+ *  - Detect extension path (for renderExtensionTemplateAsync)
+ *  - Inject settings.html into ST's extensions panel
+ *  - Inject window.html into document body
+ *  - Wire the "Open Studio" button
+ *  - Subscribe to ST events (CHARACTER_EDITED, etc.)
+ *  - Initialize all core modules
+ */
 
-import { eventSource, event_types } from '../../../../script.js';
-import { SlashCommandParser } from '../../../slash-commands/SlashCommandParser.js';
-import { SlashCommand } from '../../../slash-commands/SlashCommand.js';
+import { initSessionManager, loadSession, saveSession, clearCurrentSession, getSession } from './core/session.js';
+import { initMultiTab, releaseLock } from './core/multi-tab.js';
+import { openStudio, closeStudio, bindAppEvents, updateCharacterName } from './ui/app.js';
+import { bindChatEvents, renderMessages } from './ui/chat.js';
+import { showToast } from './ui/toast.js';
 
-import { studioPopup } from './ui/popup.js';
-import { settingsModal } from './ui/settings-modal.js';
-import { memoryManager } from './core/memory.js';
-import { cardManager } from './core/card.js';
-import { apiManager } from './core/api.js';
-import { toastManager } from './ui/toast.js';
+// ─── Extension Path Detection ─────────────────────────────────────────────────
+// ST loads extensions from: /scripts/extensions/third-party/CharCardStudio/index.js
+// We need the path prefix for renderExtensionTemplateAsync.
 
-const EXT_NAME = 'CharCardStudio';
+let EXT_PATH = 'third-party/CharCardStudio';
 
-// ── jQuery shorthand (always available in ST) ────────────────────────────────
-const $ = window.jQuery;
+try {
+    // Use import.meta.url if available (ES module context)
+    if (import.meta?.url) {
+        const match = new URL(import.meta.url).pathname.match(/\/scripts\/extensions\/(.+)\/[^/]+\.js$/);
+        if (match) EXT_PATH = match[1];
+    }
+} catch (_) {
+    // Fallback: scan script tags
+    for (const s of document.getElementsByTagName('script')) {
+        if (s.src && s.src.toLowerCase().includes('charcardstudio')) {
+            const match = new URL(s.src).pathname.match(/\/scripts\/extensions\/(.+)\/[^/]+\.js$/);
+            if (match) { EXT_PATH = match[1]; break; }
+        }
+    }
+}
 
-// ── Selectors ────────────────────────────────────────────────────────────────
-const SELECTORS = {
-    extensionsMenu: '#extensionsMenu',
-    menuItem: '#ccs-menu-item',
-};
+console.log(`[CCS] Loaded from: ${EXT_PATH}`);
 
-// ── Main init (mirrors MemoryBooks pattern exactly) ──────────────────────────
+// ─── ST Context Helpers ───────────────────────────────────────────────────────
+
+function getCtx() {
+    return SillyTavern?.getContext?.() ?? null;
+}
+
+function getRequestHeaders() {
+    return getCtx()?.getRequestHeaders?.() ?? { 'Content-Type': 'application/json' };
+}
+
+// ─── Initialization ───────────────────────────────────────────────────────────
 
 async function init() {
-    // Guard: only run once
-    if (window._ccsInitialized) return;
-    window._ccsInitialized = true;
+    console.log('[CCS] Initializing Character Card Studio v4.0.0...');
 
-    // Global error boundary: surface unhandled CCS rejections as a toast
-    // rather than silently losing them or crashing the page.
-    if (!window._ccsErrorBoundary) {
-        window._ccsErrorBoundary = true;
-        window.addEventListener('unhandledrejection', (event) => {
-            const reason = event.reason;
-            if (!reason) return;
-            const stack = reason?.stack || reason?.message || String(reason);
-            // Only catch errors originating from CharCardStudio code paths
-            if (!stack.includes('CharCardStudio') && !stack.includes('/ccs-')) return;
-            console.error(`[${EXT_NAME}] Unhandled rejection:`, reason);
-            toastManager.show(`⚠️ Studio error: ${reason?.message || reason}`, 'error');
-        });
-    }
+    // 1. Initialize session manager (localforage)
+    initSessionManager();
 
-    // DEBUG: Expose modules to window for console testing
-    if (!window._ccsModules) {
-        window._ccsModules = {
-            studioPopup,
-            settingsModal,
-            memoryManager,
-            cardManager,
-            apiManager,
-            toastManager,
-        };
-    }
+    // 2. Initialize multi-tab coordination
+    initMultiTab();
 
-    // Init memory/settings
-    try { memoryManager.init(); } catch (e) { console.warn(`[${EXT_NAME}] memoryManager.init failed:`, e); }
+    // 3. Inject settings.html into ST's extensions panel
+    await _injectSettingsPanel();
 
-    // Poll until the extensions menu is available (same approach as MemoryBooks)
-    let attempts = 0;
-    while ($(SELECTORS.extensionsMenu).length === 0 && attempts < 20) {
-        await new Promise(resolve => setTimeout(resolve, 500));
-        attempts++;
-    }
+    // 4. Inject main window template into body
+    await _injectWindowTemplate();
 
-    // Inject the wand-menu entry
-    createUI();
+    // 5. Bind all UI events
+    bindAppEvents();
+    bindChatEvents();
 
-    // Register slash command
-    registerSlashCommand();
+    // 6. Wire the Open Studio button in settings drawer
+    _bindSettingsButton();
 
-    // Register ST event listeners
-    registerSTEvents();
+    // 7. Subscribe to ST events
+    _subscribeToSTEvents();
 
-    console.log(`[${EXT_NAME}] v3.5.0 loaded ✓`);
+    // 8. Handle page unload — save session and release lock
+    window.addEventListener('beforeunload', _onBeforeUnload);
+
+    console.log('[CCS] Ready.');
 }
 
-// ── Wand-menu entry (the ONLY entry point — works on desktop and mobile) ──────
+// ─── Settings Panel Injection ─────────────────────────────────────────────────
 
-function createUI() {
-    // Don't inject twice
-    if ($(SELECTORS.menuItem).length > 0) return;
+async function _injectSettingsPanel() {
+    const ctx = getCtx();
+    const container = document.getElementById('extensions_settings')
+        || document.getElementById('extensions_settings2');
 
-    const menuItem = $(`
-        <div id="ccs-menu-item-container" class="extension_container interactable" tabindex="0">
-            <div id="ccs-menu-item" class="list-group-item flex-container flexGap5 interactable" tabindex="0">
-                <div class="fa-fw fa-solid fa-pen-nib extensionsMenuExtensionButton"></div>
-                <span>Card Studio</span>
-            </div>
-        </div>
-    `);
-
-    const extensionsMenu = $(SELECTORS.extensionsMenu);
-    if (extensionsMenu.length > 0) {
-        extensionsMenu.append(menuItem);
-        console.log(`[${EXT_NAME}] Extensions menu entry injected`);
-    } else {
-        console.warn(`[${EXT_NAME}] Extensions menu not found`);
+    if (!container) {
+        console.warn('[CCS] extensions_settings container not found.');
+        return;
     }
-}
 
-// ── Bind click via jQuery event delegation (robust, survives DOM mutations) ──
-
-$(document).on('click', SELECTORS.menuItem, () => openStudio());
-
-// Settings panel "Open Studio" button (injected by ST from settings.html)
-$(document).on('click', '#ccs-open-studio-btn', () => openStudio());
-
-// ── Slash command ─────────────────────────────────────────────────────────────
-
-function registerSlashCommand() {
     try {
-        SlashCommandParser.addCommandObject(
-            SlashCommand.fromProps({
-                name: 'charforge',
-                aliases: ['ccs', 'cardstudio'],
-                helpString: 'Open the Character Card Studio',
-                unnamedArgumentList: [],
-                callback: () => { openStudio(); return ''; },
-            })
-        );
-        console.log(`[${EXT_NAME}] Slash commands registered`);
-    } catch (err) {
-        console.warn(`[${EXT_NAME}] Slash command registration failed:`, err);
-    }
-}
-
-// ── ST event listeners ────────────────────────────────────────────────────────
-
-function registerSTEvents() {
-    try {
-        if (!eventSource || !event_types) return;
-
-        // Re-inject menu entry if ST re-renders the UI
-        eventSource.on(event_types.APP_READY, () => createUI());
-
-        // BUG-032 FIX: Refresh the studio's full card field cache when the user
-        // edits the character externally in ST while the studio is open.
-        // Previously this only updated the name label, leaving cardFields stale.
-        eventSource.on(event_types.CHARACTER_EDITED, () => {
-            studioPopup.refreshCardFields();
-        });
-    } catch (err) {
-        console.warn(`[${EXT_NAME}] Event registration failed:`, err);
-    }
-}
-
-// ── Cleanup function (unload extension properly) ─────────────────────────────
-
-function cleanup() {
-    try {
-        // Note: ST's eventSource doesn't support removing event listeners
-        // This is acceptable since ST doesn't currently support extension hot-reload
-        // Event listeners will be cleaned up when the page reloads
-
-        // Remove jQuery delegated events
-        $(document).off('click', SELECTORS.menuItem);
-        $(document).off('click', '#ccs-open-studio-btn');
-
-        // Remove DOM elements
-        $(SELECTORS.menuItem).parent().remove(); // Remove container
-
-        // Close any open panels/modals
-        if (studioPopup) studioPopup.close();
-        if (settingsModal) settingsModal.close();
-
-        // Clear initialization flag
-        window._ccsInitialized = false;
-
-        console.log(`[${EXT_NAME}] Cleanup complete ✓`);
-    } catch (err) {
-        console.warn(`[${EXT_NAME}] Cleanup failed:`, err);
-    }
-}
-
-// ── Open studio ───────────────────────────────────────────────────────────────
-
-function openStudio() {
-    try {
-        const support = apiManager.checkApiSupport();
-        if (!support.generateRaw) {
-            toastManager.show('⚠️ SillyTavern 1.12+ required for generation. Studio opened in read-only mode.', 'warning');
-        } else if (!support.isConnected) {
-            toastManager.show('⚠️ No API connected. Connect one in ST to generate.', 'warning');
+        let html;
+        if (ctx?.renderExtensionTemplateAsync) {
+            html = await ctx.renderExtensionTemplateAsync(EXT_PATH, 'settings');
+        } else {
+            // Fallback: fetch directly
+            const res = await fetch(`/scripts/extensions/${EXT_PATH}/settings.html`);
+            html = await res.text();
         }
+        if (html) container.insertAdjacentHTML('beforeend', html);
     } catch (err) {
-        console.warn(`[${EXT_NAME}] API check failed:`, err);
+        console.error('[CCS] Failed to inject settings panel:', err);
     }
-    studioPopup.open();
 }
 
-// ── Bootstrap — same as MemoryBooks ──────────────────────────────────────────
+// ─── Window Template Injection ────────────────────────────────────────────────
 
-$(document).ready(() => {
-    if (eventSource && event_types?.APP_READY) {
-        eventSource.on(event_types.APP_READY, init);
+async function _injectWindowTemplate() {
+    // Check if already injected
+    if (document.getElementById('ccs_window')) return;
+
+    const ctx = getCtx();
+
+    try {
+        let html;
+        if (ctx?.renderExtensionTemplateAsync) {
+            html = await ctx.renderExtensionTemplateAsync(EXT_PATH, 'templates/window');
+        } else {
+            const res = await fetch(`/scripts/extensions/${EXT_PATH}/templates/window.html`);
+            html = await res.text();
+        }
+        if (html) document.body.insertAdjacentHTML('beforeend', html);
+    } catch (err) {
+        console.error('[CCS] Failed to inject window template:', err);
+        showToast('Studio failed to load template.', 'error');
     }
-    // Fallback: run after 2 seconds regardless
-    setTimeout(init, 2000);
-});
-
-// ── Export for ST extension API (enables hot-reload support) ─────────────────
-
-if (typeof window.SillyTavern === 'undefined') {
-    window.SillyTavern = {};
 }
-if (typeof window.SillyTavern.extensions === 'undefined') {
-    window.SillyTavern.extensions = {};
+
+// ─── Button Binding ───────────────────────────────────────────────────────────
+
+function _bindSettingsButton() {
+    // Use event delegation — the button may be injected after DOMContentLoaded
+    document.addEventListener('click', (e) => {
+        if (e.target.closest('#ccs_open_studio_btn')) {
+            e.preventDefault();
+            openStudio();
+        }
+    });
 }
-window.SillyTavern.extensions.CharCardStudio = { init, cleanup };
+
+// ─── ST Event Subscriptions ───────────────────────────────────────────────────
+
+function _subscribeToSTEvents() {
+    const ctx = getCtx();
+    if (!ctx) return;
+
+    const es = ctx.eventSource || window.eventSource;
+    const et = ctx.event_types || window.event_types || {};
+
+    if (!es) {
+        console.warn('[CCS] ST eventSource not available.');
+        return;
+    }
+
+    // Character switched — save current session, load new one
+    const onCharacterChange = async () => {
+        const prevSession = getSession();
+        if (prevSession) {
+            saveSession(true);
+            clearCurrentSession();
+        }
+
+        const newCtx = getCtx();
+        const character = newCtx?.characters?.[newCtx?.characterId];
+
+        if (character?.avatar) {
+            await loadSession(character.avatar, character.name || '');
+
+            // Update UI if studio is open
+            const windowEl = document.getElementById('ccs_window');
+            if (windowEl && windowEl.style.display !== 'none') {
+                updateCharacterName(character.name || '');
+                renderMessages();
+            }
+        }
+    };
+
+    // CHARACTER_EDITED — another process saved the card, update our hash tracking
+    const onCharacterEdited = () => {
+        // Will be used in Phase C for manual edit detection
+        console.log('[CCS] Character edited externally.');
+    };
+
+    // APP_READY — ST is fully loaded
+    const onAppReady = () => {
+        console.log('[CCS] ST APP_READY received.');
+        // Load session for currently selected character if any
+        const ctx = getCtx();
+        const character = ctx?.characters?.[ctx?.characterId];
+        if (character?.avatar) {
+            loadSession(character.avatar, character.name || '').catch(console.error);
+        }
+    };
+
+    // Subscribe
+    if (et.CHAT_CHANGED) es.on(et.CHAT_CHANGED, onCharacterChange);
+    if (et.CHARACTER_SELECTED) es.on(et.CHARACTER_SELECTED, onCharacterChange);
+    if (et.CHARACTER_EDITED) es.on(et.CHARACTER_EDITED, onCharacterEdited);
+    if (et.APP_READY) es.on(et.APP_READY, onAppReady);
+
+    // Fallback string event names
+    if (!et.CHAT_CHANGED) es.on('chat_changed', onCharacterChange);
+    if (!et.CHARACTER_SELECTED) es.on('character_selected', onCharacterChange);
+    if (!et.APP_READY) es.on('app_ready', onAppReady);
+}
+
+// ─── Page Unload ──────────────────────────────────────────────────────────────
+
+function _onBeforeUnload() {
+    saveSession(true);
+    releaseLock();
+}
+
+// ─── Bootstrap ───────────────────────────────────────────────────────────────
+// ST loads this as type="module". Use jQuery's ready (ST's jQuery is available globally)
+// to ensure DOM is ready before injection.
+
+if (typeof jQuery !== 'undefined') {
+    jQuery(async () => {
+        try {
+            await init();
+        } catch (err) {
+            console.error('[CCS] Initialization failed:', err);
+        }
+    });
+} else {
+    // Fallback if jQuery somehow not available
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', init);
+    } else {
+        setTimeout(init, 0);
+    }
+}
