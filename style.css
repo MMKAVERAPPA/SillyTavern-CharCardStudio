@@ -135,6 +135,7 @@ html {
   align-items: center;
   gap: 4px;
   flex-shrink: 0;
+  margin-left: auto;
 }
 
 /* Mode Selector */
@@ -1263,7 +1264,7 @@ html {
 
   /* Input area */
   .ccs-input-area {
-    padding: 8px 12px 10px;
+    padding: 8px 12px 14px;
   }
 
   /* Welcome */

@@ -72,8 +72,9 @@ async function init() {
     bindAppEvents();
     bindChatEvents();
 
-    // 6. Wire the Open Studio button in settings drawer
+    // 6. Wire the Open Studio button in settings drawer + wand menu
     _bindSettingsButton();
+    _addWandMenuButton();
 
     // 7. Subscribe to ST events
     _subscribeToSTEvents();
@@ -82,6 +83,25 @@ async function init() {
     window.addEventListener('beforeunload', _onBeforeUnload);
 
     console.log('[CCS] Ready.');
+}
+
+// ─── Wand Menu Button ────────────────────────────────────────────────────────
+
+function _addWandMenuButton() {
+    const menu = document.getElementById('extensionsMenu');
+    if (!menu || document.getElementById('ccs_wand_btn')) return;
+
+    const btn = document.createElement('div');
+    btn.id = 'ccs_wand_btn';
+    btn.classList.add('list-group-item', 'flex-container', 'flexGap5');
+    btn.innerHTML = '<div class="fa-solid fa-wand-magic-sparkles extensionsMenuExtensionButton"></div><span>Character Card Studio</span>';
+    btn.title = 'Open Character Card Studio';
+    btn.addEventListener('click', () => {
+        // Close the extensions menu
+        document.getElementById('extensionsMenuButton')?.click();
+        openStudio();
+    });
+    menu.appendChild(btn);
 }
 
 // ─── Settings Panel Injection ─────────────────────────────────────────────────
@@ -192,6 +212,7 @@ function _subscribeToSTEvents() {
     // APP_READY — ST is fully loaded
     const onAppReady = () => {
         console.log('[CCS] ST APP_READY received.');
+        _addWandMenuButton(); // Retry in case menu wasn't ready at init
         // Load session for currently selected character if any
         const ctx = getCtx();
         const character = ctx?.characters?.[ctx?.characterId];
