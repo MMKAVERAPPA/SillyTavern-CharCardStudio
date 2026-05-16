@@ -217,13 +217,27 @@ export class MemoryManager {
     compressOldMessages(session, brief) {
         const historyLimit = this.settings.globalSettings.historyLimit || 20;
         const toCompress = session.conversationHistory.slice(0, -historyLimit);
-        // Merge existing briefs into one entry
-        const mergedBrief = session.sessionBriefs.length > 0
-            ? '[Merged history] ' + session.sessionBriefs.map(b => b.brief).join(' | ') + ' [Latest] ' + brief
-            : brief;
-        session.sessionBriefs = [{ brief: mergedBrief, messageCount: toCompress.length, timestamp: Date.now() }];
+        
+        // Don't merge briefs - keep them separate and trim old ones
+        if (!session.sessionBriefs) session.sessionBriefs = [];
+        
+        // Add new brief
+        session.sessionBriefs.push({ 
+            brief, 
+            messageCount: toCompress.length, 
+            timestamp: Date.now() 
+        });
+        
+        // Keep only last 5 briefs (prevents exponential growth)
+        const maxBriefs = 5;
+        if (session.sessionBriefs.length > maxBriefs) {
+            session.sessionBriefs = session.sessionBriefs.slice(-maxBriefs);
+        }
+        
+        // Remove compressed messages from history
         session.conversationHistory = session.conversationHistory.slice(-historyLimit);
-        console.log(`[CCS] Compressed ${toCompress.length} old messages, keeping last ${historyLimit}`);
+        
+        console.log(`[CCS] Compressed ${toCompress.length} old messages into brief (${session.sessionBriefs.length} total briefs), keeping last ${historyLimit} messages`);
     }
 
     // Throttled auto-save to prevent excessive localStorage writes

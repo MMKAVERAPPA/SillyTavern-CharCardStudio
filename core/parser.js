@@ -220,13 +220,31 @@ export function parseConceptRating(text) {
     const tableRows = [...pillarText.matchAll(/^\|\s*([^|]+?)\s*\|[^\n]+$/gm)];
     const tablePillars = tableRows
         .map(m => m[1].trim())
-        .filter(name => 
-            name.length > 3 && 
-            name.length < 200 && 
-            !name.toLowerCase().includes('pillar') && // Skip header row
-            !name.toLowerCase().includes('what it does') &&
-            name !== '---' // Skip separator
-        );
+        .filter(name => {
+            const lower = name.toLowerCase();
+            const cleaned = name.replace(/[*_\-]/g, '').trim();
+            
+            // Skip if too short/long
+            if (cleaned.length < 5 || cleaned.length > 200) return false;
+            
+            // Skip headers
+            if (lower.includes('pillar') || lower.includes('what it') || lower.includes('description')) return false;
+            
+            // Skip separators (all dashes)
+            if (/^[\-=_]+$/.test(cleaned)) return false;
+            
+            // Skip field names (common card fields)
+            const fieldNames = ['description', 'personality', 'scenario', 'first mes', 'first_mes', 
+                              'mes example', 'mes_example', 'system prompt', 'system_prompt',
+                              'alternate greetings', 'creator notes', 'tags', 'name', 'issue', 
+                              'field', 'component', 'status', 'missing', 'incomplete'];
+            if (fieldNames.some(f => lower === f || lower.includes(f + ' ('))) return false;
+            
+            // Skip if looks like a status/label (starts with uppercase word then lowercase)
+            if (/^[A-Z][a-z]+\s*\/\s*[A-Z][a-z]+/.test(name)) return false; // "Missing / Incomplete"
+            
+            return true;
+        });
     
     const allPillarLines = [...pillarMatches, ...numberedPillars, ...questionMarks];
     
@@ -239,7 +257,34 @@ export function parseConceptRating(text) {
         totalMatches: allPillarLines.length + tablePillars.length
     });
     
-    // Combine all formats
+    // Combine all formats with strict filtering
+    const isValidPillar = (name) => {
+        const lower = name.toLowerCase();
+        const cleaned = name.replace(/[*_\-]/g, '').trim();
+        
+        // Skip if too short/long
+        if (cleaned.length < 5 || cleaned.length > 200) return false;
+        
+        // Skip separators (all dashes/equals)
+        if (/^[\-=_]+$/.test(cleaned)) return false;
+        
+        // Skip field names (common card fields)
+        const fieldNames = ['description', 'personality', 'scenario', 'first mes', 'first_mes', 
+                          'mes example', 'mes_example', 'system prompt', 'system_prompt',
+                          'alternate greetings', 'creator notes', 'tags', 'name', 'issue', 
+                          'field', 'component', 'status', 'missing', 'incomplete', 'tracker',
+                          'total', 'permanent', 'optional'];
+        if (fieldNames.some(f => lower === f || lower.startsWith('**' + f))) return false;
+        
+        // Skip if looks like a status/label
+        if (/^[A-Z][a-z]+\s*\/\s*[A-Z][a-z]+/.test(name)) return false; // "Missing / Incomplete"
+        
+        // Skip if looks like an instruction (starts with "Fix:", "Add:", etc.)
+        if (/^(Fix|Add|Create|Update|Remove|Delete|Check|Verify):/i.test(cleaned)) return false;
+        
+        return true;
+    };
+    
     result.pillars = [
         ...allPillarLines.map(m => {
             let name = m[1].trim().replace(/[*_]/g, '');
@@ -247,7 +292,7 @@ export function parseConceptRating(text) {
             return { name, resolved: false, answer: '' };
         }),
         ...tablePillars.map(name => ({ name, resolved: false, answer: '' }))
-    ].filter(p => p.name.length > 3 && p.name.length < 200);
+    ].filter(p => isValidPillar(p.name));
 
     // Fallback: if no pillars found, try to extract questions from text
     if (result.pillars.length === 0) {

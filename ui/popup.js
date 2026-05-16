@@ -1169,23 +1169,24 @@ export class StudioPopup {
             chatPanel.addMessage('assistant', msg);
             memoryManager.addMessage(this.session, 'assistant', `[Audit Report]\n${msg}`);
             
-            // Try to parse concept rating from audit (same as review)
+            // Try to parse concept rating from audit (ONLY ratings, NOT pillars)
             const { parseConceptRating } = await import('../core/parser.js');
             const rating = parseConceptRating(result.raw);
-            if (rating && (rating.scores && Object.keys(rating.scores).length > 0 || rating.pillars?.length)) {
-                this.session.ideaMemory.conceptRating = rating;
-                if (rating.pillars?.length) {
-                    // Merge with existing pillars, don't replace
-                    const existingNames = new Set((this.session.ideaMemory.pillars || []).map(p => p.name));
-                    const newPillars = rating.pillars.filter(p => !existingNames.has(p.name));
-                    if (newPillars.length) {
-                        this.session.ideaMemory.pillars = [...(this.session.ideaMemory.pillars || []), ...newPillars];
-                        chatPanel.addSystemMessage(`✅ Found ${newPillars.length} new pillar(s) from audit`, 'info');
-                    }
+            if (rating && rating.scores && Object.keys(rating.scores).length > 0) {
+                // Only update the scores, NOT the pillars
+                if (!this.session.ideaMemory.conceptRating) {
+                    this.session.ideaMemory.conceptRating = { conceptName: '', scores: {}, overall: '', pillars: [] };
                 }
+                this.session.ideaMemory.conceptRating.scores = rating.scores;
+                this.session.ideaMemory.conceptRating.overall = rating.overall;
+                
                 ideaPanel.render(this.session.ideaMemory);
-                console.log('[CCS] Updated rating from audit:', rating);
+                console.log('[CCS] Updated rating from audit (scores only):', rating.scores);
             }
+            
+            // NOTE: Audit findings are NOT concept pillars, so we don't merge them
+            // Pillars are design decisions ("Core Motivation", "Voice & Speech")
+            // Audit results are field issues ("Missing Scenario", "Incomplete Description")
             
             memoryManager.saveSession(this.characterId, this.session);
         } catch (err) {

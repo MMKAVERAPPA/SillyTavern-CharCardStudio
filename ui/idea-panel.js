@@ -35,7 +35,11 @@ export class IdeaPanel {
                 const name = e.target.dataset.name;
                 if (name) this.onResolvePillar?.(name);
             }
-            if (e.target.id === 'ccs-format-toggle') {
+            // Fix: Use closest() to handle clicks on button children (text nodes, etc.)
+            const formatBtn = e.target.closest('#ccs-format-toggle');
+            if (formatBtn) {
+                e.preventDefault();
+                e.stopPropagation();
                 this.onFormatToggle?.();
             }
         }, { signal });
@@ -171,6 +175,14 @@ export class IdeaPanel {
     }
 
     _renderRating(rating) {
+        if (!rating || !rating.scores || Object.keys(rating.scores).length === 0) {
+            // Still show overall verdict if it exists
+            if (rating?.overall) {
+                return `<div class="ccs-rating-block" style="margin-top:12px;"><div class="ccs-rating-overall">${this._esc(rating.overall)}</div></div>`;
+            }
+            return ''; // Don't render if no scores and no overall
+        }
+        
         const axes = ['Hook Strength','Longevity/Depth','Originality','RP Potential','Platform Appeal'];
         return `
             <div class="ccs-rating-block" style="margin-top:12px;">
