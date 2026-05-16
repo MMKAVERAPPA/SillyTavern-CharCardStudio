@@ -191,12 +191,14 @@ function _detectMobile() {
     const app = el('ccs_app');
     if (!app) return;
 
-    if (_isMobile !== wasMobile) {
-        app.classList.toggle('ccs-mobile', _isMobile);
-        if (_isMobile) {
-            // Mobile: show chat panel by default
-            _setMobilePanel('chat');
-        }
+    app.classList.toggle('ccs-mobile', _isMobile);
+
+    if (_isMobile && !wasMobile) {
+        // Switched to mobile — show chat panel by default
+        _setMobilePanel('chat');
+    } else if (!_isMobile && wasMobile) {
+        // Switched back to desktop — remove panel-active class
+        app.classList.remove('ccs-mobile-panel-active');
     }
 }
 
@@ -205,17 +207,12 @@ function _setMobilePanel(panel) {
     const app = el('ccs_app');
     if (!app) return;
 
-    // Show/hide panels
-    const chatPanel = el('ccs_chat_panel');
-    const rightPanel = el('ccs_right_panel');
-
+    // Use class-based toggling — CSS media queries handle display rules
+    // We only need to manage the panel-active state class
     if (panel === 'chat') {
-        if (chatPanel) chatPanel.style.display = 'flex';
-        if (rightPanel) rightPanel.style.display = 'none';
+        app.classList.remove('ccs-mobile-panel-active');
     } else {
-        if (chatPanel) chatPanel.style.display = 'none';
-        if (rightPanel) rightPanel.style.display = 'flex';
-        // Switch to the right tab
+        app.classList.add('ccs-mobile-panel-active');
         switchTab(panel);
     }
 
