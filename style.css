@@ -297,6 +297,7 @@ html {
   display: flex;
   flex-direction: column;
   min-width: 0;
+  min-height: 0;
   border-right: 1px solid var(--ccs-border);
 }
 
@@ -1226,10 +1227,12 @@ html {
   /* Single panel layout */
   .ccs-main {
     flex-direction: column;
+    min-height: 0;
   }
 
   .ccs-chat-panel {
     flex: 1;
+    min-height: 0;
     border-right: none;
   }
 
