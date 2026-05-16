@@ -137,12 +137,22 @@ export class AuditEngine {
 
     // ── Card review (load existing card) ────────────────────────────────────
 
-    async reviewExistingCard(cardFields) {
+    async reviewExistingCard(cardFields, session = null) {
         const fieldSummary = this._buildFullCardSummary(cardFields);
         const base = buildBaseSystemPrompt();
+        
+        // Include conversation context if session exists
+        let contextAddition = '';
+        if (session?.conversationHistory?.length) {
+            const recentMessages = session.conversationHistory.slice(-5)
+                .map(m => `${m.role === 'user' ? 'User' : 'Assistant'}: ${m.content}`)
+                .join('\n');
+            contextAddition = `\n\n[Recent conversation context]\n${recentMessages}\n[End context]`;
+        }
+        
         const result = await chatEngine.generateBackground(
             base + '\n\n' + CARD_REVIEW_PROMPT,
-            `Review this character card:\n\n${fieldSummary}`
+            `Review this character card:\n\n${fieldSummary}${contextAddition}`
         );
         return parseCardReview(result);
     }

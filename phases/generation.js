@@ -122,14 +122,35 @@ export class GenerationPhase {
         // Add variation hint to prevent caching/repetition
         const variationHint = `[Generation timestamp: ${Date.now()}]\n[Note: If generating this field multiple times, provide fresh variation each time]\n\n`;
 
+        // CRITICAL: Format instructions for parser (fixes inconsistent name parsing)
+        const formatInstructions = `
+⚠️ IMPORTANT OUTPUT FORMAT:
+Your response MUST follow this EXACT format for the parser to recognize it:
+
+\`\`\`
+[Your generated ${fieldName} content here]
+\`\`\`
+
+Example for name field:
+\`\`\`
+Aeliana Stormweaver
+\`\`\`
+
+Example for description field:
+\`\`\`
+Aeliana is a battle-worn mercenary with silver hair and piercing gray eyes...
+\`\`\`
+
+DO NOT write "here are some options" or tables - just put the final content in ONE code block.
+After the code block, you can add commentary about your choices.
+`;
+
         const genPrompt = `${variationHint}Generate the **${fieldName}** field for this character card.
 
 ${fieldInstruction}
 
 Target length: ${tokens}
-
-Put the COMPLETE generated content inside a triple-backtick code block. After the block, add a brief note on key choices made.
-
+${formatInstructions}
 If you have ONE critical question that would significantly change output, ask it first. Otherwise, generate now based on the ideation decisions.`;
 
         cardPanel.setFieldStatus(fieldName, FIELD_STATUS.IN_PROGRESS);

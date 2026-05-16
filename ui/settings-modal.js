@@ -244,6 +244,11 @@ export class SettingsModal {
                     <!-- Session Tab -->
                     <div class="ccs-stab-panel" id="ccs-tab-panel-session">
                         <div class="ccs-setting-section">
+                            <div class="ccs-setting-label">Message History Limit</div>
+                            <input class="ccs-input" type="number" id="ccs-history-limit" value="${s.historyLimit||20}" min="5" max="50">
+                            <div class="ccs-setting-hint">Number of recent messages kept uncompressed (default: 20). Older messages are compressed into session briefs. Higher = more context retained but slower.</div>
+                        </div>
+                        <div class="ccs-setting-section">
                             <div class="ccs-setting-label">Compression Threshold</div>
                             <input class="ccs-input" type="number" id="ccs-compression" value="${s.compressionThreshold||15}" min="5" max="50">
                             <div class="ccs-setting-hint">Number of messages before session history is compressed to preserve context. Lower = more frequent compression.</div>
@@ -420,6 +425,7 @@ export class SettingsModal {
             utilityApiKey:      document.getElementById('ccs-util-apikey')?.value.trim() || '',
             utilityModel:       document.getElementById('ccs-util-model')?.value.trim() || '',
             customSystemPromptRules: document.getElementById('ccs-custom-rules')?.value || '',
+            historyLimit: parseInt(document.getElementById('ccs-history-limit')?.value) || 20,
             compressionThreshold: parseInt(document.getElementById('ccs-compression')?.value) || 15,
             parallelApiCalls: document.getElementById('ccs-parallel-api')?.checked !== false,
             inputLimitEnabled: document.getElementById('ccs-input-limit')?.checked !== false,

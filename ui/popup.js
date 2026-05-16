@@ -374,6 +374,7 @@ export class StudioPopup {
 
         ideaPanel.init('ccs-idea-panel-container');
         ideaPanel.onResolvePillar = (name) => ideationPhase._manualResolvePillar(name);
+        ideaPanel.onFormatToggle = () => this._toggleFormat();
         this._renderSnippetBar();
 
         // Resume banner
@@ -793,8 +794,28 @@ export class StudioPopup {
             content += `<div class="ccs-inspector-section" style="margin-bottom:12px;"><strong>System Prompt:</strong><pre style="background:var(--ccs-surface3); padding:8px; border-radius:4px; font-size:0.75rem; white-space:pre-wrap; word-wrap:break-word; border:1px solid var(--ccs-border2); max-height: 250px; overflow-y: auto;">${this._esc(payload.system)}</pre></div>`;
         }
         
+        // Show compressed session briefs if they exist
+        if (this.session.sessionBriefs && this.session.sessionBriefs.length > 0) {
+            const briefs = this.session.sessionBriefs;
+            const briefTok = Math.round(briefs.map(b => b.brief.length).reduce((a, c) => a + c, 0) / 4);
+            let briefsHtml = '<div style="display:flex; flex-direction:column; gap:4px;">';
+            for (const brief of briefs) {
+                briefsHtml += `
+                    <div style="background:var(--ccs-surface3); border:1px solid var(--ccs-border2); padding:8px; border-radius:4px; font-size:0.75rem;">
+                        <div style="color:var(--ccs-text3); font-weight:bold; margin-bottom:4px; font-size:0.65rem;">
+                            🗄 COMPRESSED ${brief.messageCount} MESSAGES (≈${Math.round(brief.brief.length / 4)} tokens)
+                        </div>
+                        <div style="white-space:pre-wrap; word-wrap:break-word;">${this._esc(brief.brief)}</div>
+                    </div>
+                `;
+            }
+            briefsHtml += '</div>';
+            content += `<div class="ccs-inspector-section" style="margin-bottom:12px;"><strong>Session Briefs (≈${briefTok} tokens):</strong><div style="background:var(--ccs-surface2); padding:8px; border-radius:4px; border:1px solid var(--ccs-border2); max-height: 200px; overflow-y: auto;">${briefsHtml}</div></div>`;
+        }
+        
         // Show actual history with pruned messages highlighted
         if (this.session.conversationHistory) {
+            const historyLimit = memoryManager.getGlobalSettings().historyLimit || 20;
             let historyHtml = '<div style="display:flex; flex-direction:column; gap:4px;">';
             for (const msg of this.session.conversationHistory) {
                 const isPruned = msg._pruned;
@@ -812,7 +833,7 @@ export class StudioPopup {
                 `;
             }
             historyHtml += '</div>';
-            content += `<div class="ccs-inspector-section" style="margin-bottom:12px;"><strong>Conversation History (${this.session.conversationHistory.length} msgs):</strong><div style="background:var(--ccs-surface2); padding:8px; border-radius:4px; border:1px solid var(--ccs-border2); max-height: 300px; overflow-y: auto;">${historyHtml}</div></div>`;
+            content += `<div class="ccs-inspector-section" style="margin-bottom:12px;"><strong>Recent Messages (last ${historyLimit}, ${this.session.conversationHistory.length} total):</strong><div style="background:var(--ccs-surface2); padding:8px; border-radius:4px; border:1px solid var(--ccs-border2); max-height: 300px; overflow-y: auto;">${historyHtml}</div></div>`;
         } else if (payload.messages) {
             content += `<div class="ccs-inspector-section" style="margin-bottom:12px;"><strong>Messages Payload:</strong><pre style="background:var(--ccs-surface3); padding:8px; border-radius:4px; font-size:0.75rem; white-space:pre-wrap; word-wrap:break-word; border:1px solid var(--ccs-border2); max-height: 250px; overflow-y: auto;">${this._esc(JSON.stringify(payload.messages, null, 2))}</pre></div>`;
         }
@@ -1124,6 +1145,20 @@ export class StudioPopup {
         });
     }
 
+    _toggleFormat() {
+        const idea = this.session.ideaMemory;
+        if (!idea.format) {
+            idea.format = 'plist_alichat';
+        } else if (idea.format === 'plist_alichat') {
+            idea.format = 'prose';
+        } else {
+            idea.format = 'plist_alichat';
+        }
+        memoryManager.saveSession(this.characterId, this.session);
+        chatPanel.addSystemMessage(`📝 Format switched to **${idea.format === 'plist_alichat' ? 'PList + Ali:Chat' : 'Prose'}**`, 'info');
+        ideaPanel.render(idea);
+    }
+
     // ── Feature actions ────────────────────────────────────────────────────────
 
     async _runAudit() {
@@ -1133,6 +1168,25 @@ export class StudioPopup {
             const msg = result.raw || 'Audit complete — no issues found.';
             chatPanel.addMessage('assistant', msg);
             memoryManager.addMessage(this.session, 'assistant', `[Audit Report]\n${msg}`);
+            
+            // Try to parse concept rating from audit (same as review)
+            const { parseConceptRating } = await import('../core/parser.js');
+            const rating = parseConceptRating(result.raw);
+            if (rating && (rating.scores && Object.keys(rating.scores).length > 0 || rating.pillars?.length)) {
+                this.session.ideaMemory.conceptRating = rating;
+                if (rating.pillars?.length) {
+                    // Merge with existing pillars, don't replace
+                    const existingNames = new Set((this.session.ideaMemory.pillars || []).map(p => p.name));
+                    const newPillars = rating.pillars.filter(p => !existingNames.has(p.name));
+                    if (newPillars.length) {
+                        this.session.ideaMemory.pillars = [...(this.session.ideaMemory.pillars || []), ...newPillars];
+                        chatPanel.addSystemMessage(`✅ Found ${newPillars.length} new pillar(s) from audit`, 'info');
+                    }
+                }
+                ideaPanel.render(this.session.ideaMemory);
+                console.log('[CCS] Updated rating from audit:', rating);
+            }
+            
             memoryManager.saveSession(this.characterId, this.session);
         } catch (err) {
             chatPanel.addSystemMessage('❌ Audit failed: ' + err.message, 'error');
@@ -1142,15 +1196,28 @@ export class StudioPopup {
     async _reviewExistingCard() {
         chatPanel.addSystemMessage('⭐ Reviewing card...', 'info');
         try {
-            const result = await auditEngine.reviewExistingCard(this.cardFields);
+            const result = await auditEngine.reviewExistingCard(this.cardFields, this.session);
             chatPanel.addMessage('assistant', result.raw);
             memoryManager.addMessage(this.session, 'assistant', `[Card Review]\n${result.raw}`);
+            
+            // Try to parse concept rating from review
+            const { parseConceptRating } = await import('../core/parser.js');
+            const rating = parseConceptRating(result.raw);
+            if (rating && (rating.scores && Object.keys(rating.scores).length > 0 || rating.pillars?.length)) {
+                this.session.ideaMemory.conceptRating = rating;
+                if (rating.pillars?.length && !this.session.ideaMemory.pillars?.length) {
+                    this.session.ideaMemory.pillars = rating.pillars;
+                    chatPanel.addSystemMessage(`✅ Found ${rating.pillars.length} pillar(s) from review`, 'info');
+                }
+                console.log('[CCS] Updated rating from review:', rating);
+            }
             
             // Link existing card to concept page if empty
             if (!this.session.ideaMemory.conceptName) {
                 this.session.ideaMemory.conceptName = this.cardFields.name ? `${this.cardFields.name} - Existing Card` : 'Existing Character';
-                ideaPanel.render(this.session.ideaMemory);
             }
+            
+            ideaPanel.render(this.session.ideaMemory);
             memoryManager.saveSession(this.characterId, this.session);
         } catch (err) {
             chatPanel.addSystemMessage('❌ Review failed: ' + err.message, 'error');

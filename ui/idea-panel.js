@@ -7,6 +7,7 @@ export class IdeaPanel {
     constructor() {
         this.container = null;
         this.onResolvePillar = null; // callback(pillarName) -> set by popup.js
+        this.onFormatToggle = null; // callback() -> set by popup.js
         this.abortController = null;  // For event listener cleanup
     }
 
@@ -28,11 +29,14 @@ export class IdeaPanel {
 
         this.container = document.getElementById(containerId);
         
-        // Use event delegation for resolve buttons
+        // Use event delegation for buttons
         this.container?.addEventListener('click', (e) => {
             if (e.target.classList.contains('ccs-pillar-resolve-btn')) {
                 const name = e.target.dataset.name;
                 if (name) this.onResolvePillar?.(name);
+            }
+            if (e.target.id === 'ccs-format-toggle') {
+                this.onFormatToggle?.();
             }
         }, { signal });
     }
@@ -50,7 +54,7 @@ export class IdeaPanel {
                 <div class="ccs-idea-header-row">
                     ${conceptName ? `<div class="ccs-concept-name">💡 ${this._esc(conceptName)}</div>` : '<div class="ccs-concept-name ccs-muted">No concept yet — pitch an idea!</div>'}
                     ${ideaMemory.cardType ? `<span class="ccs-badge" style="text-transform: capitalize;">${ideaMemory.cardType}</span>` : ''}
-                    ${ideaMemory.format ? `<span class="ccs-badge" style="text-transform: capitalize;">${ideaMemory.format}</span>` : ''}
+                    ${ideaMemory.format ? `<button class="ccs-btn ccs-btn-sm ccs-btn-ghost" id="ccs-format-toggle" style="text-transform: capitalize; font-size: 0.75rem;" title="Click to toggle format">${ideaMemory.format === 'plist_alichat' ? '📝 PList+Ali:Chat' : '📝 Prose'}</button>` : ''}
                 </div>
 
                 ${conceptRating ? this._renderRating(conceptRating) : ''}

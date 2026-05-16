@@ -28,6 +28,7 @@ export class MemoryManager {
         if (s.globalSettings.inputLimitEnabled === undefined) s.globalSettings.inputLimitEnabled = true;
         if (!s.globalSettings.theme) s.globalSettings.theme = 'dark';
         if (s.globalSettings.hapticFeedback === undefined) s.globalSettings.hapticFeedback = false;
+        if (s.globalSettings.historyLimit === undefined) s.globalSettings.historyLimit = 20; // NEW: Message limit
         if (!s.snippets) s.snippets = [];
         // v3.3: undo/redo stacks are in-memory only (not persisted)
         this._undoStacks = {}; // { sessionKey: [{ fieldName, prevValue }] }
@@ -58,6 +59,7 @@ export class MemoryManager {
                 // Session
                 autoSaveInterval: 5,
                 compressionThreshold: DEFAULT_COMPRESSION_THRESHOLD,
+                historyLimit: 20,            // Keep last N messages uncompressed
                 // Parallel API calls
                 parallelApiCalls: true,       // false = run variations/batch ops sequentially
                 inputLimitEnabled: true,      // false = disable 12,000 char message length cap
@@ -213,13 +215,15 @@ export class MemoryManager {
     }
 
     compressOldMessages(session, brief) {
-        const toCompress = session.conversationHistory.slice(0, -20); // Keep last 20 messages
+        const historyLimit = this.settings.globalSettings.historyLimit || 20;
+        const toCompress = session.conversationHistory.slice(0, -historyLimit);
         // Merge existing briefs into one entry
         const mergedBrief = session.sessionBriefs.length > 0
             ? '[Merged history] ' + session.sessionBriefs.map(b => b.brief).join(' | ') + ' [Latest] ' + brief
             : brief;
         session.sessionBriefs = [{ brief: mergedBrief, messageCount: toCompress.length, timestamp: Date.now() }];
-        session.conversationHistory = session.conversationHistory.slice(-20); // Keep last 20 messages
+        session.conversationHistory = session.conversationHistory.slice(-historyLimit);
+        console.log(`[CCS] Compressed ${toCompress.length} old messages, keeping last ${historyLimit}`);
     }
 
     // Throttled auto-save to prevent excessive localStorage writes

@@ -14,11 +14,26 @@ export const SKILL_IDEATION_CONCEPT_RATING = `## Context: CharCardStudio Pillar 
 You are running inside CharCardStudio, a SillyTavern character card creation tool.
 "Structural Pillars" are the foundational design decisions the user must lock down before any card field gets written. Each pillar becomes a checked item in the Concept Tab sidebar. Once all pillars are resolved (confirmed by the user), the session advances to card generation.
 
-Important: List pillars using EXACTLY this format (required for parsing):
-□ [Pillar name] — [one-line description of what this decision covers]
+⚠️ CRITICAL: Pillar Format (Required for Parser)
+The parser detects pillars in ANY of these formats:
 
-Do NOT use numbered lists for pillars. Use □ bullets only.
-The pillar list must appear under the heading "Structural pillars to define before writing:"
+**Option 1 - Bullet list (recommended):**
+□ Core Motivation — What drives this character fundamentally?
+□ Voice & Speech — How do they talk? Accent, vocabulary, quirks?
+□ Relationship Dynamic — How do they relate to {{user}}?
+
+**Option 2 - Numbered list:**
+1. Core Motivation — What drives this character?
+2. Voice & Speech — How do they talk?
+
+**Option 3 - Table format:**
+| Pillar | What It Defines |
+|--------|----------------|
+| Core Motivation | What drives this character fundamentally? |
+| Voice & Speech | How do they talk? Accent, vocabulary, quirks? |
+
+The pillar section must appear under "Structural pillars to define before writing:" or similar heading.
+Each pillar will become a clickable checkbox in the UI.
 
 The user has pitched a character concept. Your job:
 

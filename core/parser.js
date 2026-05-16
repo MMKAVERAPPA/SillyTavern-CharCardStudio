@@ -211,10 +211,22 @@ export function parseConceptRating(text) {
     const pillarsSectionMatch = text.match(/structural pillars[^:]*:?([\s\S]*?)(?:\n\n(?:Then|Next|After|---)|$)/i);
     const pillarText = pillarsSectionMatch ? pillarsSectionMatch[1] : text;
 
-    // Try multiple bullet/list formats
+    // Try multiple formats
     const pillarMatches = [...pillarText.matchAll(/^[\s]*[□•\-\*▪▫]\s+(.+)/gm)];
     const numberedPillars = [...pillarText.matchAll(/^\s*\d+\.\s+(.+)/gm)];
-    const questionMarks = [...pillarText.matchAll(/^[\s]*[❓❔⁇⁈]\s*(.+)/gm)]; // ? emoji style
+    const questionMarks = [...pillarText.matchAll(/^[\s]*[❓❔⁇⁈]\s*(.+)/gm)];
+    
+    // NEW: Table format detection (| Pillar | Description |)
+    const tableRows = [...pillarText.matchAll(/^\|\s*([^|]+?)\s*\|[^\n]+$/gm)];
+    const tablePillars = tableRows
+        .map(m => m[1].trim())
+        .filter(name => 
+            name.length > 3 && 
+            name.length < 200 && 
+            !name.toLowerCase().includes('pillar') && // Skip header row
+            !name.toLowerCase().includes('what it does') &&
+            name !== '---' // Skip separator
+        );
     
     const allPillarLines = [...pillarMatches, ...numberedPillars, ...questionMarks];
     
@@ -223,26 +235,28 @@ export function parseConceptRating(text) {
         bulletMatches: pillarMatches.length,
         numberedMatches: numberedPillars.length,
         questionMatches: questionMarks.length,
-        totalMatches: allPillarLines.length
+        tableMatches: tablePillars.length,
+        totalMatches: allPillarLines.length + tablePillars.length
     });
     
-    result.pillars = allPillarLines
-        .map(m => {
+    // Combine all formats
+    result.pillars = [
+        ...allPillarLines.map(m => {
             let name = m[1].trim().replace(/[*_]/g, '');
-            // Remove common prefixes
             name = name.replace(/^(What|How|Why|Where|When|Who)\s+(is|are|would|does|do|should|can)/i, (match) => match);
             return { name, resolved: false, answer: '' };
-        })
-        .filter(p => p.name.length > 3 && p.name.length < 200);
+        }),
+        ...tablePillars.map(name => ({ name, resolved: false, answer: '' }))
+    ].filter(p => p.name.length > 3 && p.name.length < 200);
 
     // Fallback: if no pillars found, try to extract questions from text
     if (result.pillars.length === 0) {
-        console.log('[CCS Parser] No pillars found via bullets, trying question extraction');
+        console.log('[CCS Parser] No pillars found via bullets/tables, trying question extraction');
         const questions = [...pillarText.matchAll(/(\w[^?]{10,150}\?)(?:\s|$)/g)];
         result.pillars = questions
             .map(m => ({ name: m[0].trim(), resolved: false, answer: '' }))
             .filter(p => p.name.length > 10)
-            .slice(0, 5); // Max 5 auto-detected questions
+            .slice(0, 5);
     }
 
     console.log('[CCS Parser] Final pillars found:', result.pillars.length, result.pillars.map(p => p.name));
@@ -252,7 +266,8 @@ export function parseConceptRating(text) {
 export function parseLorePlan(text) {
     if (!text) return [];
     const entries = [];
-    // Match lines like: - Entry Title | 🌍 World/Setting | Constant | ~80t | description
+    
+    // Try structured line format first: - Entry Title | 🌍 World/Setting | Constant | ~80t | description
     const linePattern = /^-\s+(.+?)\s*\|\s*(.+?)\s*\|\s*(Constant|Triggered)\s*\|\s*~?(\d+)t\s*\|\s*(.+)$/gim;
     let match;
     while ((match = linePattern.exec(text)) !== null) {
@@ -264,17 +279,47 @@ export function parseLorePlan(text) {
             description: match[5].trim(),
         });
     }
-    // Fallback: if no structured entries found, try to extract just titles from bullets
+    
+    // NEW: Try table format if no structured lines found
+    if (!entries.length) {
+        // Table row format: | Entry Title | Category | Activation | Tokens | Description |
+        const tablePattern = /^\|\s*([^|]+?)\s*\|\s*([^|]+?)\s*\|\s*(Constant|Triggered|[^|]+?)\s*\|\s*~?(\d+)t?\s*\|\s*([^|]+?)\s*\|$/gim;
+        while ((match = tablePattern.exec(text)) !== null) {
+            const title = match[1].trim();
+            // Skip header rows
+            if (title.toLowerCase().includes('entry') || title.toLowerCase().includes('title') || title === '---') continue;
+            entries.push({
+                title,
+                category: match[2].trim(),
+                activation: match[3].trim(),
+                estimatedTokens: parseInt(match[4]) || 80,
+                description: match[5].trim(),
+            });
+        }
+    }
+    
+    // Fallback: if no structured entries found, try to extract just titles from bullets/numbers
     if (!entries.length) {
         const bulletPattern = /^[-•*]\s+(.{5,80})$/gm;
+        const numberedPattern = /^\d+\.\s+(.{5,80})$/gm;
         let m;
+        // Try bullets
         while ((m = bulletPattern.exec(text)) !== null) {
             const line = m[1].trim();
             if (!line.includes('|') && !line.toLowerCase().startsWith('each') && !line.toLowerCase().startsWith('for')) {
                 entries.push({ title: line, category: 'General', activation: 'Triggered', estimatedTokens: 80, description: '' });
             }
         }
+        // Try numbered
+        while ((m = numberedPattern.exec(text)) !== null) {
+            const line = m[1].trim();
+            if (!line.includes('|') && !line.toLowerCase().startsWith('each') && !line.toLowerCase().startsWith('for')) {
+                entries.push({ title: line, category: 'General', activation: 'Triggered', estimatedTokens: 80, description: '' });
+            }
+        }
     }
+    
+    console.log(`[CCS Parser] Lorebook plan parsed: ${entries.length} entries found`);
     return entries;
 }
 
