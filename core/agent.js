@@ -73,10 +73,8 @@ async function _agentLoop(userText, session, signal, callbacks) {
   const systemPrompt = buildSystemPrompt(session);
 
   // Assemble message history for the LLM
+  // Note: The user message is already in session.messages (added by chat.js before calling us)
   const messages = _buildMessageArray(systemPrompt, session);
-  
-  // Add the current user message
-  messages.push({ role: 'user', content: userText });
 
   let lastReasoning = '';
   let finalResponseText = '';
@@ -129,14 +127,12 @@ async function _agentLoop(userText, session, signal, callbacks) {
     // Add the AI's response (with tool calls) to the message history
     messages.push({ role: 'assistant', content: responseText });
 
+    // Collect all tool results into a single user message
+    // (semi-strict post-processing requires alternating roles)
+    const toolResultParts = [];
     for (const call of toolCalls) {
       const { result, draft } = await executeToolCall(call);
-
-      // Add tool result as a system message in the conversation
-      messages.push({
-        role: 'user', 
-        content: `[Tool Result for ${call.name}]:\n${result}`
-      });
+      toolResultParts.push(`[Tool Result for ${call.name}]:\n${result}`);
 
       // If this produced a draft, notify the UI
       if (draft) {
@@ -144,13 +140,12 @@ async function _agentLoop(userText, session, signal, callbacks) {
       }
     }
 
-    // Add a reminder about tool usage for next iteration
+    // Add combined tool results as a single user message
+    let toolResultMessage = toolResultParts.join('\n\n');
     if (iteration < MAX_ITERATIONS - 2) {
-      messages.push({
-        role: 'user',
-        content: TOOL_REMINDER
-      });
+      toolResultMessage += '\n\n' + TOOL_REMINDER;
     }
+    messages.push({ role: 'user', content: toolResultMessage });
 
     // If there was prose alongside the tool calls, save it
     if (prose.trim()) {

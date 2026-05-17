@@ -54,44 +54,66 @@ export function parseToolCalls(text) {
 
 /**
  * Try to parse a single tool call JSON block.
- * Handles: valid JSON, JSON with trailing text, tool name on first line.
+ * Handles multiple formats models actually produce:
+ *   A) Standard: {"name": "tool_name", "parameters": {...}}
+ *   B) Name outside JSON: tool_name {"param": "value"}
+ *   C) Name outside JSON with parens: tool_name({"param": "value"})
+ *   D) Just extract { } and look for "name" key
  */
 function _tryParseToolCall(raw) {
   if (!raw) return null;
 
-  // Strategy A: Direct JSON parse
+  // Clean whitespace
+  raw = raw.trim();
+
+  // Strategy A: Direct JSON parse — standard format
   try {
     const obj = JSON.parse(raw);
     if (obj.name) return { name: obj.name, parameters: obj.parameters || {} };
   } catch (e) { /* continue */ }
 
-  // Strategy B: Extract JSON object from the text
-  // Find the first { and last }
+  // Strategy B: tool_name {params} or tool_name({params})
+  // Match: optional word characters, then JSON object
+  const nameJsonMatch = raw.match(/^([a-z_][a-z0-9_]*)\s*\(?\s*(\{[\s\S]*\})\s*\)?$/i);
+  if (nameJsonMatch) {
+    const toolName = nameJsonMatch[1];
+    try {
+      const params = JSON.parse(nameJsonMatch[2]);
+      return { name: toolName, parameters: params };
+    } catch (e) { /* continue */ }
+  }
+
+  // Strategy C: Extract JSON object from anywhere in the text
   const firstBrace = raw.indexOf('{');
   const lastBrace = raw.lastIndexOf('}');
   
   if (firstBrace !== -1 && lastBrace > firstBrace) {
+    const jsonStr = raw.substring(firstBrace, lastBrace + 1);
     try {
-      const jsonStr = raw.substring(firstBrace, lastBrace + 1);
       const obj = JSON.parse(jsonStr);
+      // If it has a "name" key, it's the standard format
       if (obj.name) return { name: obj.name, parameters: obj.parameters || {} };
+      
+      // If no "name" key, check if there's a tool name before the brace
+      const prefix = raw.substring(0, firstBrace).trim();
+      const prefixName = prefix.match(/([a-z_][a-z0-9_]*)\s*\(?\s*$/i);
+      if (prefixName) {
+        return { name: prefixName[1], parameters: obj };
+      }
     } catch (e) { /* continue */ }
   }
 
-  // Strategy C: Handle common malformed cases
-  // Sometimes the AI outputs: tool_name\n{params}
+  // Strategy D: Multi-line — tool name on first line, JSON on subsequent lines
   const lines = raw.split('\n').map(l => l.trim()).filter(Boolean);
   if (lines.length >= 2) {
-    const potentialName = lines[0].replace(/[^a-z_]/g, '');
+    const potentialName = lines[0].replace(/[^a-z0-9_]/gi, '');
     const restJson = lines.slice(1).join('\n');
     const fb = restJson.indexOf('{');
     const lb = restJson.lastIndexOf('}');
-    if (fb !== -1 && lb >= fb) {
+    if (fb !== -1 && lb >= fb && potentialName.startsWith('ccs_')) {
       try {
         const params = JSON.parse(restJson.substring(fb, lb + 1));
-        if (potentialName.startsWith('ccs_')) {
-          return { name: potentialName, parameters: params };
-        }
+        return { name: potentialName, parameters: params };
       } catch (e) { /* give up */ }
     }
   }
