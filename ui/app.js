@@ -252,6 +252,8 @@ async function _renderRightPanel() {
     _renderLoreTab();
 }
 
+let _pillarListenerBound = false;
+
 function _renderConceptTab() {
     const session = getSession();
     const listEl = el('ccs_pillar_list');
@@ -278,12 +280,36 @@ function _renderConceptTab() {
 
     listEl.innerHTML = pillars.map(p => `
         <div class="ccs-pillar ccs-pillar--${p.status}" data-pillar-id="${p.id}">
-            <span class="ccs-pillar-status">${STATUS_ICONS[p.status] || STATUS_ICONS.pending}</span>
-            <span class="ccs-pillar-name">${escapeHtml(p.name)}</span>
-            ${p.summary ? `<span class="ccs-pillar-summary">${escapeHtml(p.summary)}</span>` : ''}
+            <div class="ccs-pillar-header">
+                <span class="ccs-pillar-status">${STATUS_ICONS[p.status] || STATUS_ICONS.pending}</span>
+                <span class="ccs-pillar-name">${escapeHtml(p.name || p.id)}</span>
+                <span class="ccs-pillar-toggle fa-solid fa-chevron-down"></span>
+            </div>
+            ${p.summary ? `<div class="ccs-pillar-detail" style="display: none;"><p class="ccs-pillar-full-summary">${escapeHtml(p.summary)}</p></div>` : ''}
         </div>
     `).join('');
+
+    // Bind expand/collapse (once)
+    if (!_pillarListenerBound) {
+        listEl.addEventListener('click', (e) => {
+            const pillar = e.target.closest('.ccs-pillar');
+            if (!pillar) return;
+            const detail = pillar.querySelector('.ccs-pillar-detail');
+            const toggle = pillar.querySelector('.ccs-pillar-toggle');
+            if (detail) {
+                const isExpanded = detail.style.display !== 'none';
+                detail.style.display = isExpanded ? 'none' : 'block';
+                if (toggle) {
+                    toggle.classList.toggle('fa-chevron-up', !isExpanded);
+                    toggle.classList.toggle('fa-chevron-down', isExpanded);
+                }
+            }
+        });
+        _pillarListenerBound = true;
+    }
 }
+
+let _cardListenerBound = false;
 
 function _renderCardTab() {
     const session = getSession();
@@ -325,18 +351,41 @@ function _renderCardTab() {
         totalTokens += tokens;
 
         return `
-            <div class="ccs-field-row ${hasContent ? 'ccs-field-row--filled' : 'ccs-field-row--empty'}">
+            <div class="ccs-field-row ${hasContent ? 'ccs-field-row--filled' : 'ccs-field-row--empty'}" data-field="${key}">
                 <div class="ccs-field-header">
                     <span class="ccs-field-label">${label}</span>
                     <span class="ccs-field-tokens">${hasContent ? `~${tokens}t` : 'empty'}</span>
+                    ${hasContent ? '<span class="ccs-field-toggle fa-solid fa-chevron-down"></span>' : ''}
                 </div>
                 ${hasContent ? `<p class="ccs-field-preview">${escapeHtml(preview)}${value.length > 80 ? '…' : ''}</p>` : ''}
+                ${hasContent ? `<div class="ccs-field-detail" style="display: none;"><pre class="ccs-field-full-content">${escapeHtml(value)}</pre></div>` : ''}
             </div>
         `;
     }).join('');
 
     fieldsEl.innerHTML = rows || '<p class="ccs-empty-state">No fields found.</p>';
     if (tokensEl) tokensEl.textContent = `~${totalTokens}t`;
+
+    // Bind expand/collapse (once)
+    if (!_cardListenerBound) {
+        fieldsEl.addEventListener('click', (e) => {
+            const row = e.target.closest('.ccs-field-row');
+            if (!row) return;
+            const detail = row.querySelector('.ccs-field-detail');
+            const toggle = row.querySelector('.ccs-field-toggle');
+            const preview = row.querySelector('.ccs-field-preview');
+            if (detail) {
+                const isExpanded = detail.style.display !== 'none';
+                detail.style.display = isExpanded ? 'none' : 'block';
+                if (preview) preview.style.display = isExpanded ? '' : 'none';
+                if (toggle) {
+                    toggle.classList.toggle('fa-chevron-up', !isExpanded);
+                    toggle.classList.toggle('fa-chevron-down', isExpanded);
+                }
+            }
+        });
+        _cardListenerBound = true;
+    }
 }
 
 function _renderLoreTab() {
@@ -454,6 +503,15 @@ export function bindAppEvents() {
             showToast('Other tab closed — you now have edit access.', 'success');
             acquireLock(avatar);
         }
+    });
+
+    // Listen for card-updated events (fired after Apply succeeds)
+    document.addEventListener('ccs:card-updated', () => {
+        console.log('[CCS] Card updated — refreshing panels');
+        _renderCardTab();
+        _renderConceptTab();
+        _renderLoreTab();
+        _updateProgress();
     });
 
     // Session changes → re-render right panel

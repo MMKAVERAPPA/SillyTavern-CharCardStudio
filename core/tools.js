@@ -466,6 +466,24 @@ export async function applyDraftToCard(draftId) {
     // Mark draft as applied
     draft.status = 'applied';
     await updateSession({ cardDrafts: drafts });
+
+    // Refresh ST's in-memory character data so the editor shows the update
+    try {
+        const refreshCtx = SillyTavern.getContext();
+        await refreshCtx.getOneCharacter(char.avatar);
+        // Notify ST UI that the character was edited
+        if (refreshCtx.eventSource && refreshCtx.event_types) {
+            await refreshCtx.eventSource.emit(refreshCtx.event_types.CHARACTER_EDITED, {
+                detail: { id: refreshCtx.this_chid, character: refreshCtx.characters[refreshCtx.this_chid] }
+            });
+        }
+        console.log('[CCS] ST character data refreshed after apply');
+    } catch (refreshErr) {
+        console.warn('[CCS] Could not refresh ST data after apply:', refreshErr);
+    }
+
+    // Notify CCS panels to re-render with fresh data
+    document.dispatchEvent(new CustomEvent('ccs:card-updated'));
     
     console.log(`[CCS] Applied draft for ${draft.field}`);
     return true;

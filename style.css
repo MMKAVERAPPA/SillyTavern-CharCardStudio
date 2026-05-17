@@ -688,17 +688,44 @@ html {
 
 .ccs-pillar {
   display: flex;
-  align-items: center;
-  gap: 10px;
+  flex-direction: column;
+  gap: 0;
   padding: 8px 12px;
   border-radius: var(--ccs-radius);
   border: 1px solid var(--ccs-border);
   background: var(--ccs-bg-primary);
   transition: all var(--ccs-transition);
+  cursor: pointer;
 }
 .ccs-pillar:hover {
   border-color: var(--ccs-border-strong);
   background: var(--ccs-bg-hover);
+}
+.ccs-pillar-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+}
+.ccs-pillar-toggle {
+  margin-left: auto;
+  font-size: 0.7em;
+  opacity: 0.4;
+  transition: transform var(--ccs-transition);
+  flex-shrink: 0;
+}
+.ccs-pillar-detail {
+  padding: 8px 4px 4px 34px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--ccs-text-secondary);
+  border-top: 1px solid var(--ccs-border);
+  margin-top: 8px;
+}
+.ccs-pillar-full-summary {
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 
 .ccs-pillar-icon {
@@ -736,6 +763,11 @@ html {
   font-size: 13px;
   font-weight: 500;
   color: var(--ccs-text-primary);
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .ccs-pillar-summary {
   font-size: 11px;
@@ -758,8 +790,8 @@ html {
 
 .ccs-field-row {
   display: flex;
-  align-items: center;
-  gap: 10px;
+  flex-direction: column;
+  gap: 0;
   padding: 8px 12px;
   border-radius: var(--ccs-radius);
   border: 1px solid var(--ccs-border);
@@ -769,6 +801,45 @@ html {
 }
 .ccs-field-row:hover {
   border-color: var(--ccs-border-strong);
+}
+.ccs-field-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+}
+.ccs-field-toggle {
+  margin-left: auto;
+  font-size: 0.7em;
+  opacity: 0.4;
+  flex-shrink: 0;
+}
+.ccs-field-preview {
+  font-size: 11px;
+  color: var(--ccs-text-muted);
+  margin: 4px 0 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ccs-field-detail {
+  padding: 8px 0 4px;
+  border-top: 1px solid var(--ccs-border);
+  margin-top: 6px;
+}
+.ccs-field-full-content {
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 12px;
+  font-family: inherit;
+  line-height: 1.5;
+  max-height: 300px;
+  overflow-y: auto;
+  color: var(--ccs-text-secondary);
+  background: transparent;
+  border: 0;
+  padding: 0;
 }
 
 .ccs-field-status {
