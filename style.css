@@ -1185,6 +1185,202 @@ html {
 
 
 /* ═══════════════════════════════════════════════════════════════════════════
+   14b. STAGED DRAFT CARDS
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+.ccs-message--draft {
+  max-width: 90%;
+  align-self: flex-start;
+  margin: 8px 0;
+}
+
+.ccs-draft-card {
+  background: var(--ccs-bg-tertiary);
+  border: 1px solid var(--ccs-accent-dim);
+  border-radius: var(--ccs-radius-lg);
+  overflow: hidden;
+}
+
+.ccs-draft-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  background: rgba(124, 92, 191, 0.1);
+  border-bottom: 1px solid var(--ccs-border);
+}
+
+.ccs-draft-field {
+  font-weight: 600;
+  color: var(--ccs-accent-hover);
+  text-transform: uppercase;
+  font-size: 12px;
+  letter-spacing: 0.5px;
+}
+
+.ccs-draft-tokens {
+  color: var(--ccs-text-muted);
+  font-size: 11px;
+  font-family: var(--ccs-font-mono);
+}
+
+.ccs-draft-status {
+  margin-left: auto;
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 100px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+.ccs-draft-status[data-status="pending"] {
+  background: var(--ccs-warning-dim);
+  color: var(--ccs-warning);
+}
+.ccs-draft-status[data-status="applied"] {
+  background: var(--ccs-success-dim);
+  color: var(--ccs-success);
+}
+.ccs-draft-status[data-status="skipped"] {
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--ccs-text-muted);
+}
+
+.ccs-draft-content {
+  padding: 12px 14px;
+  max-height: 300px;
+  overflow-y: auto;
+}
+.ccs-draft-content pre {
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 12.5px;
+  line-height: 1.6;
+  color: var(--ccs-text-secondary);
+  font-family: var(--ccs-font-mono);
+}
+
+.ccs-draft-actions {
+  display: flex;
+  gap: 8px;
+  padding: 10px 14px;
+  border-top: 1px solid var(--ccs-border);
+  background: rgba(0, 0, 0, 0.15);
+}
+
+.ccs-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 6px 14px;
+  border: 1px solid var(--ccs-border-strong);
+  border-radius: var(--ccs-radius);
+  background: transparent;
+  color: var(--ccs-text-secondary);
+  font-size: 12px;
+  cursor: pointer;
+  transition: all var(--ccs-transition);
+}
+.ccs-btn:hover {
+  background: var(--ccs-bg-hover);
+  color: var(--ccs-text-primary);
+}
+.ccs-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+.ccs-btn--sm {
+  padding: 4px 10px;
+  font-size: 11px;
+}
+.ccs-btn--accent {
+  border-color: var(--ccs-accent);
+  color: var(--ccs-accent);
+}
+.ccs-btn--accent:hover {
+  background: var(--ccs-accent-glow);
+  color: var(--ccs-accent-hover);
+}
+
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   14c. REASONING BLOCKS
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+.ccs-reasoning {
+  margin-bottom: 8px;
+  border: 1px solid var(--ccs-border);
+  border-radius: var(--ccs-radius-sm);
+  overflow: hidden;
+}
+.ccs-reasoning summary {
+  padding: 6px 10px;
+  background: rgba(255, 255, 255, 0.03);
+  color: var(--ccs-text-muted);
+  font-size: 11px;
+  cursor: pointer;
+  user-select: none;
+}
+.ccs-reasoning summary:hover {
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--ccs-text-secondary);
+}
+.ccs-reasoning-content {
+  padding: 8px 10px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--ccs-text-muted);
+  white-space: pre-wrap;
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   14d. CONTEXT BAR
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+.ccs-context-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 16px;
+  background: rgba(0, 0, 0, 0.2);
+  border-top: 1px solid var(--ccs-border);
+  font-size: 11px;
+  color: var(--ccs-text-muted);
+  flex-shrink: 0;
+}
+
+.ccs-context-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: 100px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--ccs-border);
+  cursor: pointer;
+  transition: all var(--ccs-transition);
+}
+.ccs-context-pill:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+.ccs-context-pill.active {
+  border-color: var(--ccs-accent-dim);
+  background: var(--ccs-accent-glow);
+  color: var(--ccs-accent-hover);
+}
+.ccs-context-pill-label {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+  color: var(--ccs-text-muted);
+  margin-right: 2px;
+}
+
+
+/* ═══════════════════════════════════════════════════════════════════════════
    15. RESPONSIVE — MOBILE (< 768px)
    ═══════════════════════════════════════════════════════════════════════════ */
 

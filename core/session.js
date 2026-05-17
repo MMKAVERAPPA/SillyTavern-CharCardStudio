@@ -261,6 +261,19 @@ export function getSession() {
 }
 
 /**
+ * Shallow-merge a patch into the current session and save.
+ * @param {object} patch - Key/value pairs to merge into session
+ * @returns {Promise<void>}
+ */
+export async function updateSession(patch) {
+    if (!currentSession) return;
+    Object.assign(currentSession, patch);
+    currentSession.updatedAt = Date.now();
+    saveSession();
+    notifyListeners();
+}
+
+/**
  * Load a session for a character. Creates a new one if none exists.
  * Sets it as the current active session.
  *

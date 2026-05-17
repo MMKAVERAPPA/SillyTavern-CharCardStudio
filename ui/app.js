@@ -5,7 +5,7 @@
 
 import {
     getSession, loadSession, clearCurrentSession, saveSession,
-    setMode, setPhase, onSessionChange,
+    setMode, setPhase, updateSession, onSessionChange,
 } from '../core/session.js';
 import { acquireLock, releaseLock, isLocked, onLockConflict } from '../core/multi-tab.js';
 import { showToast } from './toast.js';
@@ -159,6 +159,27 @@ function _updateProgress() {
 export function switchTab(tabName) {
     _activeTab = tabName;
     _renderTabs();
+}
+
+/**
+ * Sync the context bar pills to match current session state.
+ */
+export function syncContextBar() {
+    const session = getSession();
+    if (!session) return;
+
+    const bar = el('ccs_context_bar');
+    if (!bar) return;
+
+    // Format pills
+    bar.querySelectorAll('.ccs-context-pill[data-format]').forEach(pill => {
+        pill.classList.toggle('active', pill.dataset.format === (session.format || 'prose'));
+    });
+
+    // Phase pills
+    bar.querySelectorAll('.ccs-context-pill[data-phase]').forEach(pill => {
+        pill.classList.toggle('active', pill.dataset.phase === (session.phase || 'ideate'));
+    });
 }
 
 function _renderTabs() {
@@ -442,7 +463,27 @@ export function bindAppEvents() {
         _renderConceptTab();
         _renderCardTab();
         _renderLoreTab();
+        syncContextBar();
     });
+
+    // Context bar pills (format + phase switching)
+    const ctxBar = el('ccs_context_bar');
+    if (ctxBar) {
+        ctxBar.addEventListener('click', (e) => {
+            const pill = e.target.closest('.ccs-context-pill');
+            if (!pill) return;
+
+            if (pill.dataset.format) {
+                updateSession({ format: pill.dataset.format });
+                syncContextBar();
+                showToast(`Format: ${pill.dataset.format}`, 'info', 2000);
+            } else if (pill.dataset.phase) {
+                updateSession({ phase: pill.dataset.phase });
+                syncContextBar();
+                showToast(`Phase: ${pill.dataset.phase}`, 'info', 2000);
+            }
+        });
+    }
 }
 
 let _resizeTimer;

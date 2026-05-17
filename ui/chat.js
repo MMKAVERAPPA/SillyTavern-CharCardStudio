@@ -9,13 +9,14 @@ import {
 } from '../core/session.js';
 import { isLocked } from '../core/multi-tab.js';
 import { cancelAllGenerations, isGenerating } from '../core/silent-generation.js';
+import { applyDraftToCard, applyLoreDraft } from '../core/tools.js';
 import { showToast } from './toast.js';
 
 // ─── State ───────────────────────────────────────────────────────────────────
 
-let _onSendCallback = null; // Set by agent.js in Phase B
+let _onSendCallback = null; // Set by agent.js via onSend()
 let _isStreaming = false;
-let _currentStreamMessageId = null;
+let _draftActionCallbacks = {}; // draft.id → { onRegen }
 
 // ─── DOM ──────────────────────────────────────────────────────────────────────
 
@@ -27,8 +28,9 @@ function el(id) {
 
 /**
  * Register the function to call when user sends a message.
- * Phase B (agent.js) will call this to plug in the AI handler.
- * @param {function(string): Promise<void>} callback
+ * agent.js calls this to plug in the AI handler.
+ * Signature: callback(text, { appendAssistantMessage, renderDraft, setTyping })
+ * @param {function} callback
  */
 export function onSend(callback) {
     _onSendCallback = callback;
@@ -48,12 +50,48 @@ export function setTyping(active, label = 'Thinking...') {
 }
 
 /**
- * Append a token to the current streaming message (Phase B).
+ * Render a staged draft card inline in the chat.
+ * Shows field name, content preview, token count, and Apply/Skip/Regen buttons.
+ * @param {object} draft - Draft object from tools.js
  */
-export function appendStreamToken(messageId, token) {
-    const msgEl = document.querySelector(`[data-message-id="${messageId}"] .ccs-message-content`);
-    if (!msgEl) return;
-    msgEl.textContent += token;
+export function renderStagedDraftMessage(draft) {
+    const container = el('ccs_messages');
+    if (!container) return;
+
+    const welcome = el('ccs_welcome');
+    if (welcome) welcome.style.display = 'none';
+
+    const div = document.createElement('div');
+    div.className = 'ccs-message ccs-message--draft';
+    div.dataset.draftId = draft.id;
+
+    const preview = draft.content.length > 400
+        ? draft.content.substring(0, 400) + '...'
+        : draft.content;
+
+    div.innerHTML = `
+        <div class="ccs-draft-card">
+            <div class="ccs-draft-header">
+                <span class="ccs-draft-field">${escapeHtml(draft.field)}</span>
+                <span class="ccs-draft-tokens">${draft.tokenCount || '?'} tokens</span>
+                <span class="ccs-draft-status" data-status="${draft.status}">${draft.status}</span>
+            </div>
+            <div class="ccs-draft-content"><pre>${escapeHtml(preview)}</pre></div>
+            <div class="ccs-draft-actions">
+                <button class="ccs-btn ccs-btn--sm ccs-btn--accent" data-draft-action="apply" data-draft-id="${draft.id}">
+                    <i class="fa-solid fa-check"></i> Apply
+                </button>
+                <button class="ccs-btn ccs-btn--sm" data-draft-action="skip" data-draft-id="${draft.id}">
+                    <i class="fa-solid fa-forward"></i> Skip
+                </button>
+                <button class="ccs-btn ccs-btn--sm" data-draft-action="regen" data-draft-id="${draft.id}">
+                    <i class="fa-solid fa-rotate-right"></i> Regen
+                </button>
+            </div>
+        </div>
+    `;
+
+    container.appendChild(div);
     _scrollToBottom();
 }
 
@@ -155,11 +193,24 @@ function _createMessageElement(message) {
 
     const isUser = message.role === 'user';
     const isSystem = message.role === 'system';
+    const meta = message.meta || {};
+
+    // Reasoning block (collapsed by default)
+    let reasoningHtml = '';
+    if (meta.reasoning) {
+        reasoningHtml = `
+            <details class="ccs-reasoning">
+                <summary>Reasoning</summary>
+                <div class="ccs-reasoning-content">${escapeHtml(meta.reasoning)}</div>
+            </details>
+        `;
+    }
 
     div.innerHTML = `
         <div class="ccs-message-bubble">
             ${!isUser && !isSystem ? '<div class="ccs-message-avatar"><i class="fa-solid fa-wand-magic-sparkles"></i></div>' : ''}
             <div class="ccs-message-body">
+                ${reasoningHtml}
                 <div class="ccs-message-content">${_renderMarkdown(message.content)}</div>
                 <div class="ccs-message-meta">
                     <span class="ccs-message-time">${_formatTime(message.timestamp || message.createdAt)}</span>
@@ -169,7 +220,7 @@ function _createMessageElement(message) {
             ${isUser ? '<div class="ccs-message-avatar ccs-message-avatar--user"><i class="fa-solid fa-user"></i></div>' : ''}
         </div>
         <div class="ccs-message-actions">
-            ${isUser ? `<button class="ccs-msg-action" data-action="edit" data-id="${message.id}" title="Edit"><i class="fa-solid fa-pen"></i></button>` : ''}
+            ${isUser ? `<button class="ccs-msg-action" data-action="resend" data-id="${message.id}" title="Resend"><i class="fa-solid fa-paper-plane"></i></button>` : ''}
             ${!isSystem ? `<button class="ccs-msg-action" data-action="copy" data-id="${message.id}" title="Copy"><i class="fa-solid fa-copy"></i></button>` : ''}
             ${!isUser && !isSystem ? `<button class="ccs-msg-action" data-action="regen" data-id="${message.id}" title="Regenerate"><i class="fa-solid fa-rotate-right"></i></button>` : ''}
             <button class="ccs-msg-action ccs-msg-action--danger" data-action="delete" data-id="${message.id}" title="Delete"><i class="fa-solid fa-trash"></i></button>
@@ -241,13 +292,26 @@ async function _sendMessage(text) {
     // Clear suggestion chips
     setSuggestionChips([]);
 
-    // Show typing indicator
-    setTyping(true);
-
-    // Call AI handler (Phase B wires this up)
+    // Call AI handler with callbacks
     if (_onSendCallback) {
         try {
-            await _onSendCallback(text);
+            await _onSendCallback(text, {
+                appendAssistantMessage: (content, meta) => {
+                    const msg = {
+                        id: generateId('msg'),
+                        role: 'assistant',
+                        content,
+                        timestamp: Date.now(),
+                        meta,
+                    };
+                    // Note: agent.js already calls addMessage, so we only render
+                    appendMessage(msg);
+                },
+                renderDraft: (draft) => {
+                    renderStagedDraftMessage(draft);
+                },
+                setTyping,
+            });
         } catch (err) {
             if (err?.name !== 'AbortError') {
                 console.error('[CCS] Send error:', err);
@@ -256,11 +320,11 @@ async function _sendMessage(text) {
             }
         }
     } else {
-        // Phase A stub: echo the message back
+        // No agent wired — echo stub
+        setTyping(true);
         await _echoResponse(text);
+        setTyping(false);
     }
-
-    setTyping(false);
 }
 
 /** Phase A stub — echo response until Phase B wires up the agent */
@@ -269,7 +333,7 @@ async function _echoResponse(userText) {
 
     const aiMsg = {
         id: generateId('msg'),
-        role: 'ai',
+        role: 'assistant',
         content: `[Studio AI not yet connected — Phase A stub]\n\nYou said: _"${userText}"_\n\nThe agent will be wired up in Phase B.`,
         timestamp: Date.now(),
     };
@@ -318,36 +382,54 @@ async function _handleMessageAction(action, messageId) {
             }
             break;
         }
+        case 'resend':
         case 'regen': {
-            // Remove this AI message and re-trigger generation from the previous user message
             const session = getSession();
             if (!session) break;
 
-            const msgIndex = session.messages.findIndex(m => m.id === messageId);
-            if (msgIndex < 0) break;
+            let userText;
+            if (action === 'resend') {
+                // Re-send this user message
+                const msg = session.messages.find(m => m.id === messageId);
+                userText = msg?.content;
+            } else {
+                // Find the user message before this AI message
+                const msgIndex = session.messages.findIndex(m => m.id === messageId);
+                if (msgIndex < 0) break;
+                const prevUser = [...session.messages].slice(0, msgIndex).reverse().find(m => m.role === 'user');
+                userText = prevUser?.content;
 
-            // Find the last user message before this one
-            const prevUser = [...session.messages].slice(0, msgIndex).reverse().find(m => m.role === 'user');
-            if (!prevUser) {
+                // Remove the AI message being regenerated
+                removeMessage(messageId);
+                removeRenderedMessage(messageId);
+            }
+
+            if (!userText) {
                 showToast('No user message to regenerate from.', 'warning');
                 break;
             }
 
-            // Remove this AI message
-            removeMessage(messageId);
-            removeRenderedMessage(messageId);
-
-            // Re-trigger
+            // Re-trigger agent
             if (_onSendCallback) {
-                setTyping(true);
                 try {
-                    await _onSendCallback(prevUser.content, { isRegen: true });
+                    await _onSendCallback(userText, {
+                        appendAssistantMessage: (content, meta) => {
+                            const msg = {
+                                id: generateId('msg'),
+                                role: 'assistant',
+                                content,
+                                timestamp: Date.now(),
+                                meta,
+                            };
+                            appendMessage(msg);
+                        },
+                        renderDraft: (draft) => renderStagedDraftMessage(draft),
+                        setTyping,
+                    });
                 } catch (err) {
                     if (err?.name !== 'AbortError') {
                         showToast(`Regeneration failed: ${err.message}`, 'error');
                     }
-                } finally {
-                    setTyping(false);
                 }
             }
             break;
@@ -357,7 +439,6 @@ async function _handleMessageAction(action, messageId) {
             const msg = session?.messages?.find(m => m.id === messageId);
             if (!msg) break;
 
-            // Inline edit: replace bubble with textarea
             const msgEl = document.querySelector(`[data-message-id="${messageId}"]`);
             if (!msgEl) break;
 
@@ -371,6 +452,63 @@ async function _handleMessageAction(action, messageId) {
                 </div>
             `;
             contentEl.querySelector('textarea')?.focus();
+            break;
+        }
+    }
+}
+
+// ─── Draft Actions ──────────────────────────────────────────────────────────
+
+async function _handleDraftAction(action, draftId, buttonEl) {
+    const draftCard = buttonEl.closest('.ccs-message--draft');
+    const statusEl = draftCard?.querySelector('.ccs-draft-status');
+
+    switch (action) {
+        case 'apply': {
+            const isLore = draftId.startsWith('lore_');
+            const success = isLore
+                ? await applyLoreDraft(draftId)
+                : await applyDraftToCard(draftId);
+
+            if (success) {
+                if (statusEl) {
+                    statusEl.textContent = 'applied';
+                    statusEl.dataset.status = 'applied';
+                }
+                draftCard?.querySelectorAll('.ccs-btn').forEach(btn => btn.disabled = true);
+                showToast('Draft applied to card!', 'success');
+            } else {
+                showToast('Failed to apply draft.', 'error');
+            }
+            break;
+        }
+        case 'skip': {
+            if (statusEl) {
+                statusEl.textContent = 'skipped';
+                statusEl.dataset.status = 'skipped';
+            }
+            draftCard?.querySelectorAll('.ccs-btn').forEach(btn => btn.disabled = true);
+            showToast('Draft skipped.', 'info', 2000);
+
+            const session = getSession();
+            const drafts = session?.cardDrafts || {};
+            for (const d of Object.values(drafts)) {
+                if (d.id === draftId) d.status = 'skipped';
+            }
+            await saveSession();
+            break;
+        }
+        case 'regen': {
+            const session = getSession();
+            const drafts = session?.cardDrafts || {};
+            let field = '';
+            for (const d of Object.values(drafts)) {
+                if (d.id === draftId) field = d.field;
+            }
+            if (field && _onSendCallback) {
+                draftCard?.remove();
+                await _sendMessage(`Please regenerate the ${field} field.`);
+            }
             break;
         }
     }
@@ -419,6 +557,15 @@ export function bindChatEvents() {
     const messagesEl = el('ccs_messages');
     if (messagesEl) {
         messagesEl.addEventListener('click', async (e) => {
+            // Draft action buttons (Apply/Skip/Regen)
+            const draftBtn = e.target.closest('[data-draft-action]');
+            if (draftBtn) {
+                const action = draftBtn.dataset.draftAction;
+                const draftId = draftBtn.dataset.draftId;
+                if (action && draftId) await _handleDraftAction(action, draftId, draftBtn);
+                return;
+            }
+
             // Message action buttons
             const actionBtn = e.target.closest('.ccs-msg-action');
             if (actionBtn) {

@@ -14,8 +14,9 @@
 import { initSessionManager, loadSession, saveSession, clearCurrentSession, getSession } from './core/session.js';
 import { initMultiTab, releaseLock } from './core/multi-tab.js';
 import { openStudio, closeStudio, bindAppEvents, updateCharacterName } from './ui/app.js';
-import { bindChatEvents, renderMessages } from './ui/chat.js';
+import { bindChatEvents, renderMessages, onSend } from './ui/chat.js';
 import { showToast } from './ui/toast.js';
+import { initAgent } from './core/agent.js';
 
 // ─── Extension Path Detection ─────────────────────────────────────────────────
 // ST loads extensions from: /scripts/extensions/third-party/CharCardStudio/index.js
@@ -43,7 +44,7 @@ console.log(`[CCS] Loaded from: ${EXT_PATH}`);
 
 // ─── ST Context Helpers ───────────────────────────────────────────────────────
 
-function getCtx() {
+export function getCtx() {
     return SillyTavern?.getContext?.() ?? null;
 }
 
@@ -71,6 +72,9 @@ async function init() {
     // 5. Bind all UI events
     bindAppEvents();
     bindChatEvents();
+
+    // 5b. Initialize the AI agent (wires into chat's onSend callback)
+    initAgent(onSend);
 
     // 6. Wire the Open Studio button in settings drawer + wand menu
     _bindSettingsButton();
