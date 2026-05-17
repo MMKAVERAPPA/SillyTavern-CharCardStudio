@@ -25,7 +25,7 @@ const MAX_HISTORY_MESSAGES = 30;
  */
 export function initAgent(setOnSendCallback) {
   setOnSendCallback(handleUserMessage);
-  console.log('[CCS] Agent initialized.');
+  console.log('[CCS] Agent initialized — onSend callback registered.');
 }
 
 /**
@@ -37,8 +37,16 @@ export function initAgent(setOnSendCallback) {
 export async function handleUserMessage(text, callbacks) {
   const { appendAssistantMessage, renderDraft, setTyping } = callbacks;
   
+  console.log('[CCS] handleUserMessage called:', text.substring(0, 80));
+  console.log('[CCS] Callbacks received:', {
+    hasAppendMsg: typeof appendAssistantMessage === 'function',
+    hasRenderDraft: typeof renderDraft === 'function',
+    hasSetTyping: typeof setTyping === 'function',
+  });
+
   const session = getSession();
   if (!session) {
+    console.warn('[CCS] No active session');
     appendAssistantMessage('No session active. Please open the studio with a character selected.');
     return;
   }
@@ -49,11 +57,12 @@ export async function handleUserMessage(text, callbacks) {
     await runCancellableGeneration({
       name: 'agent-response',
       run: async (signal) => {
-        await _agentLoop(text, session, signal, { appendAssistantMessage, renderDraft, setTyping });
+        await _agentLoop(text, session, signal, callbacks);
       },
     });
   } catch (err) {
     if (err.name === 'AbortError' || err.message?.includes('abort') || err.message?.includes('cancel')) {
+      console.log('[CCS] Generation cancelled by user.');
       appendAssistantMessage('*Generation cancelled.*');
     } else {
       console.error('[CCS] Agent error:', err);
@@ -61,6 +70,7 @@ export async function handleUserMessage(text, callbacks) {
     }
   } finally {
     setTyping(false);
+    console.log('[CCS] Agent turn complete.');
   }
 }
 
@@ -71,16 +81,20 @@ async function _agentLoop(userText, session, signal, callbacks) {
 
   // Build system prompt
   const systemPrompt = buildSystemPrompt(session);
+  console.log('[CCS] System prompt built:', systemPrompt.length, 'chars');
 
   // Assemble message history for the LLM
   // Note: The user message is already in session.messages (added by chat.js before calling us)
   const messages = _buildMessageArray(systemPrompt, session);
+  console.log('[CCS] Message array built:', messages.length, 'messages');
 
   let lastReasoning = '';
   let finalResponseText = '';
 
   for (let iteration = 0; iteration < MAX_ITERATIONS; iteration++) {
     if (signal.aborted) throw new DOMException('Aborted', 'AbortError');
+
+    console.log(`[CCS] === Iteration ${iteration + 1}/${MAX_ITERATIONS} ===`);
 
     // Update typing label with iteration info
     if (iteration > 0) {
@@ -89,6 +103,11 @@ async function _agentLoop(userText, session, signal, callbacks) {
 
     // Call the LLM
     const response = await _callLLM(messages, signal);
+    console.log('[CCS] LLM response received:', {
+      textLength: response.text?.length || 0,
+      hasReasoning: !!response.reasoning,
+      textPreview: (response.text || '').substring(0, 120),
+    });
     
     // Extract reasoning if present
     if (response.reasoning) {
@@ -99,15 +118,14 @@ async function _agentLoop(userText, session, signal, callbacks) {
 
     // Handle empty response
     if (!responseText.trim()) {
+      console.warn('[CCS] Empty response from LLM');
       if (iteration < MAX_ITERATIONS - 1) {
-        // Nudge the AI to produce content
         messages.push({
           role: 'user',
           content: '[System: Your last response was empty. Please provide your response now.]'
         });
         continue;
       }
-      // Last iteration — give up gracefully
       finalResponseText = lastReasoning 
         ? 'I processed your request but had trouble formulating a response. Could you rephrase?'
         : 'I wasn\'t able to generate a response. Please try again.';
@@ -116,27 +134,41 @@ async function _agentLoop(userText, session, signal, callbacks) {
 
     // Parse for tool calls
     const { toolCalls, prose } = parseToolCalls(responseText);
+    console.log('[CCS] Parse result:', {
+      toolCallCount: toolCalls.length,
+      tools: toolCalls.map(t => t.name),
+      proseLength: prose.length,
+    });
 
     if (toolCalls.length === 0) {
       // No tool calls — this is the final prose response
+      console.log('[CCS] No tool calls — final prose response.');
       finalResponseText = responseText;
       break;
     }
 
     // Execute tool calls
-    // Add the AI's response (with tool calls) to the message history
     messages.push({ role: 'assistant', content: responseText });
 
-    // Collect all tool results into a single user message
-    // (semi-strict post-processing requires alternating roles)
     const toolResultParts = [];
     for (const call of toolCalls) {
+      console.log(`[CCS] Executing tool: ${call.name}`, JSON.stringify(call.parameters).substring(0, 200));
       const { result, draft } = await executeToolCall(call);
+      console.log(`[CCS] Tool ${call.name} result:`, result.substring(0, 150));
+
       toolResultParts.push(`[Tool Result for ${call.name}]:\n${result}`);
 
       // If this produced a draft, notify the UI
       if (draft) {
-        renderDraft(draft);
+        console.log(`[CCS] 🎯 Draft produced! id=${draft.id} field=${draft.field} tokens=${draft.tokenCount}`);
+        try {
+          renderDraft(draft);
+          console.log('[CCS] renderDraft callback called successfully.');
+        } catch (renderErr) {
+          console.error('[CCS] renderDraft FAILED:', renderErr);
+        }
+      } else {
+        console.log(`[CCS] Tool ${call.name} returned no draft.`);
       }
     }
 
@@ -155,21 +187,25 @@ async function _agentLoop(userText, session, signal, callbacks) {
 
   // Clean final response
   const cleanResponse = stripToolCallBlocks(finalResponseText).trim();
+  console.log('[CCS] Final response:', cleanResponse.length, 'chars, reasoning:', !!lastReasoning);
 
   if (cleanResponse) {
-    // Build meta for the message
     const meta = {};
     if (lastReasoning) meta.reasoning = lastReasoning;
 
-    // addMessage expects a full message object, not (role, content, meta)
     const assistantMsg = {
       role: 'assistant',
       content: cleanResponse,
       timestamp: Date.now(),
       meta,
     };
-    await addMessage(assistantMsg);
+    addMessage(assistantMsg);
+    console.log('[CCS] Message added to session:', assistantMsg.id || '(auto-id)');
+    
     appendAssistantMessage(cleanResponse, meta);
+    console.log('[CCS] appendAssistantMessage callback called.');
+  } else {
+    console.warn('[CCS] No final response to display (cleanResponse empty).');
   }
 }
 
@@ -178,7 +214,6 @@ async function _agentLoop(userText, session, signal, callbacks) {
 function _buildMessageArray(systemPrompt, session) {
   const messages = [{ role: 'system', content: systemPrompt }];
 
-  // Add recent history (skip the current message, which we'll add separately)
   const history = getSession()?.messages || [];
   const recent = history.slice(-MAX_HISTORY_MESSAGES);
 
@@ -193,15 +228,19 @@ function _buildMessageArray(systemPrompt, session) {
 // ─── LLM Generation ────────────────────────────────────────────────────────
 
 /**
- * Call the LLM via silent-generation.js (which handles abort, retries, job tracking).
- * Extracts <think> reasoning blocks from the response.
- * @param {Array} messages - Chat message array
- * @param {AbortSignal} signal - Abort signal from the cancellable generation
- * @returns {Promise<{ text: string, reasoning: string }>}
+ * Call the LLM via silent-generation.js.
+ * 
+ * NOTE on reasoning: Many "thinking" models (GLM-4.7, DeepSeek, o1) return
+ * their reasoning in a separate `reasoning` field of the API response object,
+ * NOT in <think> tags within the content. ST's `generateRaw` discards this
+ * field and returns only the content string. To display reasoning from these
+ * models, we would need `generateRawData` which returns the full response.
+ * For now, we only extract <think> tags from content (works with models that
+ * embed reasoning in the content field).
  */
 async function _callLLM(messages, signal) {
-  // Use generateText from silent-generation.js — it handles abort, job tracking,
-  // and calls ctx.generateRaw({ prompt: messages }) internally.
+  console.log('[CCS] Calling LLM with', messages.length, 'messages');
+  
   let text = await generateText(messages, {
     name: 'ccs-agent',
     signal,
@@ -209,11 +248,12 @@ async function _callLLM(messages, signal) {
 
   let reasoning = '';
 
-  // Extract reasoning from <think> tags if present (thinking models)
+  // Extract reasoning from <think> tags if present
   const thinkMatch = text.match(/<think>([\s\S]*?)<\/think>/);
   if (thinkMatch) {
     reasoning = thinkMatch[1].trim();
     text = text.replace(/<think>[\s\S]*?<\/think>/, '').trim();
+    console.log('[CCS] Extracted <think> reasoning:', reasoning.length, 'chars');
   }
 
   return { text, reasoning };

@@ -55,8 +55,12 @@ export function setTyping(active, label = 'Thinking...') {
  * @param {object} draft - Draft object from tools.js
  */
 export function renderStagedDraftMessage(draft) {
+    console.log('[CCS] renderStagedDraftMessage called:', draft?.id, draft?.field);
     const container = el('ccs_messages');
-    if (!container) return;
+    if (!container) {
+        console.error('[CCS] renderStagedDraftMessage: #ccs_messages container not found!');
+        return;
+    }
 
     const welcome = el('ccs_welcome');
     if (welcome) welcome.style.display = 'none';
@@ -92,6 +96,7 @@ export function renderStagedDraftMessage(draft) {
     `;
 
     container.appendChild(div);
+    console.log('[CCS] Draft card DOM element appended to #ccs_messages.');
     _scrollToBottom();
 }
 
@@ -297,15 +302,25 @@ async function _sendMessage(text) {
         try {
             await _onSendCallback(text, {
                 appendAssistantMessage: (content, meta) => {
-                    const msg = {
-                        id: generateId('msg'),
-                        role: 'assistant',
-                        content,
-                        timestamp: Date.now(),
-                        meta,
-                    };
-                    // Note: agent.js already calls addMessage, so we only render
-                    appendMessage(msg);
+                    // The agent already called addMessage() to persist in session.
+                    // We only need to render the message in the DOM here.
+                    // Get the last message from session (which the agent just added)
+                    const session = getSession();
+                    const lastMsg = session?.messages?.[session.messages.length - 1];
+                    if (lastMsg && lastMsg.role === 'assistant') {
+                        console.log('[CCS] appendAssistantMessage rendering from session:', lastMsg.id);
+                        appendMessage(lastMsg);
+                    } else {
+                        // Fallback: create a render-only message object
+                        console.warn('[CCS] appendAssistantMessage fallback: creating render-only msg');
+                        appendMessage({
+                            id: generateId('msg'),
+                            role: 'assistant',
+                            content,
+                            timestamp: Date.now(),
+                            meta,
+                        });
+                    }
                 },
                 renderDraft: (draft) => {
                     renderStagedDraftMessage(draft);

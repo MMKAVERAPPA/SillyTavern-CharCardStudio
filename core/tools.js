@@ -78,6 +78,7 @@ export async function executeToolCall(call) {
 
 async function toolWriteField(params) {
   const { field, content, greeting_index } = params;
+  console.log('[CCS] toolWriteField called:', field, 'content length:', content?.length);
   
   if (!field || !VALID_FIELDS.has(field)) {
     return { result: `Error: Invalid field "${field}". Valid fields: ${[...VALID_FIELDS].join(', ')}` };
@@ -109,6 +110,14 @@ async function toolWriteField(params) {
   const key = field === 'alternate_greetings' ? `${field}_${greeting_index || 0}` : field;
   drafts[key] = draft;
   await updateSession({ cardDrafts: drafts });
+
+  console.log('[CCS] Draft created:', {
+    id: draft.id,
+    field: draft.field,
+    contentLength: draft.content?.length,
+    tokenCount: draft.tokenCount,
+    status: draft.status,
+  });
 
   return {
     result: `Draft created for "${field}" (${draft.tokenCount || '?'} tokens). Waiting for user approval.`,
@@ -346,6 +355,7 @@ async function toolAuditCard(params) {
  * @returns {Promise<boolean>}
  */
 export async function applyDraftToCard(draftId) {
+  console.log('[CCS] applyDraftToCard called:', draftId);
   const session = getSession();
   const drafts = session.cardDrafts || {};
   
@@ -361,16 +371,24 @@ export async function applyDraftToCard(draftId) {
   }
   
   if (!draft) {
-    console.error('[CCS] Draft not found:', draftId);
+    console.error('[CCS] Draft not found:', draftId, 'Available drafts:', Object.keys(drafts));
+    return false;
+  }
+  console.log('[CCS] Found draft:', draft.field, 'status:', draft.status);
+
+  const ctx = getCtx();
+  if (!ctx) {
+    console.error('[CCS] No ST context available');
     return false;
   }
 
-  const ctx = getCtx();
-  if (!ctx) return false;
-
   const charId = ctx.characterId;
   const char = ctx.characters?.[charId];
-  if (!char?.avatar) return false;
+  if (!char?.avatar) {
+    console.error('[CCS] No character loaded. charId:', charId, 'char:', char?.name);
+    return false;
+  }
+  console.log('[CCS] Applying to character:', char.name, 'avatar:', char.avatar);
 
   try {
     // Build the merge payload
@@ -423,12 +441,17 @@ export async function applyDraftToCard(draftId) {
       });
     }
 
+    console.log('[CCS] Merge request body:', body.substring(0, 300));
+
+    const headers = {
+      'Content-Type': 'application/json',
+      ...ctx.getRequestHeaders(),
+    };
+    console.log('[CCS] Request headers:', Object.keys(headers));
+
     const resp = await fetch('/api/characters/merge-attributes', {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        ...ctx.getRequestHeaders(),
-      },
+      headers,
       body,
     });
 
@@ -437,6 +460,8 @@ export async function applyDraftToCard(draftId) {
       console.error('[CCS] Merge failed:', resp.status, errText);
       return false;
     }
+
+    console.log('[CCS] Merge SUCCESS for field:', draft.field);
 
     // Mark draft as applied
     draft.status = 'applied';
