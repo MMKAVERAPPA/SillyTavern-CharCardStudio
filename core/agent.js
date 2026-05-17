@@ -16,6 +16,7 @@ import { buildSystemPrompt, TOOL_REMINDER } from '../prompts/phase-instructions.
 
 const MAX_ITERATIONS = 8;
 const MAX_HISTORY_MESSAGES = 30;
+const TOOL_RESULT_TRIM_THRESHOLD = 200;
 
 // ─── Public API ─────────────────────────────────────────────────────────────
 
@@ -101,8 +102,17 @@ async function _agentLoop(userText, session, signal, callbacks) {
       setTyping(true, `Working... (step ${iteration + 1})`);
     }
 
+    // Trim old tool results before sending to LLM to reduce token bloat
+    const trimmedMessages = _trimToolHistory(messages);
+
     // Call the LLM
-    const response = await _callLLM(messages, signal);
+    const response = await _callLLM(trimmedMessages, signal);
+
+    // Check abort after LLM returns
+    if (signal.aborted) {
+      console.log(`[CCS] Generation aborted by user after LLM call at iteration ${iteration + 1}`);
+      break;
+    }
     console.log('[CCS] LLM response received:', {
       textLength: response.text?.length || 0,
       hasReasoning: !!response.reasoning,
@@ -158,6 +168,12 @@ async function _agentLoop(userText, session, signal, callbacks) {
 
       toolResultParts.push(`[Tool Result for ${call.name}]:\n${result}`);
 
+      // Check abort after each tool execution
+      if (signal.aborted) {
+        console.log(`[CCS] Generation aborted by user during tool execution at iteration ${iteration + 1}`);
+        break;
+      }
+
       // If this produced a draft, notify the UI
       if (draft) {
         console.log(`[CCS] 🎯 Draft produced! id=${draft.id} field=${draft.field} tokens=${draft.tokenCount}`);
@@ -171,6 +187,9 @@ async function _agentLoop(userText, session, signal, callbacks) {
         console.log(`[CCS] Tool ${call.name} returned no draft.`);
       }
     }
+
+    // If we were aborted mid-tool-execution, break out
+    if (signal.aborted) break;
 
     // Add combined tool results as a single user message
     let toolResultMessage = toolResultParts.join('\n\n');
@@ -223,6 +242,62 @@ function _buildMessageArray(systemPrompt, session) {
   }
 
   return messages;
+}
+
+// ─── Tool History Trimming ──────────────────────────────────────────────────
+
+/**
+ * Trim old tool result messages to reduce token bloat.
+ * 
+ * Each tool iteration adds 2 messages (AI response + tool result). After 5
+ * iterations, that's 10 extra messages, often including full card content
+ * (3800+ chars per ccs_read_field). The LLM already consumed these — sending
+ * them again wastes tokens.
+ * 
+ * Strategy:
+ * - System message (index 0): always keep in full
+ * - Real user messages: always keep in full
+ * - Assistant messages: always keep in full (they contain the AI's reasoning)
+ * - Tool result messages: truncate OLD ones to 200 chars; keep the LATEST in full
+ * 
+ * Tool results are identified by content starting with '[Tool Result for'.
+ * This works on a COPY — the original messages array is not mutated.
+ */
+function _trimToolHistory(messages) {
+  // Find all tool result indices
+  const toolResultIndices = [];
+  for (let i = 0; i < messages.length; i++) {
+    if (messages[i].role === 'user' && messages[i].content?.startsWith('[Tool Result for')) {
+      toolResultIndices.push(i);
+    }
+  }
+
+  // Nothing to trim if there are 0 or 1 tool results
+  if (toolResultIndices.length <= 1) return messages;
+
+  // The last tool result index should be kept in full
+  const lastToolResultIdx = toolResultIndices[toolResultIndices.length - 1];
+  let totalCharsRemoved = 0;
+
+  // Build a shallow copy with old tool results truncated
+  const trimmed = messages.map((msg, idx) => {
+    if (toolResultIndices.includes(idx) && idx !== lastToolResultIdx) {
+      const original = msg.content;
+      if (original.length > TOOL_RESULT_TRIM_THRESHOLD) {
+        const truncated = original.substring(0, TOOL_RESULT_TRIM_THRESHOLD)
+          + `\n[...truncated, ${original.length} chars total]`;
+        totalCharsRemoved += original.length - truncated.length;
+        return { ...msg, content: truncated };
+      }
+    }
+    return msg;
+  });
+
+  if (totalCharsRemoved > 0) {
+    console.log(`[CCS] Trimmed tool history: ${messages.length} messages, removed ~${totalCharsRemoved} chars from ${toolResultIndices.length - 1} old tool result(s)`);
+  }
+
+  return trimmed;
 }
 
 // ─── LLM Generation ────────────────────────────────────────────────────────
