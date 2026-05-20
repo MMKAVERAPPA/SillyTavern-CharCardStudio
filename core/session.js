@@ -728,6 +728,40 @@ function notifyListeners() {
     }
 }
 
+// ─── Clear Session ──────────────────────────────────────────────────────────
+
+/**
+ * Reset the current session's data (messages, drafts, pillars) while keeping
+ * character identity. Useful for "start over" functionality.
+ */
+export function resetCurrentSession() {
+    if (!currentSession) return;
+
+    currentSession.messages = [];
+    currentSession.cardDrafts = {};
+    currentSession.loreDrafts = [];
+    currentSession.pillarStates = [];
+    currentSession.modeHistories = {
+        studio: [], janitor: [], html: [], imageprompt: [], fictionlab: [],
+    };
+    currentSession.phase = 'ideate';
+    currentSession.mode = 'studio';
+    currentSession.fieldHashes = {};
+    currentSession.falsePositives = [];
+
+    saveSession();
+
+    // Clear character-specific memory from IndexedDB
+    if (store && currentSession.characterAvatar) {
+        store.removeItem(memoryKey(currentSession.characterAvatar)).catch(err => {
+            console.error('[CCS] Failed to clear character memory during session reset:', err);
+        });
+    }
+
+    notifyListeners();
+    console.log('[CCS] Current session reset (data cleared, identity preserved)');
+}
+
 // ─── Cleanup ────────────────────────────────────────────────────────────────
 
 /**

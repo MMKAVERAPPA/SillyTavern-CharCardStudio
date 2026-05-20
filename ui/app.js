@@ -15,6 +15,7 @@ import { calculateStarRating, renderStarHtml } from '../core/validators.js';
 import { cancelAllGenerations, isGenerating } from '../core/silent-generation.js';
 import { adaptPanelForMode, getWelcomeForMode, getChipsForMode, isModeBlocked } from './mode-panel.js';
 import { showToast } from './toast.js';
+import { openSettings } from './settings-modal.js';
 
 // ─── State ───────────────────────────────────────────────────────────────────
 
@@ -648,7 +649,7 @@ export function bindAppEvents() {
     const settingsBtn = el('ccs_settings_btn');
     if (settingsBtn) {
         settingsBtn.addEventListener('click', () => {
-            showToast('Settings panel coming in Phase E', 'info');
+            openSettings();
         });
     }
 
