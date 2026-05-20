@@ -81,7 +81,7 @@ async function _agentLoop(userText, session, signal, callbacks) {
   const { appendAssistantMessage, renderDraft, setTyping } = callbacks;
 
   // Build system prompt
-  const systemPrompt = buildSystemPrompt(session);
+  const systemPrompt = await buildSystemPrompt(session);
   console.log('[CCS] System prompt built:', systemPrompt.length, 'chars');
 
   // Assemble message history for the LLM
@@ -234,14 +234,93 @@ function _buildMessageArray(systemPrompt, session) {
   const messages = [{ role: 'system', content: systemPrompt }];
 
   const history = getSession()?.messages || [];
-  const recent = history.slice(-MAX_HISTORY_MESSAGES);
 
-  for (const msg of recent) {
-    const role = msg.role === 'user' ? 'user' : 'assistant';
-    messages.push({ role, content: msg.content });
+  // Auto-summarization: if history exceeds threshold, inject summary + keep recent
+  const SUMMARIZE_THRESHOLD = 30;
+  const KEEP_RECENT = 15;
+
+  if (history.length > SUMMARIZE_THRESHOLD && session?.autoSummary) {
+    // Inject stored summary as context
+    messages.push({
+      role: 'user',
+      content: `[Previous conversation summary: ${session.autoSummary}]`,
+    });
+    // Only include recent messages
+    const recent = history.slice(-KEEP_RECENT);
+    for (const msg of recent) {
+      const role = msg.role === 'user' ? 'user' : 'assistant';
+      messages.push({ role, content: msg.content });
+    }
+  } else {
+    // Normal: include all history up to MAX_HISTORY_MESSAGES
+    const recent = history.slice(-MAX_HISTORY_MESSAGES);
+    for (const msg of recent) {
+      const role = msg.role === 'user' ? 'user' : 'assistant';
+      messages.push({ role, content: msg.content });
+    }
+  }
+
+  // Trigger auto-summarization in the background if needed
+  const unsummarizedCount = history.length - KEEP_RECENT - (session?.autoSummaryCount || 0);
+  if (history.length > SUMMARIZE_THRESHOLD && (!session?.autoSummary || unsummarizedCount >= 10)) {
+    _autoSummarize(history, KEEP_RECENT).catch(err =>
+      console.warn('[CCS] Auto-summarize failed:', err.message)
+    );
   }
 
   return messages;
+}
+
+/**
+ * Auto-summarize old messages and store in session.autoSummary.
+ * Runs in background (does not block the agent loop).
+ */
+async function _autoSummarize(history, keepRecent) {
+  const session = getSession();
+  if (!session) return;
+
+  const oldMessages = history.slice(0, -keepRecent);
+  let contentToSummarize = '';
+  const lastSummary = session.autoSummary || '';
+  const lastCount = session.autoSummaryCount || 0;
+
+  if (lastSummary) {
+    contentToSummarize += `Previous Summary: ${lastSummary}\n\n`;
+    const newPruned = history.slice(lastCount, -keepRecent);
+    const condensedNew = newPruned
+      .filter(m => m.role === 'user' || m.role === 'ai' || m.role === 'assistant')
+      .map(m => `${m.role === 'user' ? 'User' : 'AI'}: ${m.content.substring(0, 200)}`)
+      .join('\n');
+    if (!condensedNew.trim()) return; // No new messages to summarize
+    contentToSummarize += `New Messages to incorporate:\n${condensedNew}`;
+  } else {
+    contentToSummarize = oldMessages
+      .filter(m => m.role === 'user' || m.role === 'ai' || m.role === 'assistant')
+      .map(m => `${m.role === 'user' ? 'User' : 'AI'}: ${m.content.substring(0, 200)}`)
+      .join('\n');
+  }
+
+  if (!contentToSummarize.trim()) return;
+
+  try {
+    const summary = await generateText(
+      [
+        { role: 'system', content: 'Summarize the conversation history concisely in 2-4 sentences. Focus on key decisions, character details, and context. If a previous summary is provided, integrate the new messages into it to produce a single, updated summary.' },
+        { role: 'user', content: contentToSummarize.substring(0, 4000) },
+      ],
+      { name: 'ccs-auto-summarize' }
+    );
+
+    if (summary && summary.trim()) {
+      await updateSession({
+        autoSummary: summary.trim(),
+        autoSummaryCount: history.length - keepRecent
+      });
+      console.log('[CCS] Incremental auto-summary saved:', summary.substring(0, 100));
+    }
+  } catch (err) {
+    console.warn('[CCS] Auto-summarize error:', err.message);
+  }
 }
 
 // ─── Tool History Trimming ──────────────────────────────────────────────────

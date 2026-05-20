@@ -166,14 +166,15 @@ export const TOOL_REMINDER = `Remember: to perform actions on the card, use tool
 // ─── Build System Prompt ────────────────────────────────────────────────────
 
 import { AGENT_IDENTITY, FIELD_KNOWLEDGE, FORMAT_RULES, NAMING_RULES, CREATIVE_PRINCIPLES } from './identity.js';
+import { buildMemoryBlock } from '../core/session-memory.js';
 
 /**
  * Assembles the full system prompt from all layers.
  * @param {object} session - Current session state
- * @returns {string} Complete system prompt
+ * @returns {Promise<string>} Complete system prompt
  */
-export function buildSystemPrompt(session) {
-  const format = session?.format || 'prose';
+export async function buildSystemPrompt(session) {
+  const format = session?.cardFormat || 'prose';
   const phase = session?.phase || 'ideate';
 
   const parts = [
@@ -190,14 +191,14 @@ export function buildSystemPrompt(session) {
     TOOL_DEFINITIONS,
   ];
 
-  // Layer 5: Session memory (if any)
-  const memory = session?.memory;
-  if (memory?.global || memory?.perCharacter) {
-    let memBlock = '\n━━━ SESSION MEMORY ━━━\n';
-    if (memory.global) memBlock += `Global Rules:\n${memory.global}\n`;
-    if (memory.perCharacter) memBlock += `Character Rules:\n${memory.perCharacter}\n`;
-    parts.push(memBlock);
+  // Layer 5: Session memory (global + per-character + learnings)
+  try {
+    const memBlock = await buildMemoryBlock(session);
+    if (memBlock) parts.push(memBlock);
+  } catch (err) {
+    console.warn('[CCS] Failed to load session memory:', err.message);
   }
 
   return parts.join('\n');
 }
+

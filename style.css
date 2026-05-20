@@ -728,6 +728,66 @@ html {
   word-break: break-word;
 }
 
+/* Pillar section headers */
+.ccs-pillar-section {
+  margin-bottom: 12px;
+}
+.ccs-pillar-section-header {
+  font-size: 0.75em;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--ccs-text-muted);
+  padding: 4px 8px;
+  margin-bottom: 4px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.ccs-pillar-section-count {
+  font-weight: 400;
+  opacity: 0.7;
+}
+
+/* Add pillar button */
+.ccs-add-pillar-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 8px 12px;
+  margin-top: 8px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px dashed var(--ccs-border);
+  border-radius: 6px;
+  color: var(--ccs-text-secondary);
+  font-size: 0.82em;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+.ccs-add-pillar-btn:hover {
+  background: rgba(255, 255, 255, 0.06);
+  border-color: var(--ccs-accent);
+  color: var(--ccs-accent);
+}
+
+/* Delete button on world pillars */
+.ccs-pillar-delete {
+  margin-left: 4px;
+  opacity: 0;
+  cursor: pointer;
+  color: var(--ccs-text-muted);
+  transition: opacity 0.15s, color 0.15s;
+  font-size: 0.85em;
+}
+.ccs-pillar:hover .ccs-pillar-delete {
+  opacity: 0.6;
+}
+.ccs-pillar-delete:hover {
+  opacity: 1 !important;
+  color: var(--ccs-error);
+}
+
 .ccs-pillar-icon {
   width: 24px;
   height: 24px;
@@ -867,6 +927,95 @@ html {
 
 
 /* ═══════════════════════════════════════════════════════════════════════════
+   7b. STAR RATING (Concept Tab)
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+.ccs-star-rating {
+  padding: 10px 12px;
+  margin-bottom: 8px;
+  border-radius: var(--ccs-radius);
+  background: rgba(255, 183, 77, 0.06);
+  border: 1px solid rgba(255, 183, 77, 0.15);
+  text-align: center;
+}
+.ccs-star-rating-stars {
+  font-size: 18px;
+  letter-spacing: 2px;
+  margin-bottom: 4px;
+}
+.ccs-star-rating-details {
+  font-size: 11px;
+  color: var(--ccs-text-muted);
+}
+.ccs-star-rating-modifiers {
+  font-size: 10px;
+  color: var(--ccs-text-muted);
+  margin-top: 2px;
+  font-style: italic;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   7c. CONFLICTS (Concept Tab)
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+.ccs-conflicts-section {
+  margin-top: 12px;
+}
+
+.ccs-conflict-item {
+  padding: 10px 12px;
+  border-radius: var(--ccs-radius);
+  border: 1px solid var(--ccs-border);
+  background: var(--ccs-bg-primary);
+  margin-bottom: 6px;
+  transition: all var(--ccs-transition);
+}
+.ccs-conflict-item--high {
+  border-color: rgba(244, 67, 54, 0.3);
+  background: rgba(244, 67, 54, 0.04);
+}
+.ccs-conflict-item--medium {
+  border-color: rgba(255, 183, 77, 0.3);
+  background: rgba(255, 183, 77, 0.04);
+}
+.ccs-conflict-item--low {
+  border-color: rgba(66, 165, 245, 0.2);
+}
+.ccs-conflict-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+.ccs-conflict-fields {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ccs-text-primary);
+}
+.ccs-conflict-desc {
+  font-size: 12px;
+  color: var(--ccs-text-secondary);
+  line-height: 1.4;
+  margin-bottom: 6px;
+}
+.ccs-conflict-actions {
+  display: flex;
+  gap: 6px;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   7d. MANUAL EDIT DETECTION (Card Tab)
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+.ccs-field-row--edited {
+  border-left: 3px solid var(--ccs-warning);
+}
+.ccs-field-row--edited .ccs-field-label {
+  color: var(--ccs-warning);
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
    8. LOREBOOK ENTRIES (Lore Tab)
    ═══════════════════════════════════════════════════════════════════════════ */
 
@@ -914,6 +1063,130 @@ html {
   color: var(--ccs-info);
   font-size: 10px;
   font-family: var(--ccs-font-mono);
+}
+
+.ccs-lore-budget {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding: 8px 12px;
+  margin-bottom: 8px;
+  border-radius: var(--ccs-radius);
+  background: rgba(66, 165, 245, 0.06);
+  border: 1px solid rgba(66, 165, 245, 0.15);
+  font-size: 11px;
+  color: var(--ccs-text-secondary);
+}
+.ccs-lore-budget-label {
+  font-weight: 600;
+  color: var(--ccs-text-primary);
+}
+
+.ccs-lore-section-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ccs-text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin: 10px 0 6px;
+  padding-bottom: 4px;
+  border-bottom: 1px solid var(--ccs-border);
+}
+
+.ccs-lore-staged-section,
+.ccs-lore-existing-section {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.ccs-lore-entry--staged {
+  border-color: rgba(255, 183, 77, 0.25);
+  background: rgba(255, 183, 77, 0.04);
+}
+
+.ccs-lore-entry--disabled {
+  opacity: 0.5;
+}
+
+.ccs-lore-entry-tokens {
+  font-size: 11px;
+  color: var(--ccs-text-muted);
+  font-family: var(--ccs-font-mono);
+  margin-left: auto;
+}
+
+.ccs-lore-entry-keys {
+  font-size: 11px;
+  color: var(--ccs-text-muted);
+  margin-top: 4px;
+  line-height: 1.4;
+}
+
+.ccs-lore-entry-preview {
+  font-size: 12px;
+  color: var(--ccs-text-secondary);
+  margin-top: 4px;
+  line-height: 1.4;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+/* Recursion warnings */
+.ccs-lore-recursion-warning {
+  margin-top: 10px;
+  padding: 10px 12px;
+  border-radius: var(--ccs-radius);
+  border: 1px solid rgba(255, 183, 77, 0.3);
+  background: rgba(255, 183, 77, 0.04);
+}
+.ccs-lore-warning-item {
+  font-size: 12px;
+  color: var(--ccs-warning);
+  padding: 2px 0;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   8b. DRAFT VERSION NAV
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+.ccs-draft-version-nav {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin: 0 6px;
+}
+.ccs-draft-version-label {
+  font-size: 11px;
+  color: var(--ccs-text-muted);
+  font-family: var(--ccs-font-mono);
+  min-width: 28px;
+  text-align: center;
+}
+.ccs-btn--icon {
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: var(--ccs-bg-secondary);
+  border: 1px solid var(--ccs-border);
+  color: var(--ccs-text-secondary);
+  cursor: pointer;
+  font-size: 10px;
+  transition: all var(--ccs-transition);
+}
+.ccs-btn--icon:hover:not(:disabled) {
+  background: var(--ccs-bg-hover);
+  color: var(--ccs-accent);
+}
+.ccs-btn--icon:disabled {
+  opacity: 0.3;
+  cursor: default;
 }
 
 
@@ -991,6 +1264,35 @@ html {
   padding: 8px 14px;
   border-top: 1px solid var(--ccs-border);
   flex-wrap: wrap;
+}
+
+/* Draft edit mode */
+.ccs-draft-edit-area {
+  padding: 8px 14px;
+}
+.ccs-draft-textarea {
+  width: 100%;
+  min-height: 120px;
+  max-height: 300px;
+  padding: 10px;
+  background: var(--ccs-bg-primary);
+  border: 1px solid var(--ccs-border);
+  border-radius: 6px;
+  color: var(--ccs-text-primary);
+  font-size: 13px;
+  line-height: 1.5;
+  font-family: inherit;
+  resize: vertical;
+  white-space: pre-wrap;
+}
+.ccs-draft-textarea:focus {
+  border-color: var(--ccs-accent);
+  outline: none;
+}
+.ccs-draft-edit-actions {
+  display: flex;
+  gap: 6px;
+  margin-top: 6px;
 }
 
 .ccs-draft-btn {

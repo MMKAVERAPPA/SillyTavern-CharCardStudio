@@ -209,8 +209,8 @@ function _subscribeToSTEvents() {
 
     // CHARACTER_EDITED — another process saved the card, update our hash tracking
     const onCharacterEdited = () => {
-        // Will be used in Phase C for manual edit detection
-        console.log('[CCS] Character edited externally.');
+        console.log('[CCS] Character edited externally — dispatching card-updated');
+        document.dispatchEvent(new CustomEvent('ccs:card-updated'));
     };
 
     // APP_READY — ST is fully loaded

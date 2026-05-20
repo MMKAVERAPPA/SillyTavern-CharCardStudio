@@ -7,8 +7,12 @@
  * Write operations are STAGED — they create drafts that the user must approve.
  */
 
-import { getSession, updateSession } from './session.js';
+import { getSession, updateSession, hashString } from './session.js';
 import { getCtx } from '../index.js';
+import { updatePillar, addWorldPillar, markPillarDoneByField, calculateProgress } from './pillars.js';
+import { getLorebookEntries, createLorebookEntry, updateLorebookEntry, deleteLorebookEntry, getLorebookTokenBudget } from './lorebook.js';
+import { enqueueCheck } from './background.js';
+import { addMemoryRule, removeMemoryRule } from './session-memory.js';
 
 // ─── Field Name Mapping ─────────────────────────────────────────────────────
 
@@ -21,7 +25,7 @@ const CCS_TO_MERGE = {
   mes_example:         'mes_example',
   system_prompt:       'system_prompt',
   creator_notes:       'creator_notes',
-  character_note:      'depth_prompt_prompt',   // nested in depth_prompt object
+  character_note:      'depth_prompt',          // handled specially in applyDraftToCard (nested extensions.depth_prompt.prompt)
   alternate_greetings: 'alternate_greetings',
   tags:                'tags',
 };
@@ -87,40 +91,69 @@ async function toolWriteField(params) {
     return { result: 'Error: content parameter is required.' };
   }
 
-  const session = getSession();
-  const draft = {
-    id: `draft_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
-    field,
-    content,
-    greetingIndex: greeting_index,
-    status: 'pending',
-    createdAt: Date.now(),
-  };
-
   // Count tokens if available
+  let tokenCount = null;
   try {
     const ctx = getCtx();
     if (ctx?.getTokenCountAsync) {
-      draft.tokenCount = await ctx.getTokenCountAsync(content);
+      tokenCount = await ctx.getTokenCountAsync(content);
     }
   } catch (e) { /* token counting is optional */ }
 
-  // Save draft to session
+  const session = getSession();
   const drafts = session.cardDrafts || {};
   const key = field === 'alternate_greetings' ? `${field}_${greeting_index || 0}` : field;
-  drafts[key] = draft;
+  const existing = drafts[key];
+
+  // Version entry
+  const version = {
+    content,
+    tokenCount: tokenCount || Math.round(content.length / 4),
+    source: 'ai',
+    createdAt: Date.now(),
+  };
+
+  let draft;
+
+  if (existing && existing.status === 'pending') {
+    // Append as new version to existing draft
+    existing.versions = existing.versions || [{ content: existing.content, tokenCount: existing.tokenCount, source: 'ai', createdAt: existing.createdAt }];
+    existing.versions.push(version);
+    existing.activeVersion = existing.versions.length - 1;
+    existing.content = content;
+    existing.tokenCount = tokenCount;
+    draft = existing;
+    console.log(`[CCS] Version ${existing.activeVersion + 1} added to draft for "${field}"`);
+  } else {
+    // Create new draft with versions
+    draft = {
+      id: `draft_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+      field,
+      content,
+      greetingIndex: greeting_index,
+      status: 'pending',
+      tokenCount,
+      versions: [version],
+      activeVersion: 0,
+      createdAt: Date.now(),
+    };
+    drafts[key] = draft;
+  }
+
   await updateSession({ cardDrafts: drafts });
 
+  const versionLabel = draft.versions ? `v${draft.activeVersion + 1}/${draft.versions.length}` : '';
   console.log('[CCS] Draft created:', {
     id: draft.id,
     field: draft.field,
     contentLength: draft.content?.length,
     tokenCount: draft.tokenCount,
+    versions: draft.versions?.length || 1,
     status: draft.status,
   });
 
   return {
-    result: `Draft created for "${field}" (${draft.tokenCount || '?'} tokens). Waiting for user approval.`,
+    result: `Draft created for "${field}" (${draft.tokenCount || '?'} tokens${versionLabel ? ', ' + versionLabel : ''}). Waiting for user approval.`,
     draft,
   };
 }
@@ -169,26 +202,33 @@ async function toolReadField(params) {
 // ─── Tool 3: Update Pillar ──────────────────────────────────────────────────
 
 async function toolUpdatePillar(params) {
-  const { pillar_id, status, summary } = params;
+  const { pillar_id, status, summary, name } = params;
   if (!pillar_id || !status) {
     return { result: 'Error: pillar_id and status are required.' };
   }
 
-  const session = getSession();
-  const pillars = session.pillarStates || [];
+  // Try updating existing pillar first
+  const result = updatePillar(pillar_id, status, summary);
   
-  let pillar = pillars.find(p => p.id === pillar_id);
-  if (!pillar) {
-    // Create new pillar
-    pillar = { id: pillar_id, status, summary: summary || '' };
-    pillars.push(pillar);
-  } else {
-    pillar.status = status;
-    if (summary) pillar.summary = summary;
+  if (result.success) {
+    const session = getSession();
+    const progress = calculateProgress(session.pillarStates);
+    return { result: `Pillar "${result.pillar.name}" updated to ${status}. Progress: ${progress.done}/${progress.total - progress.skipped} (${progress.percent}%).` };
   }
 
-  await updateSession({ pillarStates: pillars });
-  return { result: `Pillar "${pillar_id}" updated to ${status}.` };
+  // If not found and it's a world pillar, create it
+  if (result.error?.includes('not found')) {
+    const pillar = addWorldPillar(name || pillar_id, summary);
+    if (pillar) {
+      pillar.status = status;
+      updateSession({ pillarStates: getSession().pillarStates });
+      const session = getSession();
+      const progress = calculateProgress(session.pillarStates);
+      return { result: `World pillar "${pillar.name}" created with status ${status}. Progress: ${progress.done}/${progress.total - progress.skipped} (${progress.percent}%).` };
+    }
+  }
+
+  return { result: result.error || 'Error updating pillar.' };
 }
 
 // ─── Tool 4: Create Lore Entry (Staged) ─────────────────────────────────────
@@ -206,20 +246,31 @@ async function toolCreateLoreEntry(params) {
     name,
     content,
     keys,
+    secondaryKeys: params.secondary_keys || [],
     category: params.category || '',
     constant: params.constant || false,
     position: params.position || 'after_char',
+    depth: params.depth ?? 4,
     order: params.order || 100,
+    preventRecursion: params.prevent_recursion || false,
     status: 'pending',
     createdAt: Date.now(),
   };
+
+  // Count tokens
+  try {
+    const ctx = getCtx();
+    if (ctx?.getTokenCountAsync) {
+      draft.tokenCount = await ctx.getTokenCountAsync(content);
+    }
+  } catch (e) { /* optional */ }
 
   const loreDrafts = session.loreDrafts || [];
   loreDrafts.push(draft);
   await updateSession({ loreDrafts });
 
   return {
-    result: `Lore entry "${name}" staged for approval. Keys: [${keys.join(', ')}]. ${params.constant ? '(Constant)' : '(Triggered)'}`,
+    result: `Lore entry "${name}" staged for approval (${draft.tokenCount || '?'}t). Keys: [${keys.join(', ')}]. ${params.constant ? '📌 Constant' : '⚡ Triggered'}`,
     draft,
   };
 }
@@ -238,17 +289,18 @@ async function toolReadLoreEntries(params) {
 
     // Access world info / lorebook data
     const book = char.data?.character_book;
-    if (!book?.entries?.length) {
+    if (!book?.entries || Object.keys(book.entries).length === 0) {
       return { result: 'No lorebook entries found for this character.' };
     }
 
     const entries = Object.values(book.entries);
     const lines = entries.map(e => {
-      const keys = e.keys?.join(', ') || 'none';
+      const keyArr = Array.isArray(e.key) ? e.key : (e.key ? [e.key] : []);
+      const keys = keyArr.join(', ') || 'none';
       const content = params.include_content !== false 
         ? `\n  Content: ${String(e.content).substring(0, 300)}` 
         : '';
-      return `• ${e.comment || e.name || 'Untitled'} [keys: ${keys}]${content}`;
+      return `• ${e.comment || e.name || 'Untitled'} (uid: ${e.uid}) [keys: ${keys}]${content}`;
     });
 
     return { result: `${entries.length} lorebook entries:\n${lines.join('\n')}` };
@@ -307,8 +359,35 @@ async function toolDeleteLoreEntry(params) {
 // ─── Tool 8: Resolve Conflict ───────────────────────────────────────────────
 
 async function toolResolveConflict(params) {
-  // Stub for Phase B — conflict detection is Phase E
-  return { result: `Conflict resolution noted. This feature will be fully available in a future update.` };
+  const { conflict_id, resolution, fix_content } = params;
+  if (!conflict_id) return { result: 'Error: conflict_id is required.' };
+
+  const session = getSession();
+  const conflicts = session.conflicts || [];
+  const conflict = conflicts.find(c => c.id === conflict_id);
+  if (!conflict) return { result: `Conflict "${conflict_id}" not found.` };
+
+  switch (resolution) {
+    case 'fix':
+      conflict.status = 'resolved';
+      conflict.resolvedAt = Date.now();
+      break;
+    case 'ignore':
+      conflict.status = 'ignored';
+      // Add to false positives so it doesn't reappear
+      const fps = session.falsePositives || [];
+      fps.push({ conflictId: conflict_id, markedAt: Date.now(), sessionOnly: false });
+      await updateSession({ conflicts, falsePositives: fps });
+      return { result: `Conflict ignored: ${conflict.description}` };
+    case 'defer':
+      conflict.status = 'snoozed';
+      break;
+    default:
+      return { result: `Unknown resolution: ${resolution}. Use: fix, ignore, or defer.` };
+  }
+
+  await updateSession({ conflicts });
+  return { result: `Conflict ${resolution}: ${conflict.description}` };
 }
 
 // ─── Tool 9: Update Memory ─────────────────────────────────────────────────
@@ -319,22 +398,14 @@ async function toolUpdateMemory(params) {
     return { result: 'Error: type and content are required.' };
   }
 
-  const session = getSession();
-  const memory = session.memory || { global: '', perCharacter: '' };
-
-  const target = type === 'global_rule' ? 'global' : 'perCharacter';
-
-  if (action === 'add') {
-    memory[target] = memory[target] 
-      ? `${memory[target]}\n- ${content}` 
-      : `- ${content}`;
-  } else if (action === 'remove') {
-    const lines = memory[target].split('\n').filter(l => !l.includes(content));
-    memory[target] = lines.join('\n');
+  if (action === 'remove') {
+    const removed = await removeMemoryRule(type, content);
+    return { result: removed ? `Memory removed: ${content}` : `No matching memory found for: ${content}` };
   }
 
-  await updateSession({ memory });
-  return { result: `Memory ${action === 'add' ? 'added' : 'removed'}: ${content}` };
+  const { success, id } = await addMemoryRule(type, content, 'ai');
+  if (!success) return { result: 'Error: Could not save memory rule.' };
+  return { result: `Memory saved (${type}): ${content}` };
 }
 
 // ─── Tool 10: Audit Card ───────────────────────────────────────────────────
@@ -484,6 +555,19 @@ export async function applyDraftToCard(draftId) {
 
     // Notify CCS panels to re-render with fresh data
     document.dispatchEvent(new CustomEvent('ccs:card-updated'));
+
+    // Auto-mark the corresponding pillar as done
+    markPillarDoneByField(draft.field, `Applied ${draft.tokenCount || '?'}t draft`);
+
+    // Store field hash for manual edit detection
+    const fieldHashes = session.fieldHashes || {};
+    fieldHashes[draft.field] = hashString(draft.content);
+    await updateSession({ fieldHashes });
+
+    // Enqueue background checks (conflict + token + validation)
+    enqueueCheck('conflict', draft.field);
+    enqueueCheck('token', draft.field);
+    enqueueCheck('validation', draft.field);
     
     console.log(`[CCS] Applied draft for ${draft.field}`);
     return true;
@@ -495,6 +579,7 @@ export async function applyDraftToCard(draftId) {
 
 /**
  * Apply a staged lore draft to the ST lorebook.
+ * Dispatches to the appropriate CRUD function based on draft.type.
  * @param {string} draftId 
  * @returns {Promise<boolean>}
  */
@@ -502,12 +587,68 @@ export async function applyLoreDraft(draftId) {
   const session = getSession();
   const loreDrafts = session.loreDrafts || [];
   const draft = loreDrafts.find(d => d.id === draftId);
-  if (!draft) return false;
+  if (!draft) {
+    console.error('[CCS] Lore draft not found:', draftId);
+    return false;
+  }
 
-  // Lore CRUD uses ST world-info APIs — stub for now
-  // Will be fully implemented in Phase C
-  draft.status = 'applied';
-  await updateSession({ loreDrafts });
-  console.log(`[CCS] Lore draft ${draft.type} applied (stub):`, draft.name || draft.uid);
-  return true;
+  try {
+    let result;
+
+    switch (draft.type) {
+      case 'create': {
+        result = await createLorebookEntry({
+          name: draft.name,
+          content: draft.content,
+          keys: draft.keys,
+          secondaryKeys: draft.secondaryKeys,
+          constant: draft.constant,
+          position: draft.position,
+          depth: draft.depth,
+          order: draft.order,
+          preventRecursion: draft.preventRecursion,
+        });
+        if (!result.success) {
+          console.error('[CCS] Lore create failed:', result.error);
+          return false;
+        }
+        console.log(`[CCS] Lore entry created: "${draft.name}" (uid: ${result.uid})`);
+        break;
+      }
+      case 'update': {
+        result = await updateLorebookEntry(draft.uid, draft.changes || {});
+        if (!result.success) {
+          console.error('[CCS] Lore update failed:', result.error);
+          return false;
+        }
+        console.log(`[CCS] Lore entry updated: uid ${draft.uid}`);
+        break;
+      }
+      case 'delete': {
+        result = await deleteLorebookEntry(draft.uid);
+        if (!result.success) {
+          console.error('[CCS] Lore delete failed:', result.error);
+          return false;
+        }
+        console.log(`[CCS] Lore entry deleted: uid ${draft.uid}`);
+        break;
+      }
+      default: {
+        console.error('[CCS] Unknown lore draft type:', draft.type);
+        return false;
+      }
+    }
+
+    // Mark draft as applied
+    draft.status = 'applied';
+    await updateSession({ loreDrafts });
+
+    // Notify panels to refresh
+    document.dispatchEvent(new CustomEvent('ccs:card-updated'));
+
+    return true;
+  } catch (err) {
+    console.error('[CCS] Apply lore draft error:', err);
+    return false;
+  }
 }

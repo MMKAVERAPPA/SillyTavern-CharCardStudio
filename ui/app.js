@@ -5,9 +5,12 @@
 
 import {
     getSession, loadSession, clearCurrentSession, saveSession,
-    setMode, setPhase, updateSession, onSessionChange,
+    setMode, setPhase, updateSession, onSessionChange, hashString,
 } from '../core/session.js';
 import { acquireLock, releaseLock, isLocked, onLockConflict } from '../core/multi-tab.js';
+import { calculateProgress, getSubProgress, addWorldPillar, removeWorldPillar } from '../core/pillars.js';
+import { getLorebookEntries, getLorebookTokenBudget, detectRecursion } from '../core/lorebook.js';
+import { calculateStarRating, renderStarHtml } from '../core/validators.js';
 import { showToast } from './toast.js';
 
 // ─── State ───────────────────────────────────────────────────────────────────
@@ -148,10 +151,8 @@ function _updateProgress() {
         return;
     }
 
-    const total = session.pillarStates.filter(p => p.status !== 'skipped').length;
-    const done = session.pillarStates.filter(p => p.status === 'done').length;
-    const pct = total > 0 ? Math.round((done / total) * 100) : 0;
-    updateProgress(pct, `${done}/${total}`);
+    const progress = calculateProgress(session.pillarStates);
+    updateProgress(progress.percent, `${progress.done}/${progress.total - progress.skipped}`);
 }
 
 // ─── Tab Management ──────────────────────────────────────────────────────────
@@ -173,7 +174,7 @@ export function syncContextBar() {
 
     // Format pills
     bar.querySelectorAll('.ccs-context-pill[data-format]').forEach(pill => {
-        pill.classList.toggle('active', pill.dataset.format === (session.format || 'prose'));
+        pill.classList.toggle('active', pill.dataset.format === (session.cardFormat || 'prose'));
     });
 
     // Phase pills
@@ -268,8 +269,9 @@ function _renderConceptTab() {
         return;
     }
 
-    const done = pillars.filter(p => p.status === 'done').length;
-    if (countEl) countEl.textContent = `${done}/${pillars.length}`;
+    const progress = calculateProgress(pillars);
+    const sub = getSubProgress(pillars);
+    if (countEl) countEl.textContent = `${progress.done}/${progress.total - progress.skipped}`;
 
     const STATUS_ICONS = {
         done: '<i class="fa-solid fa-check" style="color: var(--ccs-success)"></i>',
@@ -278,34 +280,147 @@ function _renderConceptTab() {
         pending: '<i class="fa-regular fa-circle" style="color: var(--ccs-text-secondary)"></i>',
     };
 
-    listEl.innerHTML = pillars.map(p => `
-        <div class="ccs-pillar ccs-pillar--${p.status}" data-pillar-id="${p.id}">
-            <div class="ccs-pillar-header">
-                <span class="ccs-pillar-status">${STATUS_ICONS[p.status] || STATUS_ICONS.pending}</span>
-                <span class="ccs-pillar-name">${escapeHtml(p.name || p.id)}</span>
-                <span class="ccs-pillar-toggle fa-solid fa-chevron-down"></span>
+    const structural = pillars.filter(p => p.category === 'structural');
+    const world = pillars.filter(p => p.category === 'world');
+
+    let html = '';
+
+    // Star Rating
+    const rating = calculateStarRating(session);
+    html += `<div class="ccs-star-rating">
+        <div class="ccs-star-rating-stars">${renderStarHtml(rating.stars)}</div>
+        <div class="ccs-star-rating-details">${rating.details}</div>
+        ${rating.modifiers.length ? `<div class="ccs-star-rating-modifiers">${rating.modifiers.join(' · ')}</div>` : ''}
+    </div>`;
+
+    // Structural pillars section
+    html += `<div class="ccs-pillar-section">`;
+    html += `<div class="ccs-pillar-section-header">Structural Fields <span class="ccs-pillar-section-count">${sub.structural.done}/${sub.structural.total - sub.structural.skipped}</span></div>`;
+    html += structural.map(p => _renderPillarItem(p, STATUS_ICONS)).join('');
+    html += `</div>`;
+
+    // World pillars section (only if any exist)
+    if (world.length > 0) {
+        html += `<div class="ccs-pillar-section">`;
+        html += `<div class="ccs-pillar-section-header">World Concepts <span class="ccs-pillar-section-count">${sub.world.done}/${sub.world.total - sub.world.skipped}</span></div>`;
+        html += world.map(p => _renderPillarItem(p, STATUS_ICONS, true)).join('');
+        html += `</div>`;
+    }
+
+    // Add Custom Pillar button
+    html += `<button class="ccs-add-pillar-btn" id="ccs_add_pillar_btn"><i class="fa-solid fa-plus"></i> Add Concept Pillar</button>`;
+
+    // Conflicts section
+    const conflicts = (session?.conflicts || []).filter(c => c.status === 'open' || c.status === 'snoozed');
+    if (conflicts.length > 0) {
+        html += `<div class="ccs-conflicts-section">`;
+        html += `<div class="ccs-pillar-section-header">⚠️ Conflicts <span class="ccs-pillar-section-count">${conflicts.length}</span></div>`;
+        html += conflicts.map(c => `
+            <div class="ccs-conflict-item ccs-conflict-item--${c.severity}" data-conflict-id="${c.id}">
+                <div class="ccs-conflict-header">
+                    <span class="ccs-conflict-fields">${escapeHtml(c.fieldA)} ↔ ${escapeHtml(c.fieldB)}</span>
+                    <span class="ccs-badge ccs-badge--${c.severity === 'high' ? 'error' : c.severity === 'medium' ? 'warning' : 'info'}">${c.severity}</span>
+                </div>
+                <div class="ccs-conflict-desc">${escapeHtml(c.description)}</div>
+                <div class="ccs-conflict-actions">
+                    <button class="ccs-btn ccs-btn--sm" data-conflict-action="ignore" data-conflict-id="${c.id}">Ignore</button>
+                    <button class="ccs-btn ccs-btn--sm" data-conflict-action="snooze" data-conflict-id="${c.id}">Snooze</button>
+                </div>
             </div>
-            ${p.summary ? `<div class="ccs-pillar-detail" style="display: none;"><p class="ccs-pillar-full-summary">${escapeHtml(p.summary)}</p></div>` : ''}
-        </div>
-    `).join('');
+        `).join('');
+        html += `</div>`;
+    }
+
+    listEl.innerHTML = html;
 
     // Bind expand/collapse (once)
     if (!_pillarListenerBound) {
         listEl.addEventListener('click', (e) => {
+            // Expand/collapse
             const pillar = e.target.closest('.ccs-pillar');
-            if (!pillar) return;
-            const detail = pillar.querySelector('.ccs-pillar-detail');
-            const toggle = pillar.querySelector('.ccs-pillar-toggle');
-            if (detail) {
-                const isExpanded = detail.style.display !== 'none';
-                detail.style.display = isExpanded ? 'none' : 'block';
-                if (toggle) {
-                    toggle.classList.toggle('fa-chevron-up', !isExpanded);
-                    toggle.classList.toggle('fa-chevron-down', isExpanded);
+            if (pillar) {
+                const detail = pillar.querySelector('.ccs-pillar-detail');
+                const toggle = pillar.querySelector('.ccs-pillar-toggle');
+                if (detail) {
+                    const isExpanded = detail.style.display !== 'none';
+                    detail.style.display = isExpanded ? 'none' : 'block';
+                    if (toggle) {
+                        toggle.classList.toggle('fa-chevron-up', !isExpanded);
+                        toggle.classList.toggle('fa-chevron-down', isExpanded);
+                    }
+                }
+            }
+
+            // Delete world pillar
+            const deleteBtn = e.target.closest('.ccs-pillar-delete');
+            if (deleteBtn) {
+                e.stopPropagation();
+                const id = deleteBtn.dataset.pillarId;
+                if (id && removeWorldPillar(id)) {
+                    showToast('Pillar removed', 'info', 2000);
+                    _renderConceptTab();
+                    _updateProgress();
+                }
+            }
+
+            // Add pillar button
+            if (e.target.closest('#ccs_add_pillar_btn')) {
+                _showAddPillarDialog();
+            }
+
+            // Conflict action buttons (Ignore/Snooze)
+            const conflictBtn = e.target.closest('[data-conflict-action]');
+            if (conflictBtn) {
+                e.stopPropagation();
+                const conflictAction = conflictBtn.dataset.conflictAction;
+                const conflictId = conflictBtn.dataset.conflictId;
+                const session = getSession();
+                const conflicts = session?.conflicts || [];
+                const conflict = conflicts.find(c => c.id === conflictId);
+                if (conflict) {
+                    if (conflictAction === 'ignore') {
+                        conflict.status = 'ignored';
+                        const fps = session.falsePositives || [];
+                        fps.push({ conflictId, markedAt: Date.now(), sessionOnly: false });
+                        updateSession({ conflicts, falsePositives: fps });
+                    } else if (conflictAction === 'snooze') {
+                        conflict.status = 'snoozed';
+                        updateSession({ conflicts });
+                    }
+                    showToast(`Conflict ${conflictAction}d`, 'info', 2000);
+                    _renderConceptTab();
                 }
             }
         });
         _pillarListenerBound = true;
+    }
+}
+
+function _renderPillarItem(p, icons, isWorld = false) {
+    const deleteBtn = isWorld ? `<span class="ccs-pillar-delete" data-pillar-id="${p.id}" title="Remove"><i class="fa-solid fa-xmark"></i></span>` : '';
+    return `
+        <div class="ccs-pillar ccs-pillar--${p.status}" data-pillar-id="${p.id}">
+            <div class="ccs-pillar-header">
+                <span class="ccs-pillar-status">${icons[p.status] || icons.pending}</span>
+                <span class="ccs-pillar-name">${escapeHtml(p.name || p.id)}</span>
+                ${deleteBtn}
+                <span class="ccs-pillar-toggle fa-solid fa-chevron-down"></span>
+            </div>
+            ${p.summary ? `<div class="ccs-pillar-detail" style="display: none;"><p class="ccs-pillar-full-summary">${escapeHtml(p.summary)}</p></div>` : ''}
+        </div>
+    `;
+}
+
+function _showAddPillarDialog() {
+    const name = prompt('Enter concept pillar name (e.g., "Core Motivation", "Key Locations"):');
+    if (!name?.trim()) return;
+    const pillar = addWorldPillar(name.trim());
+    if (pillar) {
+        showToast(`Added pillar: ${name.trim()}`, 'success', 2000);
+        _renderConceptTab();
+        _updateProgress();
+    } else {
+        showToast('Pillar already exists', 'warning', 2000);
     }
 }
 
@@ -350,10 +465,22 @@ function _renderCardTab() {
         const tokens = Math.round(value.length / 4);
         totalTokens += tokens;
 
+        // Check manual edit detection
+        const ccsFieldMap = {
+            description: 'description', personality: 'personality', scenario: 'scenario',
+            firstMessage: 'first_mes', mesExamples: 'mes_example', system: 'system_prompt',
+            creatorNotes: 'creator_notes', charDepthPrompt: 'character_note',
+        };
+        const ccsKey = ccsFieldMap[key];
+        const storedHash = session?.fieldHashes?.[ccsKey];
+        const currentHash = hasContent ? hashString(value) : null;
+        const wasManuallyEdited = storedHash && currentHash && storedHash !== currentHash;
+
         return `
-            <div class="ccs-field-row ${hasContent ? 'ccs-field-row--filled' : 'ccs-field-row--empty'}" data-field="${key}">
+            <div class="ccs-field-row ${hasContent ? 'ccs-field-row--filled' : 'ccs-field-row--empty'} ${wasManuallyEdited ? 'ccs-field-row--edited' : ''}" data-field="${key}">
                 <div class="ccs-field-header">
                     <span class="ccs-field-label">${label}</span>
+                    ${wasManuallyEdited ? '<span class="ccs-badge ccs-badge--warning" title="Externally edited">✏️</span>' : ''}
                     <span class="ccs-field-tokens">${hasContent ? `~${tokens}t` : 'empty'}</span>
                     ${hasContent ? '<span class="ccs-field-toggle fa-solid fa-chevron-down"></span>' : ''}
                 </div>
@@ -388,39 +515,108 @@ function _renderCardTab() {
     }
 }
 
-function _renderLoreTab() {
+async function _renderLoreTab() {
     const loreEl = el('ccs_lore_entries');
     const countEl = el('ccs_lore_count');
     if (!loreEl) return;
 
     const session = getSession();
-    const categories = session?.loreCategories || [];
-    const stagedLore = (session?.stagedDrafts || []).filter(d => d.type === 'lore');
+    const loreDrafts = session?.loreDrafts || [];
+    const pendingDrafts = loreDrafts.filter(d => d.status === 'pending');
 
-    if (!categories.length && !stagedLore.length) {
-        loreEl.innerHTML = '<p class="ccs-empty-state">Lorebook entries will appear here during the Lore phase.</p>';
+    // Fetch real entries from character data
+    let entries = [];
+    let bookName = null;
+    let tokenBudget = null;
+    try {
+        const loreData = await getLorebookEntries();
+        entries = loreData.entries || [];
+        bookName = loreData.bookName;
+        tokenBudget = await getLorebookTokenBudget();
+    } catch (e) {
+        console.warn('[CCS] Could not fetch lorebook:', e.message);
+    }
+
+    if (!entries.length && !pendingDrafts.length) {
+        loreEl.innerHTML = '<p class="ccs-empty-state">No lorebook entries yet. Switch to the Lore phase to create entries.</p>';
         if (countEl) countEl.textContent = '0 entries';
         return;
     }
 
-    const total = categories.reduce((sum, cat) => sum + (cat.entries?.length || 0), 0);
-    if (countEl) countEl.textContent = `${total} entries`;
+    // Header stats
+    if (countEl) {
+        let statsText = `${entries.length} entries`;
+        if (tokenBudget) {
+            statsText += ` · ~${tokenBudget.estimatedUsage}t`;
+        }
+        countEl.textContent = statsText;
+    }
 
-    // Staged entries at top
     let html = '';
-    if (stagedLore.length) {
+
+    // Token budget summary
+    if (tokenBudget && entries.length > 0) {
+        html += `<div class="ccs-lore-budget">
+            <span class="ccs-lore-budget-label">📊 Token Budget:</span>
+            <span>📌 Constant: ~${tokenBudget.constantTokens}t</span>
+            <span>⚡ Triggered: ~${tokenBudget.conditionalTokens}t</span>
+            <span>📈 Est. Usage: ~${tokenBudget.estimatedUsage}t</span>
+        </div>`;
+    }
+
+    // Staged drafts section
+    if (pendingDrafts.length) {
         html += `<div class="ccs-lore-staged-section">
-            <h5 class="ccs-lore-section-title">Staged (${stagedLore.length})</h5>
-            ${stagedLore.map(d => `
+            <h5 class="ccs-lore-section-title">⏳ Staged (${pendingDrafts.length})</h5>
+            ${pendingDrafts.map(d => `
                 <div class="ccs-lore-entry ccs-lore-entry--staged">
-                    <span class="ccs-lore-entry-name">${escapeHtml(d.name || 'Unnamed')}</span>
-                    <span class="ccs-badge ccs-badge--warning">Pending</span>
+                    <div class="ccs-lore-entry-header">
+                        <span class="ccs-lore-entry-name">${escapeHtml(d.name || 'Unnamed')}</span>
+                        <span class="ccs-badge ccs-badge--warning">${d.type || 'create'}</span>
+                        ${d.tokenCount ? `<span class="ccs-lore-entry-tokens">~${d.tokenCount}t</span>` : ''}
+                    </div>
+                    ${d.keys?.length ? `<div class="ccs-lore-entry-keys">Keys: ${d.keys.map(k => escapeHtml(k)).join(', ')}</div>` : ''}
+                    ${d.content ? `<div class="ccs-lore-entry-preview">${escapeHtml(d.content.substring(0, 120))}${d.content.length > 120 ? '…' : ''}</div>` : ''}
                 </div>
             `).join('')}
         </div>`;
     }
 
-    loreEl.innerHTML = html || '<p class="ccs-empty-state">No lore entries yet.</p>';
+    // Existing entries section
+    if (entries.length > 0) {
+        html += `<div class="ccs-lore-existing-section">
+            <h5 class="ccs-lore-section-title">${bookName ? escapeHtml(bookName) : 'Lorebook'} (${entries.length})</h5>
+            ${entries.map(e => `
+                <div class="ccs-lore-entry ${e.enabled ? '' : 'ccs-lore-entry--disabled'}">
+                    <div class="ccs-lore-entry-header">
+                        <span class="ccs-lore-entry-name">${escapeHtml(e.name || 'Unnamed')}</span>
+                        ${e.constant ? '<span class="ccs-badge ccs-badge--info">📌</span>' : ''}
+                        ${!e.enabled ? '<span class="ccs-badge ccs-badge--muted">off</span>' : ''}
+                        <span class="ccs-lore-entry-tokens">~${e.tokens}t</span>
+                    </div>
+                    ${e.keys.length ? `<div class="ccs-lore-entry-keys">Keys: ${e.keys.map(k => escapeHtml(k)).join(', ')}</div>` : ''}
+                    <div class="ccs-lore-entry-preview">${escapeHtml((e.content || '').substring(0, 120))}${(e.content || '').length > 120 ? '…' : ''}</div>
+                </div>
+            `).join('')}
+        </div>`;
+    }
+
+    // Recursion warnings
+    if (entries.length > 1) {
+        try {
+            const recursion = await detectRecursion(entries);
+            if (recursion.warnings.length > 0) {
+                html += `<div class="ccs-lore-recursion-warning">
+                    <div class="ccs-lore-section-title">⚠️ Recursion Warnings</div>
+                    ${recursion.warnings.map(w => `<div class="ccs-lore-warning-item">${escapeHtml(w)}</div>`).join('')}
+                </div>`;
+            }
+        } catch (e) {
+            console.warn('[CCS] Recursion detection failed:', e.message);
+        }
+    }
+
+    loreEl.innerHTML = html;
 }
 
 // ─── Utility ──────────────────────────────────────────────────────────────────
@@ -514,6 +710,14 @@ export function bindAppEvents() {
         _updateProgress();
     });
 
+    // Listen for background conflict detection
+    document.addEventListener('ccs:conflict-detected', (e) => {
+        const conflict = e.detail;
+        console.log('[CCS] Background conflict detected:', conflict);
+        showToast(`Conflict detected: ${conflict.fieldA} ↔ ${conflict.fieldB}`, 'warning', 5000);
+        _renderConceptTab();
+    });
+
     // Session changes → re-render right panel
     onSessionChange(() => {
         if (!_isOpen) return;
@@ -532,7 +736,7 @@ export function bindAppEvents() {
             if (!pill) return;
 
             if (pill.dataset.format) {
-                updateSession({ format: pill.dataset.format });
+                updateSession({ cardFormat: pill.dataset.format });
                 syncContextBar();
                 showToast(`Format: ${pill.dataset.format}`, 'info', 2000);
             } else if (pill.dataset.phase) {

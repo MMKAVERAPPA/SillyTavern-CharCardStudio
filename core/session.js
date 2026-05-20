@@ -21,6 +21,18 @@ const KEY_PREFIX = 'session_';
 const MEMORY_GLOBAL_KEY = 'memory_global';
 const MEMORY_PREFIX = 'memory_';
 
+// Lazy import to avoid circular deps (pillars.js imports from session.js)
+let _ensurePillars = null;
+let _syncPillarsWithCard = null;
+async function getPillarFns() {
+    if (!_ensurePillars) {
+        const mod = await import('./pillars.js');
+        _ensurePillars = mod.ensurePillars;
+        _syncPillarsWithCard = mod.syncPillarsWithCard;
+    }
+    return { ensurePillars: _ensurePillars, syncPillarsWithCard: _syncPillarsWithCard };
+}
+
 // ─── Module State ───────────────────────────────────────────────────────────
 
 /** @type {import('localforage')} */
@@ -180,6 +192,10 @@ function createDefaultSession(avatar, name = '') {
         createdAt: Date.now(),
         updatedAt: Date.now(),
         autoSummary: '',
+        autoSummaryCount: 0,       // Tracks how many messages were in last summary
+        falsePositives: [],         // Ignored/marked false-positive conflicts
+        loreDrafts: [],             // Staged lore entry drafts pending user apply
+        cardDrafts: {},             // Staged card field drafts: { fieldKey: StagedDraft }
     };
 }
 
@@ -202,9 +218,13 @@ function migrateSession(data) {
         session.version = 1;
         session.fieldFormats = session.fieldFormats || {};
         session.autoSummary = session.autoSummary || '';
+        session.autoSummaryCount = session.autoSummaryCount || 0;
         session.conflicts = session.conflicts || [];
+        session.falsePositives = session.falsePositives || [];
         session.loreCategories = session.loreCategories || [];
         session.fieldHashes = session.fieldHashes || {};
+        session.loreDrafts = session.loreDrafts || [];
+        session.cardDrafts = session.cardDrafts || {};
         console.log('[CCS] Migrated session to v1:', session.characterAvatar);
     }
 
@@ -308,6 +328,15 @@ export async function loadSession(avatar, name = '') {
         } else {
             currentSession = createDefaultSession(avatar, name);
             console.log(`[CCS] Created new session for "${name}" (${avatar})`);
+        }
+
+        // Ensure pillar states are initialized and synced with card
+        try {
+            const { ensurePillars, syncPillarsWithCard } = await getPillarFns();
+            ensurePillars(currentSession);
+            syncPillarsWithCard();
+        } catch (e) {
+            console.warn('[CCS] Pillar init deferred:', e.message);
         }
 
         notifyListeners();

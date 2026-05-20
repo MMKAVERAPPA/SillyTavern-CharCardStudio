@@ -5,11 +5,12 @@
 
 import {
     getSession, addMessage, removeMessage, updateMessage,
-    generateId, saveSession,
+    generateId, saveSession, updateSession,
 } from '../core/session.js';
 import { isLocked } from '../core/multi-tab.js';
 import { cancelAllGenerations, isGenerating } from '../core/silent-generation.js';
 import { applyDraftToCard, applyLoreDraft } from '../core/tools.js';
+import { markPillarDoneByField } from '../core/pillars.js';
 import { showToast } from './toast.js';
 
 // ─── State ───────────────────────────────────────────────────────────────────
@@ -65,39 +66,105 @@ export function renderStagedDraftMessage(draft) {
     const welcome = el('ccs_welcome');
     if (welcome) welcome.style.display = 'none';
 
+    // If this draft already has a DOM element (e.g. version added via regen), update it
+    const existingEl = container.querySelector(`[data-draft-id="${draft.id}"]`);
+    if (existingEl) {
+        _updateDraftCardContent(existingEl, draft);
+        return;
+    }
+
     const div = document.createElement('div');
     div.className = 'ccs-message ccs-message--draft';
     div.dataset.draftId = draft.id;
 
-    const preview = draft.content.length > 400
-        ? draft.content.substring(0, 400) + '...'
-        : draft.content;
-
-    div.innerHTML = `
-        <div class="ccs-draft-card">
-            <div class="ccs-draft-header">
-                <span class="ccs-draft-field">${escapeHtml(draft.field)}</span>
-                <span class="ccs-draft-tokens">${draft.tokenCount || '?'} tokens</span>
-                <span class="ccs-draft-status" data-status="${draft.status}">${draft.status}</span>
-            </div>
-            <div class="ccs-draft-content"><pre>${escapeHtml(preview)}</pre></div>
-            <div class="ccs-draft-actions">
-                <button class="ccs-btn ccs-btn--sm ccs-btn--accent" data-draft-action="apply" data-draft-id="${draft.id}">
-                    <i class="fa-solid fa-check"></i> Apply
-                </button>
-                <button class="ccs-btn ccs-btn--sm" data-draft-action="skip" data-draft-id="${draft.id}">
-                    <i class="fa-solid fa-forward"></i> Skip
-                </button>
-                <button class="ccs-btn ccs-btn--sm" data-draft-action="regen" data-draft-id="${draft.id}">
-                    <i class="fa-solid fa-rotate-right"></i> Regen
-                </button>
-            </div>
-        </div>
-    `;
+    div.innerHTML = _buildDraftCardHtml(draft);
 
     container.appendChild(div);
     console.log('[CCS] Draft card DOM element appended to #ccs_messages.');
     _scrollToBottom();
+}
+
+function _buildDraftCardHtml(draft) {
+    const preview = draft.content.length > 400
+        ? draft.content.substring(0, 400) + '...'
+        : draft.content;
+
+    const hasVersions = draft.versions && draft.versions.length > 1;
+    const versionIdx = draft.activeVersion ?? 0;
+    const versionLabel = hasVersions ? `v${versionIdx + 1}/${draft.versions.length}` : '';
+
+    return `
+        <div class="ccs-draft-card">
+            <div class="ccs-draft-header">
+                <span class="ccs-draft-field">${escapeHtml(draft.field)}</span>
+                ${hasVersions ? `
+                    <span class="ccs-draft-version-nav">
+                        <button class="ccs-btn ccs-btn--icon" data-draft-action="version-prev" data-draft-id="${draft.id}" ${versionIdx <= 0 ? 'disabled' : ''}>
+                            <i class="fa-solid fa-chevron-left"></i>
+                        </button>
+                        <span class="ccs-draft-version-label">${versionLabel}</span>
+                        <button class="ccs-btn ccs-btn--icon" data-draft-action="version-next" data-draft-id="${draft.id}" ${versionIdx >= draft.versions.length - 1 ? 'disabled' : ''}>
+                            <i class="fa-solid fa-chevron-right"></i>
+                        </button>
+                    </span>
+                ` : ''}
+                <span class="ccs-draft-tokens">${draft.tokenCount || '?'} tokens</span>
+                <span class="ccs-draft-status" data-status="${draft.status}">${draft.status}</span>
+            </div>
+            <div class="ccs-draft-content"><pre>${escapeHtml(preview)}</pre></div>
+            <div class="ccs-draft-edit-area" style="display: none;">
+                <textarea class="ccs-draft-textarea">${escapeHtml(draft.content)}</textarea>
+                <div class="ccs-draft-edit-actions">
+                    <button class="ccs-btn ccs-btn--sm ccs-btn--accent" data-draft-action="save-edit" data-draft-id="${draft.id}">Save Edit</button>
+                    <button class="ccs-btn ccs-btn--sm" data-draft-action="cancel-edit" data-draft-id="${draft.id}">Cancel</button>
+                </div>
+            </div>
+            <div class="ccs-draft-actions">
+                <button class="ccs-btn ccs-btn--sm ccs-btn--accent" data-draft-action="apply" data-draft-id="${draft.id}">
+                    <i class="fa-solid fa-check"></i> Apply
+                </button>
+                <button class="ccs-btn ccs-btn--sm" data-draft-action="edit" data-draft-id="${draft.id}">
+                    <i class="fa-solid fa-pen"></i> Edit
+                </button>
+                <button class="ccs-btn ccs-btn--sm" data-draft-action="regen" data-draft-id="${draft.id}">
+                    <i class="fa-solid fa-rotate-right"></i> Regen
+                </button>
+                <button class="ccs-btn ccs-btn--sm" data-draft-action="skip" data-draft-id="${draft.id}">
+                    <i class="fa-solid fa-forward"></i> Skip
+                </button>
+            </div>
+        </div>
+    `;
+}
+
+function _updateDraftCardContent(draftEl, draft) {
+    const preview = draft.content.length > 400
+        ? draft.content.substring(0, 400) + '...'
+        : draft.content;
+    const contentEl = draftEl.querySelector('.ccs-draft-content pre');
+    if (contentEl) contentEl.textContent = preview;
+
+    const tokensEl = draftEl.querySelector('.ccs-draft-tokens');
+    if (tokensEl) tokensEl.textContent = `${draft.tokenCount || '?'} tokens`;
+
+    const textareaEl = draftEl.querySelector('.ccs-draft-textarea');
+    if (textareaEl) textareaEl.value = draft.content;
+
+    // Update version nav
+    if (draft.versions && draft.versions.length > 1) {
+        const versionLabel = draftEl.querySelector('.ccs-draft-version-label');
+        if (versionLabel) versionLabel.textContent = `v${(draft.activeVersion ?? 0) + 1}/${draft.versions.length}`;
+
+        const prevBtn = draftEl.querySelector('[data-draft-action="version-prev"]');
+        const nextBtn = draftEl.querySelector('[data-draft-action="version-next"]');
+        if (prevBtn) prevBtn.disabled = (draft.activeVersion ?? 0) <= 0;
+        if (nextBtn) nextBtn.disabled = (draft.activeVersion ?? 0) >= draft.versions.length - 1;
+    }
+
+    // If no version nav exists yet but now has versions, re-render the whole card
+    if (draft.versions && draft.versions.length > 1 && !draftEl.querySelector('.ccs-draft-version-nav')) {
+        draftEl.innerHTML = _buildDraftCardHtml(draft);
+    }
 }
 
 /**
@@ -507,10 +574,23 @@ async function _handleDraftAction(action, draftId, buttonEl) {
 
             const session = getSession();
             const drafts = session?.cardDrafts || {};
+            let skippedField = '';
             for (const d of Object.values(drafts)) {
-                if (d.id === draftId) d.status = 'skipped';
+                if (d.id === draftId) {
+                    d.status = 'skipped';
+                    skippedField = d.field;
+                }
             }
-            await saveSession();
+            await updateSession({ cardDrafts: drafts });
+
+            // Mark corresponding pillar as skipped
+            if (skippedField && session?.pillarStates) {
+                const pillar = session.pillarStates.find(p => p.field === skippedField);
+                if (pillar && pillar.status !== 'done') {
+                    pillar.status = 'skipped';
+                    await updateSession({ pillarStates: session.pillarStates });
+                }
+            }
             break;
         }
         case 'regen': {
@@ -522,8 +602,98 @@ async function _handleDraftAction(action, draftId, buttonEl) {
             }
             if (field && _onSendCallback) {
                 draftCard?.remove();
-                await _sendMessage(`Please regenerate the ${field} field.`);
+                await _sendMessage(`Please regenerate the ${field} field with a different approach.`);
             }
+            break;
+        }
+        case 'edit': {
+            // Show edit textarea, hide content preview and action buttons
+            const content = draftCard?.querySelector('.ccs-draft-content');
+            const editArea = draftCard?.querySelector('.ccs-draft-edit-area');
+            const actions = draftCard?.querySelector('.ccs-draft-actions');
+            if (content) content.style.display = 'none';
+            if (editArea) editArea.style.display = 'block';
+            if (actions) actions.style.display = 'none';
+            break;
+        }
+        case 'save-edit': {
+            const editArea = draftCard?.querySelector('.ccs-draft-edit-area');
+            const textarea = draftCard?.querySelector('.ccs-draft-textarea');
+            const content = draftCard?.querySelector('.ccs-draft-content');
+            const actions = draftCard?.querySelector('.ccs-draft-actions');
+            
+            if (textarea) {
+                const newContent = textarea.value;
+                // Update the draft in session
+                const session = getSession();
+                const drafts = session?.cardDrafts || {};
+                for (const d of Object.values(drafts)) {
+                    if (d.id === draftId) {
+                        d.content = newContent;
+                        // Update token count
+                        try {
+                            const ctx = SillyTavern?.getContext?.();
+                            if (ctx?.getTokenCountAsync) {
+                                d.tokenCount = await ctx.getTokenCountAsync(newContent);
+                            }
+                        } catch (e) { /* optional */ }
+                        break;
+                    }
+                }
+                await updateSession({ cardDrafts: drafts });
+                
+                // Update UI
+                const preview = newContent.length > 400 ? newContent.substring(0, 400) + '...' : newContent;
+                if (content) {
+                    content.querySelector('pre').textContent = preview;
+                    content.style.display = '';
+                }
+                const tokensEl = draftCard?.querySelector('.ccs-draft-tokens');
+                if (tokensEl) {
+                    const d = Object.values(drafts).find(d => d.id === draftId);
+                    tokensEl.textContent = `${d?.tokenCount || '?'} tokens`;
+                }
+                showToast('Draft edited.', 'success', 2000);
+            }
+            if (editArea) editArea.style.display = 'none';
+            if (actions) actions.style.display = '';
+            break;
+        }
+        case 'cancel-edit': {
+            const editArea = draftCard?.querySelector('.ccs-draft-edit-area');
+            const content = draftCard?.querySelector('.ccs-draft-content');
+            const actions = draftCard?.querySelector('.ccs-draft-actions');
+            if (editArea) editArea.style.display = 'none';
+            if (content) content.style.display = '';
+            if (actions) actions.style.display = '';
+            break;
+        }
+        case 'version-prev':
+        case 'version-next': {
+            const session = getSession();
+            const drafts = session?.cardDrafts || {};
+            let draft = null;
+            for (const d of Object.values(drafts)) {
+                if (d.id === draftId) { draft = d; break; }
+            }
+            if (!draft || !draft.versions || draft.versions.length <= 1) break;
+
+            const currentIdx = draft.activeVersion ?? 0;
+            const newIdx = action === 'version-prev'
+                ? Math.max(0, currentIdx - 1)
+                : Math.min(draft.versions.length - 1, currentIdx + 1);
+
+            if (newIdx === currentIdx) break;
+
+            // Switch to the selected version
+            const version = draft.versions[newIdx];
+            draft.activeVersion = newIdx;
+            draft.content = version.content;
+            draft.tokenCount = version.tokenCount;
+            await updateSession({ cardDrafts: drafts });
+
+            // Update UI
+            _updateDraftCardContent(draftCard, draft);
             break;
         }
     }
