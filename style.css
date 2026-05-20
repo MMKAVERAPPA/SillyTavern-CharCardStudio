@@ -581,6 +581,7 @@ html {
   flex-direction: column;
   min-width: 0;
   background: var(--ccs-bg-secondary);
+  position: relative;
 }
 
 /* Tab Headers */
@@ -1888,3 +1889,93 @@ html {
     display: none !important;
   }
 }
+
+/* ─── Phase D: Additional Mode Styles ─── */
+
+.ccs-mode-badge {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 16px;
+  background: rgba(124, 92, 191, 0.08);
+  border-bottom: 1px solid var(--ccs-border);
+  color: var(--ccs-text-secondary);
+  font-size: 12px;
+  font-weight: 500;
+}
+.ccs-mode-badge i {
+  color: var(--ccs-accent-hover);
+  font-size: 11px;
+}
+
+.ccs-preview-panel {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: var(--ccs-bg-secondary);
+  z-index: 100;
+  display: flex;
+  flex-direction: column;
+  padding: 16px;
+  box-sizing: border-box;
+  animation: ccs-fade-in 0.2s ease;
+}
+
+.ccs-preview-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-bottom: 12px;
+  margin-bottom: 12px;
+  border-bottom: 1px solid var(--ccs-border);
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--ccs-text-primary);
+}
+
+.ccs-preview-header i {
+  margin-right: 4px;
+  color: var(--ccs-accent-hover);
+}
+
+.ccs-preview-close {
+  background: transparent;
+  border: none;
+  color: var(--ccs-text-secondary);
+  cursor: pointer;
+  padding: 4px;
+  font-size: 14px;
+  line-height: 1;
+  border-radius: var(--ccs-radius-sm);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all var(--ccs-transition);
+}
+.ccs-preview-close:hover {
+  background: var(--ccs-bg-hover);
+  color: var(--ccs-text-primary);
+}
+
+.ccs-html-preview-frame {
+  flex: 1;
+  width: 100% !important;
+  height: 100% !important;
+  border: none !important;
+  border-radius: var(--ccs-radius) !important;
+  background: #ffffff !important; /* light background for realistic rendering */
+}
+
+.ccs-panel-readonly .ccs-tab-content {
+  pointer-events: none; /* Make tab fields read-only visual-wise */
+  opacity: 0.85;
+}
+.ccs-panel-readonly .ccs-tab-content button,
+.ccs-panel-readonly .ccs-tab-content input,
+.ccs-panel-readonly .ccs-tab-content textarea,
+.ccs-panel-readonly .ccs-tab-content select {
+  display: none !important; /* Hide modifying buttons in read-only tabs */
+}
+

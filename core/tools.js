@@ -66,6 +66,13 @@ const TOOLS = {
  * @returns {Promise<{ result: string, draft?: object }>}
  */
 export async function executeToolCall(call) {
+  const session = getSession();
+  const mode = session?.mode || 'studio';
+
+  if (mode !== 'studio' && call.name !== 'ccs_read_field') {
+    return { result: `Error: Tool "${call.name}" is not available in ${mode} mode. Only ccs_read_field is allowed in read-only mode.` };
+  }
+
   const handler = TOOLS[call.name];
   if (!handler) {
     return { result: `Error: Unknown tool "${call.name}". Available: ${Object.keys(TOOLS).join(', ')}` };

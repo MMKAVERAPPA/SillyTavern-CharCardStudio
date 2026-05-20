@@ -6,11 +6,14 @@
 import {
     getSession, loadSession, clearCurrentSession, saveSession,
     setMode, setPhase, updateSession, onSessionChange, hashString,
+    swapModeHistory,
 } from '../core/session.js';
 import { acquireLock, releaseLock, isLocked, onLockConflict } from '../core/multi-tab.js';
 import { calculateProgress, getSubProgress, addWorldPillar, removeWorldPillar } from '../core/pillars.js';
 import { getLorebookEntries, getLorebookTokenBudget, detectRecursion } from '../core/lorebook.js';
 import { calculateStarRating, renderStarHtml } from '../core/validators.js';
+import { cancelAllGenerations, isGenerating } from '../core/silent-generation.js';
+import { adaptPanelForMode, getWelcomeForMode, getChipsForMode, isModeBlocked } from './mode-panel.js';
 import { showToast } from './toast.js';
 
 // ─── State ───────────────────────────────────────────────────────────────────
@@ -19,6 +22,7 @@ let _isOpen = false;
 let _isMobile = false;
 let _activeTab = 'concept';
 let _activeMobileTab = 'chat';
+let _defaultWelcomeHtml = null;
 const MOBILE_BREAKPOINT = 768;
 
 // ─── DOM Helpers ─────────────────────────────────────────────────────────────
@@ -73,8 +77,13 @@ export async function openStudio() {
     _detectMobile();
 
     // Render initial state
+    const session = getSession();
+    const mode = session?.mode || 'studio';
+
     _renderTopBar();
     _renderTabs();
+    adaptPanelForMode(mode);
+    await _updateModeUI(mode);
 
     // Import and trigger chat render
     try {
@@ -639,15 +648,43 @@ export function bindAppEvents() {
     const settingsBtn = el('ccs_settings_btn');
     if (settingsBtn) {
         settingsBtn.addEventListener('click', () => {
-            showToast('Settings panel coming in Phase D', 'info');
+            showToast('Settings panel coming in Phase E', 'info');
         });
     }
 
     // Mode selector
     const modeEl = el('ccs_mode_select');
     if (modeEl) {
-        modeEl.addEventListener('change', (e) => {
-            setMode(e.target.value);
+        modeEl.addEventListener('change', async (e) => {
+            const newMode = e.target.value;
+            const session = getSession();
+            const oldMode = session?.mode || 'studio';
+
+            if (newMode === oldMode) return;
+
+            // Cancel any active generation before switching
+            if (isGenerating()) {
+                cancelAllGenerations();
+                showToast('Generation cancelled for mode switch', 'info', 2000);
+            }
+
+            // Swap chat histories (save old, load new)
+            swapModeHistory(oldMode, newMode);
+
+            // Adapt the right panel for the new mode
+            adaptPanelForMode(newMode);
+
+            // Update welcome screen and suggestion chips
+            await _updateModeUI(newMode);
+
+            // Re-render chat messages for the new mode's history
+            try {
+                const { renderMessages } = await import('./chat.js');
+                renderMessages();
+            } catch (e) {
+                console.warn('[CCS] chat.js not loaded:', e.message);
+            }
+
             showToast(`Switched to ${e.target.options[e.target.selectedIndex].text}`, 'info');
             _renderRightPanel();
         });
@@ -752,4 +789,90 @@ let _resizeTimer;
 function _handleResize() {
     clearTimeout(_resizeTimer);
     _resizeTimer = setTimeout(_detectMobile, 150);
+}
+
+// ─── Mode UI Updates ─────────────────────────────────────────────────────────
+
+/**
+ * Update the chat panel UI (welcome screen, chips, input state) for a mode switch.
+ * @param {string} mode - The new mode
+ */
+async function _updateModeUI(mode) {
+    const session = getSession();
+    const hasMessages = session?.messages?.length > 0;
+
+    // Update welcome screen content
+    const welcomeEl = el('ccs_welcome');
+    if (welcomeEl) {
+        if (!_defaultWelcomeHtml) {
+            _defaultWelcomeHtml = welcomeEl.innerHTML;
+        }
+        if (!hasMessages) {
+            const welcomeHtml = await getWelcomeForMode(mode);
+            if (welcomeHtml) {
+                welcomeEl.innerHTML = welcomeHtml;
+                welcomeEl.style.display = '';
+            } else {
+                // Studio mode or null — restore default welcome
+                welcomeEl.innerHTML = _defaultWelcomeHtml;
+                welcomeEl.style.display = '';
+            }
+        } else {
+            welcomeEl.style.display = 'none';
+        }
+    }
+
+    // Update suggestion chips
+    const chipsEl = el('ccs_chips');
+    if (chipsEl) {
+        const chips = await getChipsForMode(mode);
+        if (chips && chips.length > 0) {
+            chipsEl.innerHTML = chips.map(c => `
+                <button class="ccs-chip" data-chip="${c.text}">
+                    <i class="${c.icon}"></i> ${c.text}
+                </button>
+            `).join('');
+        } else if (mode === 'studio') {
+            // Restore default Studio chips
+            chipsEl.innerHTML = '';
+        } else {
+            chipsEl.innerHTML = '';
+        }
+    }
+
+    // Show/hide context bar (format+phase pills are Studio-only)
+    const ctxBar = el('ccs_context_bar');
+    if (ctxBar) {
+        ctxBar.style.display = mode === 'studio' ? '' : 'none';
+    }
+
+    // Disable input for blocked modes
+    const blocked = await isModeBlocked(mode);
+    const inputEl = el('ccs_input');
+    const sendBtn = el('ccs_send_btn');
+    if (inputEl) {
+        inputEl.disabled = blocked;
+        inputEl.placeholder = blocked
+            ? 'This mode is not yet available.'
+            : mode === 'studio'
+                ? 'Describe your character idea...'
+                : `Ask me to ${_getModeAction(mode)}...`;
+    }
+    if (sendBtn) {
+        sendBtn.disabled = blocked;
+    }
+}
+
+/**
+ * Get a short action verb for a mode's input placeholder.
+ * @param {string} mode
+ * @returns {string}
+ */
+function _getModeAction(mode) {
+    switch (mode) {
+        case 'janitor': return 'convert your card';
+        case 'html': return 'generate an HTML intro';
+        case 'imageprompt': return 'generate image prompts';
+        default: return 'help';
+    }
 }

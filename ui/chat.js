@@ -344,6 +344,44 @@ async function _sendMessage(text) {
         return;
     }
 
+    // Intercept preview commands locally in HTML mode
+    const session = getSession();
+    const mode = session?.mode || 'studio';
+    const isPreviewCmd = text.toLowerCase() === 'preview' || text.toLowerCase() === '/preview' || text.toLowerCase() === 'preview last output';
+
+    if (mode === 'html' && isPreviewCmd) {
+        const previewContainer = el('ccs_html_preview');
+        if (previewContainer) {
+            // Find last assistant message containing HTML block
+            const lastAssistantMsg = [...(session?.messages || [])]
+                .reverse()
+                .find(m => m.role === 'assistant' && (m.content?.includes('```html') || m.content?.includes('<!DOCTYPE') || m.content?.includes('<html')));
+
+            if (lastAssistantMsg) {
+                try {
+                    const { extractHtmlFromMessage, renderHtmlPreview } = await import('../modes/html.js');
+                    const htmlContent = extractHtmlFromMessage(lastAssistantMsg.content);
+                    if (htmlContent) {
+                        renderHtmlPreview(previewContainer, htmlContent);
+                        showToast('Rendering HTML preview...', 'success');
+                        
+                        // Clear input
+                        const inputEl = el('ccs_input');
+                        if (inputEl) {
+                            inputEl.value = '';
+                            inputEl.style.height = 'auto';
+                        }
+                        return; // Intercepted successfully, exit early without sending to AI
+                    }
+                } catch (e) {
+                    console.error('[CCS] Error rendering html preview:', e);
+                }
+            }
+        }
+        showToast('No HTML content found to preview. Generate one first!', 'warning');
+        return;
+    }
+
     // Clear input
     const inputEl = el('ccs_input');
     if (inputEl) {

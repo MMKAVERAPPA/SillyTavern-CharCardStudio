@@ -14,7 +14,7 @@
 
 // ─── Constants ──────────────────────────────────────────────────────────────
 
-const CURRENT_VERSION = 1;
+const CURRENT_VERSION = 2;
 const SAVE_DEBOUNCE_MS = 3000;
 const STORE_NAME = 'SillyTavern_CharCardStudio';
 const KEY_PREFIX = 'session_';
@@ -196,6 +196,13 @@ function createDefaultSession(avatar, name = '') {
         falsePositives: [],         // Ignored/marked false-positive conflicts
         loreDrafts: [],             // Staged lore entry drafts pending user apply
         cardDrafts: {},             // Staged card field drafts: { fieldKey: StagedDraft }
+        modeHistories: {            // Per-mode isolated chat histories
+            studio: [],
+            janitor: [],
+            html: [],
+            imageprompt: [],
+            fictionlab: [],
+        },
     };
 }
 
@@ -228,8 +235,25 @@ function migrateSession(data) {
         console.log('[CCS] Migrated session to v1:', session.characterAvatar);
     }
 
+    // Version 1 → 2: Add per-mode chat histories
+    if (session.version < 2) {
+        session.modeHistories = session.modeHistories || {
+            studio: [],
+            janitor: [],
+            html: [],
+            imageprompt: [],
+            fictionlab: [],
+        };
+        // Existing messages belong to whatever mode is active (almost always studio)
+        if (session.messages?.length > 0 && session.modeHistories.studio.length === 0) {
+            session.modeHistories.studio = [...session.messages];
+        }
+        session.version = 2;
+        console.log('[CCS] Migrated session to v2 (mode histories):', session.characterAvatar);
+    }
+
     // Future migrations go here:
-    // if (session.version < 2) { ... session.version = 2; }
+    // if (session.version < 3) { ... session.version = 3; }
 
     return session;
 }
@@ -603,13 +627,46 @@ export function getStagedDraftForField(field) {
 
 /**
  * Update session mode.
- * @param {'studio'|'janitor'|'html'|'imageprompt'} mode
+ * @param {'studio'|'janitor'|'html'|'imageprompt'|'fictionlab'} mode
  */
 export function setMode(mode) {
     if (!currentSession) return;
     currentSession.mode = mode;
     saveSession();
     notifyListeners();
+}
+
+/**
+ * Swap chat histories when switching modes.
+ * Saves the current messages[] into modeHistories[oldMode],
+ * then loads modeHistories[newMode] into messages[].
+ *
+ * @param {string} oldMode - The mode being switched away from
+ * @param {string} newMode - The mode being switched to
+ */
+export function swapModeHistory(oldMode, newMode) {
+    if (!currentSession) return;
+
+    // Ensure modeHistories object exists
+    if (!currentSession.modeHistories) {
+        currentSession.modeHistories = {
+            studio: [], janitor: [], html: [], imageprompt: [], fictionlab: [],
+        };
+    }
+
+    // Save current messages to old mode's history
+    if (oldMode && currentSession.messages?.length > 0) {
+        currentSession.modeHistories[oldMode] = [...currentSession.messages];
+    }
+
+    // Load new mode's history into messages
+    currentSession.messages = [...(currentSession.modeHistories[newMode] || [])];
+
+    // Update mode
+    currentSession.mode = newMode;
+    saveSession();
+    notifyListeners();
+    console.log(`[CCS] Mode history swapped: ${oldMode} → ${newMode} (${currentSession.messages.length} messages loaded)`);
 }
 
 /**

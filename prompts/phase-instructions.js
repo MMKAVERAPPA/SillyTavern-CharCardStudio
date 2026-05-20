@@ -166,14 +166,40 @@ export const TOOL_REMINDER = `Remember: to perform actions on the card, use tool
 // ─── Build System Prompt ────────────────────────────────────────────────────
 
 import { AGENT_IDENTITY, FIELD_KNOWLEDGE, FORMAT_RULES, NAMING_RULES, CREATIVE_PRINCIPLES } from './identity.js';
+import { JANITOR_PROMPT, HTML_PROMPT, IMAGEPROMPT_PROMPT } from './mode-prompts.js';
 import { buildMemoryBlock } from '../core/session-memory.js';
 
 /**
  * Assembles the full system prompt from all layers.
+ * Routes by session.mode first, then by phase for Studio mode.
  * @param {object} session - Current session state
  * @returns {Promise<string>} Complete system prompt
  */
 export async function buildSystemPrompt(session) {
+  const mode = session?.mode || 'studio';
+
+  // ─── Non-Studio modes: simplified prompt (identity + mode instructions + memory) ───
+  if (mode !== 'studio') {
+    const modePrompt = _getModePrompt(mode);
+    if (!modePrompt) return ''; // FictionLab or unknown — blocked
+
+    const parts = [
+      AGENT_IDENTITY,
+      modePrompt,
+    ];
+
+    // Still inject session memory for non-Studio modes
+    try {
+      const memBlock = await buildMemoryBlock(session);
+      if (memBlock) parts.push(memBlock);
+    } catch (err) {
+      console.warn('[CCS] Failed to load session memory:', err.message);
+    }
+
+    return parts.join('\n');
+  }
+
+  // ─── Studio mode: full 5-layer prompt ───
   const format = session?.cardFormat || 'prose';
   const phase = session?.phase || 'ideate';
 
@@ -200,5 +226,20 @@ export async function buildSystemPrompt(session) {
   }
 
   return parts.join('\n');
+}
+
+/**
+ * Get the mode-specific system prompt for non-Studio modes.
+ * @param {string} mode
+ * @returns {string|null} Mode prompt, or null if mode is blocked
+ */
+function _getModePrompt(mode) {
+  switch (mode) {
+    case 'janitor': return JANITOR_PROMPT;
+    case 'html': return HTML_PROMPT;
+    case 'imageprompt': return IMAGEPROMPT_PROMPT;
+    case 'fictionlab': return null; // Blocked
+    default: return null;
+  }
 }
 
