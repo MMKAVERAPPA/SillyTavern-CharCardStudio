@@ -23,6 +23,12 @@
                 </div>
             </div>
             <div class="ccs-topbar-actions">
+                <button id="ccs_inspect_btn" class="ccs-icon-btn" title="Prompt Inspector — see the raw prompt sent to the AI">
+                    <i class="fa-solid fa-magnifying-glass-chart"></i>
+                </button>
+                <button id="ccs_audit_btn" class="ccs-icon-btn" title="Coherence Audit — check card for issues">
+                    <i class="fa-solid fa-shield-halved"></i>
+                </button>
                 <button id="ccs_settings_btn" class="ccs-icon-btn" title="Settings">
                     <i class="fa-solid fa-gear"></i>
                 </button>
@@ -134,6 +140,15 @@
                         </div>
                         <div id="ccs_pillar_list" class="ccs-pillar-list">
                             <p class="ccs-empty-state">Start a conversation to define your character's core pillars.</p>
+                        </div>
+                        <!-- Scratchpad — persistent, never overwritten by pillar renders -->
+                        <div class="ccs-scratchpad-section" id="ccs_scratchpad_section">
+                            <button class="ccs-scratchpad-header" id="ccs_scratchpad_toggle" title="Toggle scratchpad">
+                                <span><i class="fa-solid fa-pencil"></i> Scratchpad</span>
+                                <i class="fa-solid fa-chevron-up ccs-scratchpad-chevron" id="ccs_scratchpad_chevron"></i>
+                            </button>
+                            <textarea id="ccs_scratchpad" class="ccs-scratchpad-textarea"
+                                placeholder="Notes, ideas, brainstorming… (auto-saved per character)"></textarea>
                         </div>
                     </div>
 

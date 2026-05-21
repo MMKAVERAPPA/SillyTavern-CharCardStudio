@@ -9,6 +9,7 @@ import {
 } from '../core/session.js';
 import { showToast } from './toast.js';
 import { getCtx } from '../index.js';
+import { getAvailableProfiles, getUtilityProfileId, setUtilityProfileId } from '../core/api-router.js';
 
 // ─── State ──────────────────────────────────────────────────────────────────
 
@@ -39,6 +40,7 @@ export async function openSettings() {
     _syncSettingsUI();
     _updateSessionInfo();
     _updateStorageInfo();
+    await _populateUtilityApiDropdown();
 
     const overlay = el('ccs_settings_overlay');
     if (overlay) {
@@ -132,6 +134,16 @@ function _bindEvents() {
         });
     }
 
+    // Utility API profile
+    const utilityApiEl = el('ccs_setting_utility_api');
+    if (utilityApiEl) {
+        utilityApiEl.addEventListener('change', () => {
+            const val = utilityApiEl.value || null;
+            setUtilityProfileId(val);
+            showToast(val ? `Utility API: ${val}` : 'Utility API: Default connection', 'info', 2000);
+        });
+    }
+
     // Format selector
     const formatEl = el('ccs_setting_format');
     if (formatEl) {
@@ -175,6 +187,44 @@ function _syncSettingsUI() {
 
     const formatEl = el('ccs_setting_format');
     if (formatEl) formatEl.value = session.cardFormat || 'prose';
+
+    const utilityApiEl = el('ccs_setting_utility_api');
+    if (utilityApiEl) {
+        const savedId = getUtilityProfileId();
+        utilityApiEl.value = savedId || '';
+    }
+}
+
+/**
+ * Fetch available ST connection profiles and populate the utility API dropdown.
+ * Called each time settings open so the list stays fresh.
+ */
+async function _populateUtilityApiDropdown() {
+    const selectEl = el('ccs_setting_utility_api');
+    const hintEl   = el('ccs_utility_api_hint');
+    if (!selectEl) return;
+
+    const profiles = getAvailableProfiles();
+
+    // Clear all options except the default placeholder
+    while (selectEl.options.length > 1) selectEl.remove(1);
+
+    if (!profiles.length) {
+        if (hintEl) hintEl.style.display = 'block';
+        return;
+    }
+    if (hintEl) hintEl.style.display = 'none';
+
+    for (const p of profiles) {
+        const opt = document.createElement('option');
+        opt.value = p.id;
+        opt.textContent = p.name;
+        selectEl.appendChild(opt);
+    }
+
+    // Restore saved selection
+    const savedId = getUtilityProfileId();
+    if (savedId) selectEl.value = savedId;
 }
 
 function _updateSessionInfo() {

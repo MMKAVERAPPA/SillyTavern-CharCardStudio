@@ -6,6 +6,29 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [4.1.0] — 2026-05-21
+
+Major feature update completing Phase H (Lorebook Overhaul + API Routing) and Phase I (UX Improvements), plus a full extension audit.
+
+### Added
+- **Feature 3: External Lorebook Integration** — Migrated from embedded `character_book` model to SillyTavern's native `/api/worldinfo/` REST endpoints. Users can now select, create, and manage external lorebooks from a dedicated picker inside the Lore tab. Selection persists per-character in `session.lorebookName`.
+- **Feature 5: Custom API Connection Routing** — New `core/api-router.js` module routes background checks (conflict detection, token analysis) to a configurable alternate API profile via `ConnectionManagerRequestService`. Falls back gracefully to the default connection. Configurable in Settings → General.
+- **Feature 10: Scratchpad** — Persistent, collapsible freeform notes textarea at the bottom of the Concept tab. Auto-saved with 1-second debounce per-character. Never sent to the AI.
+- **Feature 6: Prompt Inspector** — Read-only modal (🔍 button in topbar) showing the exact system prompt and message history the AI would receive, with tab switching, per-section token estimates, and clipboard copy.
+- **Feature 9: Coherence Audit** — Static analysis engine (`core/coherence-audit.js`) that checks for missing required fields, field length anomalies, lorebook keyword collisions, keyless entries, constant-entry token bloat, and cross-field consistency issues. Results displayed in a scored modal (0–100) with one-click "Ask AI to Fix" escalation.
+- **Feature 4: Ideation Phase Redesign (Quickstart)** — When in the Ideate phase with no pillars, the Concept tab now shows Concept Quickstart chip buttons (Brainstorm, Villain, Companion, Mentor, AI/Android, What If?) that inject pre-crafted prompts into the chat.
+
+### Fixed
+- **Lore phase prompt** now warns the AI that an external lorebook must be selected before `ccs_create_lore_entry` can succeed.
+- **Session defaults** updated: `scratchpad: ''` and `lorebookName: null` are now explicit session fields.
+- **Missing CSS** for `.ccs-setting-hint` — the utility API hint text now renders correctly.
+
+### Changed
+- `core/background.js` now imports `generateTextWithProfile` instead of `generateText` — all background AI checks route through the API router.
+- Session schema remains v3 (scratchpad initialises as empty string, no migration needed).
+
+---
+
 ## [4.0.0] — 2026-05-20
 
 Complete rewrite from v3.x. Transitioned to an agentic architecture with a tool-calling AI assistant.

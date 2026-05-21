@@ -11,7 +11,7 @@
  */
 
 import { getSession, updateSession, hashString } from './session.js';
-import { generateText } from './silent-generation.js';
+import { generateTextWithProfile } from './api-router.js';
 import { validateField } from './validators.js';
 
 // ─── State ──────────────────────────────────────────────────────────────────
@@ -190,7 +190,7 @@ async function _runConflictCheck(fieldName, signal) {
         .replace('[FIELD_B_NAME]', _stToDisplayName(otherStField))
         .replace('[FIELD_B_CONTENT]', String(otherContent).substring(0, 800));
 
-      const response = await generateText(
+      const response = await generateTextWithProfile(
         [{ role: 'user', content: prompt }],
         { name: 'ccs-conflict-check', signal }
       );
@@ -241,7 +241,7 @@ async function _runTokenCheck(fieldName, signal) {
       .replace('[COUNT]', String(tokenCount))
       .replace('[TIER]', tier);
 
-    const response = await generateText(
+    const response = await generateTextWithProfile(
       [{ role: 'user', content: prompt }],
       { name: 'ccs-token-check', signal }
     );

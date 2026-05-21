@@ -60,6 +60,18 @@
                         <span id="ccs_setting_summary_value" class="ccs-setting-range-value">30</span>
                     </div>
                 </div>
+
+                <div class="ccs-setting-group">
+                    <label class="ccs-setting-label"><i class="fa-solid fa-plug-circle-bolt"></i> Utility API Profile</label>
+                    <p class="ccs-setting-desc">Route background checks (conflict detection, token analysis) to a different ST connection profile. Useful for directing utility tasks to a cheaper or faster model while keeping your main generation on a higher quality one.</p>
+                    <select id="ccs_setting_utility_api" class="ccs-setting-select">
+                        <option value="">— Default (active ST connection) —</option>
+                        <!-- Populated dynamically from ST connection profiles -->
+                    </select>
+                    <p id="ccs_utility_api_hint" class="ccs-setting-hint" style="display:none;">
+                        <i class="fa-solid fa-triangle-exclamation"></i> No connection profiles found. Configure profiles in ST's API settings first.
+                    </p>
+                </div>
             </div>
 
             <!-- Session Tab -->

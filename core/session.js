@@ -14,7 +14,7 @@
 
 // ─── Constants ──────────────────────────────────────────────────────────────
 
-const CURRENT_VERSION = 2;
+const CURRENT_VERSION = 3;
 const SAVE_DEBOUNCE_MS = 3000;
 const STORE_NAME = 'SillyTavern_CharCardStudio';
 const KEY_PREFIX = 'session_';
@@ -194,6 +194,8 @@ function createDefaultSession(avatar, name = '') {
         autoSummary: '',
         autoSummaryCount: 0,       // Tracks how many messages were in last summary
         falsePositives: [],         // Ignored/marked false-positive conflicts
+        lorebookName: null,          // Name of the selected external lorebook (persists per character)
+        scratchpad: '',               // User's private freeform notes (never sent to AI)
         loreDrafts: [],             // Staged lore entry drafts pending user apply
         cardDrafts: {},             // Staged card field drafts: { fieldKey: StagedDraft }
         modeHistories: {            // Per-mode isolated chat histories
@@ -252,8 +254,16 @@ function migrateSession(data) {
         console.log('[CCS] Migrated session to v2 (mode histories):', session.characterAvatar);
     }
 
+    // Version 2 → 3: Add external lorebook selection and scratchpad
+    if (session.version < 3) {
+        session.lorebookName = session.lorebookName ?? null;
+        session.scratchpad = session.scratchpad ?? '';
+        session.version = 3;
+        console.log('[CCS] Migrated session to v3 (lorebookName, scratchpad):', session.characterAvatar);
+    }
+
     // Future migrations go here:
-    // if (session.version < 3) { ... session.version = 3; }
+    // if (session.version < 4) { ... session.version = 4; }
 
     return session;
 }

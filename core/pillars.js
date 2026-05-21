@@ -246,6 +246,7 @@ export function syncPillarsWithCard() {
         creatorNotes: 'creator_notes',
         charDepthPrompt: 'character_note',
         alternateGreetings: 'alternate_greetings',
+        tags: 'tags',
     };
 
     let changed = false;

@@ -13,6 +13,7 @@ import { updatePillar, addWorldPillar, markPillarDoneByField, calculateProgress 
 import { getLorebookEntries, createLorebookEntry, updateLorebookEntry, deleteLorebookEntry, getLorebookTokenBudget } from './lorebook.js';
 import { enqueueCheck } from './background.js';
 import { addMemoryRule, removeMemoryRule } from './session-memory.js';
+import { pushFieldVersion } from './field-history.js';
 
 // ─── Field Name Mapping ─────────────────────────────────────────────────────
 
@@ -285,22 +286,13 @@ async function toolCreateLoreEntry(params) {
 // ─── Tool 5: Read Lore Entries ──────────────────────────────────────────────
 
 async function toolReadLoreEntries(params) {
-  const ctx = getCtx();
-  if (!ctx) return { result: 'Error: SillyTavern context not available.' };
-
-  // Try to get character's lorebook
   try {
-    const charId = ctx.characterId;
-    const char = ctx.characters?.[charId];
-    if (!char) return { result: 'No character loaded.' };
-
-    // Access world info / lorebook data
-    const book = char.data?.character_book;
-    if (!book?.entries || Object.keys(book.entries).length === 0) {
+    const entries = await getLorebookEntries();
+    
+    if (!entries || entries.length === 0) {
       return { result: 'No lorebook entries found for this character.' };
     }
 
-    const entries = Object.values(book.entries);
     const lines = entries.map(e => {
       const keyArr = Array.isArray(e.key) ? e.key : (e.key ? [e.key] : []);
       const keys = keyArr.join(', ') || 'none';
@@ -468,6 +460,24 @@ export async function applyDraftToCard(draftId) {
   }
   console.log('[CCS] Applying to character:', char.name, 'avatar:', char.avatar);
 
+  // Push the current value to history before applying the draft
+  try {
+    const stFields = ctx.getCharacterCardFields() || {};
+    const stKey = Object.keys(ST_READ_TO_CCS).find(k => ST_READ_TO_CCS[k] === draft.field);
+    let currentValue = '';
+    if (draft.field === 'alternate_greetings') {
+      currentValue = JSON.stringify(char.data?.alternate_greetings || []);
+    } else if (stKey) {
+      currentValue = stFields[stKey] || '';
+      if (Array.isArray(currentValue)) {
+        currentValue = currentValue.join('\n---\n');
+      }
+    }
+    pushFieldVersion(session, draft.field, currentValue, 'draft_applied');
+  } catch (historyErr) {
+    console.warn('[CCS] Failed to push field history during apply:', historyErr);
+  }
+
   try {
     // Build the merge payload
     const mergeKey = CCS_TO_MERGE[draft.field];
@@ -580,6 +590,146 @@ export async function applyDraftToCard(draftId) {
     return true;
   } catch (err) {
     console.error('[CCS] Apply draft error:', err);
+    return false;
+  }
+}
+
+/**
+ * Direct save to character card without drafting.
+ * Used for inline editing in the card fields UI.
+ *
+ * @param {string} fieldName - CCS field name
+ * @param {string} content - New content to save
+ * @param {number} [greetingIndex] - Greeting index for alternate greetings
+ * @returns {Promise<boolean>}
+ */
+export async function saveFieldDirect(fieldName, content, greetingIndex = null) {
+  console.log('[CCS] saveFieldDirect called:', fieldName);
+  const session = getSession();
+  const ctx = getCtx();
+  if (!ctx) {
+    console.error('[CCS] No ST context available');
+    return false;
+  }
+
+  const charId = ctx.characterId;
+  const char = ctx.characters?.[charId];
+  if (!char?.avatar) {
+    console.error('[CCS] No character loaded');
+    return false;
+  }
+
+  try {
+    // 1. Get current value and push to history
+    const stFields = ctx.getCharacterCardFields() || {};
+    const stKey = Object.keys(ST_READ_TO_CCS).find(k => ST_READ_TO_CCS[k] === fieldName);
+    let currentValue = '';
+    if (fieldName === 'alternate_greetings') {
+      currentValue = JSON.stringify(char.data?.alternate_greetings || []);
+    } else if (stKey) {
+      currentValue = stFields[stKey] || '';
+      if (Array.isArray(currentValue)) {
+        currentValue = currentValue.join('\n---\n');
+      }
+    }
+    pushFieldVersion(session, fieldName, currentValue, 'direct_edit');
+
+    // 2. Build the merge payload
+    const mergeKey = CCS_TO_MERGE[fieldName];
+    if (!mergeKey) {
+      console.error('[CCS] No merge key for field:', fieldName);
+      return false;
+    }
+
+    let body;
+    if (fieldName === 'character_note') {
+      body = JSON.stringify({
+        avatar: char.avatar,
+        data: {
+          extensions: {
+            depth_prompt: {
+              prompt: content,
+              depth: 4,
+              role: 'system',
+            }
+          }
+        }
+      });
+    } else if (fieldName === 'alternate_greetings') {
+      let updated;
+      if (greetingIndex === null) {
+        updated = content.split('\n---\n').map(g => g.trim()).filter(Boolean);
+      } else {
+        const existing = char.data?.alternate_greetings || [];
+        updated = [...existing];
+        updated[greetingIndex] = content;
+      }
+      body = JSON.stringify({
+        avatar: char.avatar,
+        data: { alternate_greetings: updated }
+      });
+    } else if (fieldName === 'tags') {
+      const tags = typeof content === 'string'
+        ? content.split(',').map(t => t.trim()).filter(Boolean)
+        : content;
+      body = JSON.stringify({
+        avatar: char.avatar,
+        data: { tags }
+      });
+    } else {
+      body = JSON.stringify({
+        avatar: char.avatar,
+        data: { [mergeKey]: content }
+      });
+    }
+
+    const headers = {
+      'Content-Type': 'application/json',
+      ...ctx.getRequestHeaders(),
+    };
+
+    const resp = await fetch('/api/characters/merge-attributes', {
+      method: 'POST',
+      headers,
+      body,
+    });
+
+    if (!resp.ok) {
+      const errText = await resp.text();
+      console.error('[CCS] Merge failed direct:', resp.status, errText);
+      return false;
+    }
+
+    // 3. Refresh ST character data
+    try {
+        const refreshCtx = SillyTavern.getContext();
+        await refreshCtx.getOneCharacter(char.avatar);
+        if (refreshCtx.eventSource && refreshCtx.event_types) {
+            await refreshCtx.eventSource.emit(refreshCtx.event_types.CHARACTER_EDITED, {
+                detail: { id: refreshCtx.this_chid, character: refreshCtx.characters[refreshCtx.this_chid] }
+            });
+        }
+    } catch (refreshErr) {
+        console.warn('[CCS] Could not refresh ST data after direct save:', refreshErr);
+    }
+
+    // 4. Notify UI to update
+    document.dispatchEvent(new CustomEvent('ccs:card-updated'));
+
+    // 5. Update field hash for manual edit detection
+    const fieldHashes = session.fieldHashes || {};
+    fieldHashes[fieldName] = hashString(content);
+    await updateSession({ fieldHashes });
+
+    // 6. Run background validators
+    enqueueCheck('conflict', fieldName);
+    enqueueCheck('token', fieldName);
+    enqueueCheck('validation', fieldName);
+
+    console.log(`[CCS] Direct saved field: ${fieldName}`);
+    return true;
+  } catch (err) {
+    console.error('[CCS] Direct save error:', err);
     return false;
   }
 }

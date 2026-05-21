@@ -303,16 +303,72 @@ function _createMessageElement(message) {
 }
 
 /**
- * Very lightweight markdown: bold, italic, inline code, line breaks.
- * Full markdown rendering comes in Phase C.
+ * Full markdown rendering via SillyTavern's bundled showdown + DOMPurify.
+ * Supports: tables, fenced code blocks, task lists, headers (h3+), blockquotes,
+ * strikethrough, and auto line breaks. Falls back to basic regex if showdown
+ * is unavailable.
  */
+let _showdownConverter = null;
+
+function _getConverter() {
+    if (_showdownConverter) return _showdownConverter;
+    const showdown = SillyTavern?.libs?.showdown;
+    if (!showdown) return null;
+    _showdownConverter = new showdown.Converter({
+        tables: true,
+        ghCodeBlocks: true,
+        tasklists: true,
+        strikethrough: true,
+        simpleLineBreaks: true,
+        openLinksInNewWindow: true,
+        emoji: true,
+        headerLevelStart: 3,       // Prevent h1/h2 inside chat bubbles
+        ghCompatibleHeaderId: true,
+        parseImgDimensions: true,
+    });
+    _showdownConverter.setFlavor('github');
+    return _showdownConverter;
+}
+
 function _renderMarkdown(text) {
     if (!text) return '';
-    return escapeHtml(text)
-        .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
-        .replace(/\*(.+?)\*/g, '<em>$1</em>')
-        .replace(/`([^`]+)`/g, '<code>$1</code>')
-        .replace(/\n/g, '<br>');
+
+    const converter = _getConverter();
+    if (!converter) {
+        // Fallback: basic regex if showdown not available
+        return escapeHtml(text)
+            .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+            .replace(/\*(.+?)\*/g, '<em>$1</em>')
+            .replace(/`([^`]+)`/g, '<code>$1</code>')
+            .replace(/\n/g, '<br>');
+    }
+
+    let html = converter.makeHtml(text);
+
+    // Wrap tables for mobile horizontal scroll
+    html = html.replace(/<table\b/g, '<div class="ccs-table-wrapper"><table')
+               .replace(/<\/table>/g, '</table></div>');
+
+    // Sanitize with DOMPurify (allows safe HTML subset)
+    const DOMPurify = SillyTavern?.libs?.DOMPurify;
+    if (DOMPurify) {
+        html = DOMPurify.sanitize(html, {
+            ALLOWED_TAGS: [
+                'p', 'br', 'strong', 'b', 'em', 'i', 'u', 's', 'del',
+                'h3', 'h4', 'h5', 'h6',
+                'ul', 'ol', 'li', 'input',
+                'table', 'thead', 'tbody', 'tr', 'th', 'td',
+                'blockquote', 'pre', 'code',
+                'a', 'span', 'div', 'hr',
+            ],
+            ALLOWED_ATTR: [
+                'href', 'target', 'rel', 'class', 'type', 'checked', 'disabled',
+                'colspan', 'rowspan', 'align',
+            ],
+        });
+    }
+
+    return html;
 }
 
 function _formatTime(ts) {
@@ -332,7 +388,7 @@ function _scrollToBottom() {
 
 // ─── Send Message ─────────────────────────────────────────────────────────────
 
-async function _sendMessage(text) {
+export async function sendMessage(text) {
     text = text.trim();
     if (!text) return;
     if (_isStreaming) {
@@ -745,7 +801,7 @@ export function bindChatEvents() {
     if (sendBtn) {
         sendBtn.addEventListener('click', () => {
             const inputEl = el('ccs_input');
-            if (inputEl) _sendMessage(inputEl.value);
+            if (inputEl) sendMessage(inputEl.value);
         });
     }
 
@@ -765,7 +821,7 @@ export function bindChatEvents() {
         inputEl.addEventListener('keydown', (e) => {
             if (e.key === 'Enter' && !e.shiftKey) {
                 e.preventDefault();
-                _sendMessage(inputEl.value);
+                sendMessage(inputEl.value);
             }
         });
 
@@ -802,7 +858,7 @@ export function bindChatEvents() {
             const chip = e.target.closest('.ccs-chip[data-chip]');
             if (chip) {
                 const value = chip.dataset.chip;
-                if (value) _sendMessage(value);
+                if (value) sendMessage(value);
                 return;
             }
 
@@ -849,7 +905,7 @@ export function bindChatEvents() {
     if (chipsEl) {
         chipsEl.addEventListener('click', (e) => {
             const chip = e.target.closest('.ccs-chip[data-chip]');
-            if (chip) _sendMessage(chip.dataset.chip);
+            if (chip) sendMessage(chip.dataset.chip);
         });
     }
 }

@@ -45,7 +45,11 @@ If the user asks to skip ahead or work on a specific field, accommodate them.`,
 
   lore: `
 ━━━ PHASE: LORE ━━━
-You are building the character's lorebook. 
+You are building the character's lorebook.
+
+IMPORTANT: An external lorebook must be selected before you can create entries.
+If the user hasn't selected one yet, ask them to pick or create a lorebook using the
+Lore tab in the right panel before proceeding with ccs_create_lore_entry.
 
 Start by reading the card with ccs_read_field to understand the character.
 Then propose lorebook categories (locations, NPCs, factions, items, lore, etc.).

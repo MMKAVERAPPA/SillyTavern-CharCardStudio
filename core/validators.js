@@ -7,6 +7,7 @@
  */
 
 import { getLorebookEntries } from './lorebook.js';
+import { countTokensSync } from './token-utils.js';
 
 // ─── Constants ──────────────────────────────────────────────────────────────
 
@@ -114,7 +115,7 @@ function _validateDescription(content, format, warnings) {
 
 function _validatePersonality(content, warnings) {
   // Should be brief
-  const tokens = Math.round(content.length / 4);
+  const tokens = countTokensSync(content);
   if (tokens > 300) {
     warnings.push(`Personality is long (~${tokens}t) — should be brief (2-5 sentences)`);
   }
@@ -140,7 +141,7 @@ function _validateSystemPrompt(content, warnings) {
   }
 
   // Token check
-  const tokens = Math.round(content.length / 4);
+  const tokens = countTokensSync(content);
   if (tokens > 200) {
     warnings.push(`System prompt is ~${tokens}t — ideally under 200t`);
   }
