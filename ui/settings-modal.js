@@ -1,412 +1,435 @@
-// ui/settings-modal.js
-// Settings modal: API config, utility API, tone profile, snippet library
-// v3.3 — Added Appearance tab (themes), profile dropdown, haptic toggle, session import
+/**
+ * CharCardStudio v4.0.0 — ui/settings-modal.js
+ * Settings modal: open/close, tab switching, export/import sessions, clear data.
+ */
 
-import { memoryManager } from '../core/memory.js';
-import { apiManager } from '../core/api.js';
-import { statsManager } from '../core/stats.js';
+import {
+    getSession, saveSession, resetCurrentSession,
+    updateSession, loadSession,
+} from '../core/session.js';
+import { showToast } from './toast.js';
+import { getCtx } from '../index.js';
+import { getAvailableProfiles, getUtilityProfileId, setUtilityProfileId } from '../core/api-router.js';
 
-export class SettingsModal {
-    constructor() {
-        this.el = null;
-        this.snippetEditId = null;
+// ─── State ──────────────────────────────────────────────────────────────────
+
+let _isOpen = false;
+let _templateInjected = false;
+
+// ─── DOM Helper ─────────────────────────────────────────────────────────────
+
+function el(id) {
+    return document.getElementById(id);
+}
+
+// ─── Open / Close ───────────────────────────────────────────────────────────
+
+/**
+ * Open the settings modal.
+ */
+export async function openSettings() {
+    if (_isOpen) return;
+
+    // Inject template on first open (lazy)
+    if (!_templateInjected) {
+        await _injectTemplate();
+        _bindEvents();
+        _templateInjected = true;
     }
 
-    open(container = null) {
-        document.getElementById('ccs-settings-modal')?.remove();
-        // Render inside the studio overlay element (position:absolute) rather than
-        // document.body (position:fixed). This avoids position:fixed containment
-        // failures on mobile caused by CSS transforms on ST's page-level elements.
-        // The studio overlay is already position:fixed;inset:0 so its absolute
-        // children get the same full-viewport frame with zero stacking context risk.
-        this._container = container || document.body;
-        this._build();
-        this._container.appendChild(this.el);
-        this._bind();
-        this._renderStats();
-    }
+    _syncSettingsUI();
+    _updateSessionInfo();
+    _updateStorageInfo();
+    await _populateUtilityApiDropdown();
 
-    _renderStats() {
-        const stats = statsManager.getStats();
-        const t = stats.totals || {};
-        const grid = this.el.querySelector('#ccs-stats-grid');
-        if (!grid) return;
-        
-        const cards = [
-            { label: 'Messages Sent', value: t.messages || 0, icon: '💬' },
-            { label: 'Fields Generated', value: t.fieldsGenerated || 0, icon: '✨' },
-            { label: 'Variations Made', value: t.variations || 0, icon: '🎲' },
-            { label: 'Quick Edits', value: t.quickEdits || 0, icon: '✏️' },
-            { label: 'Sessions Created', value: t.sessions || 0, icon: '📂' },
-            { label: 'Tokens In', value: (t.tokensIn || 0).toLocaleString(), icon: '📥' },
-            { label: 'Tokens Out', value: (t.tokensOut || 0).toLocaleString(), icon: '📤' }
-        ];
-        
-        grid.innerHTML = cards.map(c => `
-            <div style="background:var(--ccs-surface3); padding:12px; border-radius:var(--ccs-radius-sm); border:1px solid var(--ccs-border); display:flex; flex-direction:column; align-items:center; text-align:center;">
-                <div style="font-size:1.5rem; margin-bottom:4px;">${c.icon}</div>
-                <div style="font-size:1.2rem; font-weight:700; color:var(--ccs-text);">${c.value}</div>
-                <div style="font-size:0.75rem; color:var(--ccs-text3); text-transform:uppercase; letter-spacing:0.5px;">${c.label}</div>
-            </div>
-        `).join('');
-    }
-
-    _build() {
-        const s = memoryManager.getGlobalSettings();
-        const tone = s.voiceToneProfile || {};
-        const snippets = memoryManager.getSnippets();
-
-        this.el = document.createElement('div');
-        this.el.id = 'ccs-settings-modal';
-        this.el.className = 'ccs-modal-overlay';
-        this.el.innerHTML = `
-            <div class="ccs-modal ccs-settings-modal-inner">
-                <div class="ccs-modal-header">
-                    <span>⚙️ Character Card Studio Settings</span>
-                    <button class="ccs-modal-close" id="ccs-settings-close">✕</button>
-                </div>
-                <!-- Tab bar outside the scrollable body — always visible -->
-                <div class="ccs-settings-tabs">
-                    <button class="ccs-stab active" data-tab="api">🔗 API</button>
-                    <button class="ccs-stab" data-tab="appearance">🎨 Appearance</button>
-                    <button class="ccs-stab" data-tab="tone">🎙 Tone</button>
-                    <button class="ccs-stab" data-tab="snippets">📌 Snippets</button>
-                    <button class="ccs-stab" data-tab="session">🔧 Session</button>
-                    <button class="ccs-stab" data-tab="stats">📊 Stats</button>
-                </div>
-                <div class="ccs-modal-body">
-
-                    <!-- API Tab -->
-                    <div class="ccs-stab-panel active" id="ccs-tab-panel-api">
-                        <div class="ccs-setting-section">
-                            <div class="ccs-setting-label">Primary API (for card writing)</div>
-                            <select class="ccs-select ccs-w100" id="ccs-api-mode">
-                                <option value="current" ${s.apiMode==='current'?'selected':''}>🔗 Use ST's current connection</option>
-                                <option value="profile" ${s.apiMode==='profile'?'selected':''}>👤 Use a connection profile</option>
-                            </select>
-                            <div id="ccs-profile-row" style="${s.apiMode==='profile'?'':'display:none'}; margin-top:8px; display:flex; flex-direction:column; gap:6px;">
-                                <select class="ccs-select ccs-w100" id="ccs-profile-name">
-                                    <option value="">⌛ Loading profiles...</option>
-                                    ${s.selectedProfile ? `<option value="${s.selectedProfile}" selected>${s.selectedProfile}</option>` : ''}
-                                </select>
-                                <div class="ccs-setting-hint">Profiles are loaded from your SillyTavern connection settings.</div>
-                            </div>
-                            <div class="ccs-setting-hint">Uses whatever API is configured in SillyTavern. Switch to Profile mode to temporarily swap connection presets during generation.</div>
-                        </div>
-
-                        <div class="ccs-setting-section">
-                            <div class="ccs-setting-label">Utility API (for background checks)</div>
-                            <div class="ccs-setting-hint">Pillar detection, conflict checks, auto-tags, version summaries. A fast/cheap model here saves cost without affecting card quality.</div>
-                            <select class="ccs-select ccs-w100" id="ccs-util-mode">
-                                <option value="same" ${s.utilityApiMode==='same'?'selected':''}>↳ Same as primary</option>
-                                <option value="custom" ${s.utilityApiMode==='custom'?'selected':''}>⚙️ Custom OpenAI-compatible endpoint</option>
-                            </select>
-                            <div id="ccs-util-custom-row" style="${s.utilityApiMode==='custom'?'':'display:none'}; margin-top:8px;">
-                                <input class="ccs-input ccs-w100" id="ccs-util-endpoint" placeholder="Endpoint URL (e.g. https://openrouter.ai/api/v1)" value="${s.utilityEndpoint||''}">
-                                <input class="ccs-input ccs-w100" id="ccs-util-apikey" type="password" placeholder="API Key" value="${s.utilityApiKey||''}">
-                                <input class="ccs-input ccs-w100" id="ccs-util-model" placeholder="Model (e.g. google/gemini-flash-1.5)" value="${s.utilityModel||''}">
-                            </div>
-                        </div>
-
-                        <div class="ccs-setting-section">
-                            <div class="ccs-setting-label">Custom System Prompt Rules</div>
-                            <textarea class="ccs-textarea ccs-w100" id="ccs-custom-rules" rows="4" placeholder="Additional rules appended to every system prompt...">${s.customSystemPromptRules||''}</textarea>
-                        </div>
-                    </div>
-
-                    <!-- Tone Tab -->
-                    <div class="ccs-stab-panel" id="ccs-tab-panel-tone">
-                        <div class="ccs-setting-section">
-                            <div class="ccs-setting-label">POV</div>
-                            <select class="ccs-select ccs-w100" id="ccs-tone-pov">
-                                <option value="third" ${tone.pov==='third'?'selected':''}>Third person (she/he/they)</option>
-                                <option value="first" ${tone.pov==='first'?'selected':''}>First person (I/me/my)</option>
-                            </select>
-                        </div>
-                        <div class="ccs-setting-section">
-                            <div class="ccs-setting-label">Action Format</div>
-                            <select class="ccs-select ccs-w100" id="ccs-tone-action">
-                                <option value="asterisk" ${tone.actionFormat==='asterisk'?'selected':''}>*Asterisks*</option>
-                                <option value="italic" ${tone.actionFormat==='italic'?'selected':''}>_Italics_</option>
-                                <option value="none" ${tone.actionFormat==='none'?'selected':''}>No formatting</option>
-                            </select>
-                        </div>
-                        <div class="ccs-setting-section">
-                            <div class="ccs-setting-label">Prose Density</div>
-                            <select class="ccs-select ccs-w100" id="ccs-tone-density">
-                                <option value="terse" ${tone.proseDensity==='terse'?'selected':''}>Terse — short, punchy sentences</option>
-                                <option value="balanced" ${tone.proseDensity==='balanced'?'selected':''}>Balanced</option>
-                                <option value="rich" ${tone.proseDensity==='rich'?'selected':''}>Rich — layered, literary prose</option>
-                            </select>
-                        </div>
-                        <div class="ccs-setting-section">
-                            <div class="ccs-setting-label">Formality Register</div>
-                            <select class="ccs-select ccs-w100" id="ccs-tone-formality">
-                                <option value="casual" ${tone.formalityRegister==='casual'?'selected':''}>Casual</option>
-                                <option value="neutral" ${tone.formalityRegister==='neutral'?'selected':''}>Neutral</option>
-                                <option value="formal" ${tone.formalityRegister==='formal'?'selected':''}>Formal</option>
-                            </select>
-                        </div>
-                    </div>
-
-                    <!-- Snippets Tab -->
-                    <div class="ccs-stab-panel" id="ccs-tab-panel-snippets">
-                        <div class="ccs-snippet-add">
-                            <input class="ccs-input" id="ccs-snip-name" placeholder="Snippet name">
-                            <input class="ccs-input" id="ccs-snip-category" placeholder="Category (optional)">
-                            <textarea class="ccs-textarea ccs-w100" id="ccs-snip-content" rows="4" placeholder="Snippet content — injected into prompts on demand"></textarea>
-                            <button class="ccs-btn ccs-btn-primary" id="ccs-snip-add-btn">➕ Add Snippet</button>
-                        </div>
-                        <div class="ccs-snippet-list" id="ccs-snippet-list">
-                            ${snippets.length ? snippets.map(s => this._renderSnippet(s)).join('') : '<div class="ccs-muted">No snippets yet.</div>'}
-                        </div>
-                    </div>
-
-                    <!-- Appearance Tab -->
-                    <div class="ccs-stab-panel" id="ccs-tab-panel-appearance">
-                        <div class="ccs-setting-section">
-                            <div class="ccs-setting-label">Theme</div>
-                            <select class="ccs-select ccs-w100" id="ccs-theme">
-                                <option value="dark"     ${s.theme==='dark'?     'selected':''}>🌑 Dark (Default)</option>
-                                <option value="midnight" ${s.theme==='midnight'?'selected':''}>🌌 Midnight</option>
-                                <option value="sepia"    ${s.theme==='sepia'?   'selected':''}>🍂 Sepia</option>
-                                <option value="light"    ${s.theme==='light'?   'selected':''}>☀️ Light</option>
-                            </select>
-                            <div class="ccs-setting-hint">Changes the studio's color palette. Applied immediately on save.</div>
-                        </div>
-                    </div>
-
-                    <!-- Session Tab -->
-                    <div class="ccs-stab-panel" id="ccs-tab-panel-session">
-                        <div class="ccs-setting-section">
-                            <div class="ccs-setting-label">Compression Threshold</div>
-                            <input class="ccs-input" type="number" id="ccs-compression" value="${s.compressionThreshold||15}" min="5" max="50">
-                            <div class="ccs-setting-hint">Number of messages before session history is compressed to preserve context. Lower = more frequent compression.</div>
-                        </div>
-                        <div class="ccs-setting-section">
-                            <div class="ccs-setting-label">Parallel API Calls</div>
-                            <label class="ccs-toggle-label">
-                                <input type="checkbox" id="ccs-parallel-api" ${s.parallelApiCalls !== false ? 'checked' : ''}>
-                                <span>Enable parallel API calls (variations, batch greetings)</span>
-                            </label>
-                            <div class="ccs-setting-hint">When enabled, variations and batch operations fire multiple API calls simultaneously. Disable if you're getting rate-limited (429 errors).</div>
-                        </div>
-                        <div class="ccs-setting-section">
-                            <div class="ccs-setting-label">Input Message Limit</div>
-                            <label class="ccs-toggle-label">
-                                <input type="checkbox" id="ccs-input-limit" ${s.inputLimitEnabled !== false ? 'checked' : ''}>
-                                <span>Limit messages to 12,000 characters</span>
-                            </label>
-                            <div class="ccs-setting-hint">Prevents accidental very-long messages from consuming excessive tokens. Disable only if you intentionally paste large texts.</div>
-                        </div>
-                        <div class="ccs-setting-section">
-                            <div class="ccs-setting-label">Haptic Feedback</div>
-                            <label class="ccs-toggle-label">
-                                <input type="checkbox" id="ccs-haptic" ${s.hapticFeedback ? 'checked' : ''}>
-                                <span>Enable vibration feedback on mobile (off by default)</span>
-                            </label>
-                            <div class="ccs-setting-hint">Triggers short vibrations on entry insertion, undo/redo, and phase swipe. Only works on mobile devices that support the Vibration API.</div>
-                        </div>
-                        <div class="ccs-setting-section">
-                            <div class="ccs-setting-label">Session Portability</div>
-                            <div style="display:flex;gap:8px;flex-wrap:wrap">
-                                <button class="ccs-btn ccs-btn-secondary" id="ccs-export-session-btn">📤 Export Session</button>
-                                <button class="ccs-btn ccs-btn-secondary" id="ccs-import-session-btn">📥 Import Session</button>
-                                <input type="file" id="ccs-import-session-file" accept=".json" style="display:none">
-                            </div>
-                            <div class="ccs-setting-hint">Export saves your current session as a JSON file. Import loads a previously exported session (replaces the current session for that character).</div>
-                        </div>
-                        <div class="ccs-setting-section">
-                            <div class="ccs-setting-label">Danger Zone</div>
-                            <button class="ccs-btn ccs-btn-danger" id="ccs-clear-all-sessions-btn">🗑 Clear All Sessions</button>
-                        </div>
-                    </div>
-
-                    <!-- Stats Tab -->
-                    <div class="ccs-stab-panel" id="ccs-tab-panel-stats">
-                        <div class="ccs-setting-section">
-                            <div class="ccs-setting-label">Usage Statistics</div>
-                            <div class="ccs-stats-grid" style="display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-top:10px;" id="ccs-stats-grid">
-                                <!-- Stats injected here -->
-                            </div>
-                        </div>
-                    </div>
-
-                </div>
-                <div class="ccs-modal-footer">
-                    <button class="ccs-btn ccs-btn-ghost" id="ccs-settings-cancel">Cancel</button>
-                    <button class="ccs-btn ccs-btn-primary" id="ccs-settings-save">✅ Save Settings</button>
-                </div>
-            </div>
-        `;
-    }
-
-    _bind() {
-        const s = memoryManager.getGlobalSettings();
-
-        // Tab switching
-        this.el.querySelectorAll('.ccs-stab').forEach(tab => {
-            tab.addEventListener('click', () => {
-                this.el.querySelectorAll('.ccs-stab').forEach(t => t.classList.remove('active'));
-                this.el.querySelectorAll('.ccs-stab-panel').forEach(p => p.classList.remove('active'));
-                tab.classList.add('active');
-                document.getElementById(`ccs-tab-panel-${tab.dataset.tab}`)?.classList.add('active');
-            });
-        });
-
-        // API mode toggle
-        document.getElementById('ccs-api-mode')?.addEventListener('change', (e) => {
-            document.getElementById('ccs-profile-row').style.display = e.target.value === 'profile' ? '' : 'none';
-        });
-        document.getElementById('ccs-util-mode')?.addEventListener('change', (e) => {
-            document.getElementById('ccs-util-custom-row').style.display = e.target.value === 'custom' ? '' : 'none';
-        });
-
-        // Snippet add
-        document.getElementById('ccs-snip-add-btn')?.addEventListener('click', () => {
-            const name = document.getElementById('ccs-snip-name')?.value.trim();
-            const content = document.getElementById('ccs-snip-content')?.value.trim();
-            const category = document.getElementById('ccs-snip-category')?.value.trim() || 'General';
-            if (!name || !content) return;
-            const snippet = memoryManager.addSnippet(name, content, category);
-            const list = document.getElementById('ccs-snippet-list');
-            if (list) {
-                const empty = list.querySelector('.ccs-muted');
-                empty?.remove();
-                list.insertAdjacentHTML('beforeend', this._renderSnippet(snippet));
-                this._bindSnippetButtons(list);
-            }
-            document.getElementById('ccs-snip-name').value = '';
-            document.getElementById('ccs-snip-content').value = '';
-        });
-
-        this._bindSnippetButtons(document.getElementById('ccs-snippet-list'));
-
-        // Clear sessions
-        document.getElementById('ccs-clear-all-sessions-btn')?.addEventListener('click', () => {
-            if (confirm('Clear ALL Character Card Studio sessions? This cannot be undone.')) {
-                memoryManager.settings.sessions = {};
-                memoryManager.save();
-                alert('All sessions cleared.');
-            }
-        });
-
-        // Session export / import
-        document.getElementById('ccs-export-session-btn')?.addEventListener('click', () => {
-            try {
-                const ctx = SillyTavern?.getContext?.();
-                const json = memoryManager.exportSession(ctx?.characterId);
-                const blob = new Blob([json], { type: 'application/json' });
-                const url = URL.createObjectURL(blob);
-                const a = document.createElement('a');
-                a.href = url; a.download = 'ccs_session_export.json'; a.click();
-                URL.revokeObjectURL(url);
-            } catch (err) { alert('Export failed: ' + err.message); }
-        });
-        document.getElementById('ccs-import-session-btn')?.addEventListener('click', () => {
-            document.getElementById('ccs-import-session-file')?.click();
-        });
-        document.getElementById('ccs-import-session-file')?.addEventListener('change', async (e) => {
-            const file = e.target.files[0];
-            if (!file) return;
-            try {
-                const text = await file.text();
-                memoryManager.importSession(text);
-                alert('✅ Session imported! Reload the studio to see it.');
-            } catch (err) { alert('Import failed: ' + err.message); }
-        });
-
-        // Load profiles into dropdown asynchronously
-        this._loadProfileDropdown();
-
-        // Close
-        document.getElementById('ccs-settings-close')?.addEventListener('click', () => this.close());
-        document.getElementById('ccs-settings-cancel')?.addEventListener('click', () => this.close());
-        // BUG-008 FIX: iOS Safari doesn't reliably fire 'click' on non-interactive elements.
-        // Add both click and touchend on the overlay backdrop so tapping outside dismisses on mobile.
-        const backdropClose = (e) => { if (e.target === this.el) this.close(); };
-        this.el.addEventListener('click', backdropClose);
-        this.el.addEventListener('touchend', backdropClose, { passive: true });
-
-
-        // Save
-        document.getElementById('ccs-settings-save')?.addEventListener('click', () => this._save());
-    }
-
-    async _save() {
-        const theme = document.getElementById('ccs-theme')?.value || 'dark';
-        const updates = {
-            apiMode:            document.getElementById('ccs-api-mode')?.value || 'current',
-            selectedProfile:    document.getElementById('ccs-profile-name')?.value?.trim() || '',
-            utilityApiMode:     document.getElementById('ccs-util-mode')?.value || 'same',
-            utilityEndpoint:    document.getElementById('ccs-util-endpoint')?.value.trim() || '',
-            utilityApiKey:      document.getElementById('ccs-util-apikey')?.value.trim() || '',
-            utilityModel:       document.getElementById('ccs-util-model')?.value.trim() || '',
-            customSystemPromptRules: document.getElementById('ccs-custom-rules')?.value || '',
-            compressionThreshold: parseInt(document.getElementById('ccs-compression')?.value) || 15,
-            parallelApiCalls: document.getElementById('ccs-parallel-api')?.checked !== false,
-            inputLimitEnabled: document.getElementById('ccs-input-limit')?.checked !== false,
-            hapticFeedback:    document.getElementById('ccs-haptic')?.checked || false,
-            theme,
-            voiceToneProfile: {
-                pov:               document.getElementById('ccs-tone-pov')?.value || 'third',
-                actionFormat:      document.getElementById('ccs-tone-action')?.value || 'asterisk',
-                proseDensity:      document.getElementById('ccs-tone-density')?.value || 'balanced',
-                formalityRegister: document.getElementById('ccs-tone-formality')?.value || 'neutral',
-            },
-        };
-        memoryManager.updateGlobalSettings(updates);
-        // Apply theme immediately
-        try {
-            const { studioPopup } = await import('./popup.js').catch(() => ({}));
-            studioPopup?._applyTheme?.(theme);
-        } catch {}
-        this.close();
-    }
-
-    async _loadProfileDropdown() {
-        const select = document.getElementById('ccs-profile-name');
-        if (!select) return;
-        try {
-            const profiles = await apiManager.getProfiles();
-            const current = memoryManager.getGlobalSettings().selectedProfile || '';
-            if (!profiles?.length) {
-                select.innerHTML = '<option value="">No profiles found</option>';
-                return;
-            }
-            select.innerHTML = `<option value="">— Select profile —</option>` +
-                profiles.map(p => `<option value="${p}" ${p === current ? 'selected' : ''}>${p}</option>`).join('');
-        } catch {
-            select.innerHTML = '<option value="">⚠️ Could not load profiles</option>';
-        }
-    }
-
-    _renderSnippet(snippet) {
-        return `
-            <div class="ccs-snippet-item" data-id="${snippet.id}">
-                <div class="ccs-snippet-header">
-                    <span class="ccs-snippet-name">${snippet.name}</span>
-                    <span class="ccs-snippet-cat">${snippet.category}</span>
-                    <button class="ccs-btn ccs-btn-ghost ccs-snip-del-btn" data-id="${snippet.id}">🗑</button>
-                </div>
-                <pre class="ccs-snippet-preview">${(snippet.content || '').substring(0, 100)}${snippet.content?.length > 100 ? '...' : ''}</pre>
-            </div>
-        `;
-    }
-
-    _bindSnippetButtons(container) {
-        container?.querySelectorAll('.ccs-snip-del-btn').forEach(btn => {
-            btn.addEventListener('click', () => {
-                memoryManager.deleteSnippet(btn.dataset.id);
-                btn.closest('.ccs-snippet-item')?.remove();
-            });
-        });
-    }
-
-    close() {
-        this.el?.remove();
-        this.el = null;
+    const overlay = el('ccs_settings_overlay');
+    if (overlay) {
+        overlay.style.display = 'flex';
+        _isOpen = true;
     }
 }
 
-export const settingsModal = new SettingsModal();
+/**
+ * Close the settings modal.
+ */
+export function closeSettings() {
+    const overlay = el('ccs_settings_overlay');
+    if (overlay) overlay.style.display = 'none';
+    _isOpen = false;
+}
+
+export function isSettingsOpen() {
+    return _isOpen;
+}
+
+// ─── Template Injection ─────────────────────────────────────────────────────
+
+async function _injectTemplate() {
+    if (el('ccs_settings_overlay')) return;
+
+    const ctx = getCtx();
+    let html;
+
+    try {
+        // Try ST's template loader first
+        const extPath = _getExtPath();
+        if (ctx?.renderExtensionTemplateAsync) {
+            html = await ctx.renderExtensionTemplateAsync(extPath, 'templates/settings-modal');
+        } else {
+            const res = await fetch(`/scripts/extensions/${extPath}/templates/settings-modal.html`);
+            html = await res.text();
+        }
+    } catch (err) {
+        console.error('[CCS] Failed to load settings template:', err);
+        return;
+    }
+
+    if (html) {
+        document.body.insertAdjacentHTML('beforeend', html);
+    }
+}
+
+function _getExtPath() {
+    try {
+        if (import.meta?.url) {
+            const match = new URL(import.meta.url).pathname.match(/\/scripts\/extensions\/(.+)\/[^/]+\/[^/]+\.js$/);
+            if (match) return match[1];
+        }
+    } catch (_) { /* fallback */ }
+    return 'third-party/CharCardStudio';
+}
+
+// ─── Event Binding ──────────────────────────────────────────────────────────
+
+function _bindEvents() {
+    // Close button
+    const closeBtn = el('ccs_settings_close');
+    if (closeBtn) closeBtn.addEventListener('click', closeSettings);
+
+    // Overlay click-to-close
+    const overlay = el('ccs_settings_overlay');
+    if (overlay) {
+        overlay.addEventListener('click', (e) => {
+            if (e.target === overlay) closeSettings();
+        });
+    }
+
+    // Tab switching
+    const tabContainer = document.querySelector('.ccs-settings-tabs');
+    if (tabContainer) {
+        tabContainer.addEventListener('click', (e) => {
+            const btn = e.target.closest('.ccs-settings-tab-btn');
+            if (!btn) return;
+            const tab = btn.dataset.settingsTab;
+            if (!tab) return;
+
+            // Deactivate all
+            document.querySelectorAll('.ccs-settings-tab-btn').forEach(b => b.classList.remove('active'));
+            document.querySelectorAll('.ccs-settings-panel').forEach(p => p.classList.remove('active'));
+
+            // Activate selected
+            btn.classList.add('active');
+            const panel = document.querySelector(`[data-settings-panel="${tab}"]`);
+            if (panel) panel.classList.add('active');
+        });
+    }
+
+    // Utility API profile
+    const utilityApiEl = el('ccs_setting_utility_api');
+    if (utilityApiEl) {
+        utilityApiEl.addEventListener('change', () => {
+            const val = utilityApiEl.value || null;
+            setUtilityProfileId(val);
+            showToast(val ? `Utility API: ${val}` : 'Utility API: Default connection', 'info', 2000);
+        });
+    }
+
+    // Format selector
+    const formatEl = el('ccs_setting_format');
+    if (formatEl) {
+        formatEl.addEventListener('change', () => {
+            updateSession({ cardFormat: formatEl.value });
+            showToast(`Format set to ${formatEl.value}`, 'info', 2000);
+        });
+    }
+
+    // Summary threshold range
+    const rangeEl = el('ccs_setting_summary_threshold');
+    const rangeValEl = el('ccs_setting_summary_value');
+    if (rangeEl && rangeValEl) {
+        rangeEl.addEventListener('input', () => {
+            rangeValEl.textContent = rangeEl.value;
+        });
+    }
+
+    // Export session
+    const exportBtn = el('ccs_export_session');
+    if (exportBtn) exportBtn.addEventListener('click', _exportSession);
+
+    // Import session
+    const importInput = el('ccs_import_session');
+    if (importInput) importInput.addEventListener('change', _importSession);
+
+    // Clear session
+    const clearBtn = el('ccs_clear_session');
+    if (clearBtn) clearBtn.addEventListener('click', _clearSession);
+
+    // Clear all sessions
+    const clearAllBtn = el('ccs_clear_all');
+    if (clearAllBtn) clearAllBtn.addEventListener('click', _clearAllSessions);
+}
+
+// ─── Sync UI State ──────────────────────────────────────────────────────────
+
+function _syncSettingsUI() {
+    const session = getSession();
+    if (!session) return;
+
+    const formatEl = el('ccs_setting_format');
+    if (formatEl) formatEl.value = session.cardFormat || 'prose';
+
+    const utilityApiEl = el('ccs_setting_utility_api');
+    if (utilityApiEl) {
+        const savedId = getUtilityProfileId();
+        utilityApiEl.value = savedId || '';
+    }
+}
+
+/**
+ * Fetch available ST connection profiles and populate the utility API dropdown.
+ * Called each time settings open so the list stays fresh.
+ */
+async function _populateUtilityApiDropdown() {
+    const selectEl = el('ccs_setting_utility_api');
+    const hintEl   = el('ccs_utility_api_hint');
+    if (!selectEl) return;
+
+    const profiles = getAvailableProfiles();
+
+    // Clear all options except the default placeholder
+    while (selectEl.options.length > 1) selectEl.remove(1);
+
+    if (!profiles.length) {
+        if (hintEl) hintEl.style.display = 'block';
+        return;
+    }
+    if (hintEl) hintEl.style.display = 'none';
+
+    for (const p of profiles) {
+        const opt = document.createElement('option');
+        opt.value = p.id;
+        opt.textContent = p.name;
+        selectEl.appendChild(opt);
+    }
+
+    // Restore saved selection
+    const savedId = getUtilityProfileId();
+    if (savedId) selectEl.value = savedId;
+}
+
+function _updateSessionInfo() {
+    const infoEl = el('ccs_session_info');
+    if (!infoEl) return;
+
+    const session = getSession();
+    if (!session) {
+        infoEl.innerHTML = '<p class="ccs-text-muted">No session loaded.</p>';
+        return;
+    }
+
+    const msgCount = session.messages?.length || 0;
+    const draftCount = Object.keys(session.cardDrafts || {}).length;
+    const loreCount = (session.loreDrafts || []).length;
+    const pillarCount = (session.pillarStates || []).length;
+    const createdDate = session.createdAt ? new Date(session.createdAt).toLocaleDateString() : 'Unknown';
+    const mode = session.mode || 'studio';
+
+    infoEl.innerHTML = `
+        <div class="ccs-session-stats">
+            <div class="ccs-stat"><span class="ccs-stat-value">${session.characterName || 'Unknown'}</span><span class="ccs-stat-label">Character</span></div>
+            <div class="ccs-stat"><span class="ccs-stat-value">${mode}</span><span class="ccs-stat-label">Mode</span></div>
+            <div class="ccs-stat"><span class="ccs-stat-value">${msgCount}</span><span class="ccs-stat-label">Messages</span></div>
+            <div class="ccs-stat"><span class="ccs-stat-value">${draftCount}</span><span class="ccs-stat-label">Drafts</span></div>
+            <div class="ccs-stat"><span class="ccs-stat-value">${pillarCount}</span><span class="ccs-stat-label">Pillars</span></div>
+            <div class="ccs-stat"><span class="ccs-stat-value">${createdDate}</span><span class="ccs-stat-label">Created</span></div>
+        </div>
+    `;
+}
+
+async function _updateStorageInfo() {
+    const infoEl = el('ccs_storage_info');
+    if (!infoEl) return;
+
+    try {
+        // Estimate storage via localforage
+        let count = 0;
+        let totalSize = 0;
+
+        // localforage is globally available in ST
+        if (typeof localforage !== 'undefined') {
+            const store = localforage.createInstance({ name: 'SillyTavern_CharCardStudio', storeName: 'sessions' });
+            const keys = await store.keys();
+            count = keys.length;
+
+            // Estimate size from a sample
+            for (const key of keys.slice(0, 5)) {
+                const val = await store.getItem(key);
+                if (val) totalSize += JSON.stringify(val).length;
+            }
+            if (keys.length > 5) {
+                totalSize = Math.round(totalSize / 5 * keys.length);
+            }
+        }
+
+        const sizeStr = totalSize > 1024 * 1024
+            ? `${(totalSize / 1024 / 1024).toFixed(1)} MB`
+            : totalSize > 1024
+                ? `${(totalSize / 1024).toFixed(1)} KB`
+                : `${totalSize} bytes`;
+
+        infoEl.innerHTML = `
+            <div class="ccs-session-stats">
+                <div class="ccs-stat"><span class="ccs-stat-value">${count}</span><span class="ccs-stat-label">Saved Sessions</span></div>
+                <div class="ccs-stat"><span class="ccs-stat-value">~${sizeStr}</span><span class="ccs-stat-label">Estimated Size</span></div>
+            </div>
+        `;
+    } catch (err) {
+        infoEl.innerHTML = '<p class="ccs-text-muted">Could not estimate storage usage.</p>';
+    }
+}
+
+// ─── Export / Import ────────────────────────────────────────────────────────
+
+function _exportSession() {
+    const session = getSession();
+    if (!session) {
+        showToast('No session to export.', 'warning');
+        return;
+    }
+
+    const data = JSON.stringify(session, null, 2);
+    const blob = new Blob([data], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `ccs_session_${(session.characterName || 'unknown').replace(/\s+/g, '_')}_${Date.now()}.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+
+    showToast('Session exported!', 'success');
+}
+
+async function _importSession(e) {
+    const file = e.target?.files?.[0];
+    if (!file) return;
+
+    try {
+        const text = await file.text();
+        const data = JSON.parse(text);
+
+        // Basic validation
+        if (!data.characterAvatar && !data.characterName) {
+            showToast('Invalid session file — missing character data.', 'error');
+            return;
+        }
+
+        // Confirm overwrite
+        const session = getSession();
+        if (session?.messages?.length > 0) {
+            const confirm = window.confirm(
+                `This will replace your current session for "${session.characterName || 'this character'}". Continue?`
+            );
+            if (!confirm) return;
+        }
+
+        // Import: use loadSession's path to restore the session
+        // We write the data directly to the storage and reload
+        if (typeof localforage !== 'undefined') {
+            const store = localforage.createInstance({ name: 'SillyTavern_CharCardStudio', storeName: 'sessions' });
+            const key = `session_${data.characterAvatar || data.characterName || 'import'}`;
+            await store.setItem(key, data);
+
+            // Reload session
+            await loadSession(data.characterAvatar, data.characterName);
+            showToast(`Session imported for ${data.characterName || 'character'}!`, 'success');
+
+            _updateSessionInfo();
+
+            // Re-render chat
+            try {
+                const { renderMessages } = await import('./chat.js');
+                renderMessages();
+            } catch (_) { /* chat not loaded yet */ }
+        } else {
+            showToast('Storage not available — cannot import.', 'error');
+        }
+    } catch (err) {
+        console.error('[CCS] Import error:', err);
+        showToast(`Import failed: ${err.message}`, 'error');
+    }
+
+    // Reset file input so same file can be re-imported
+    e.target.value = '';
+}
+
+// ─── Clear Sessions ─────────────────────────────────────────────────────────
+
+function _clearSession() {
+    const session = getSession();
+    if (!session) {
+        showToast('No session to clear.', 'warning');
+        return;
+    }
+
+    const confirmed = window.confirm(
+        `Delete all chat history and drafts for "${session.characterName || 'this character'}"? This cannot be undone.`
+    );
+    if (!confirmed) return;
+
+    resetCurrentSession();
+    showToast('Session cleared.', 'success');
+    _updateSessionInfo();
+    closeSettings();
+
+    // Re-render chat to show welcome screen
+    try {
+        import('./chat.js').then(({ renderMessages }) => renderMessages());
+    } catch (_) { /* ok */ }
+}
+
+async function _clearAllSessions() {
+    // Double confirmation for danger action
+    const confirmed1 = window.confirm(
+        'Delete ALL CharCardStudio sessions for ALL characters? This is permanent.'
+    );
+    if (!confirmed1) return;
+
+    const confirmed2 = window.confirm(
+        'Are you absolutely sure? Type "delete" in the next prompt to confirm.'
+    );
+    if (!confirmed2) return;
+
+    const typed = window.prompt('Type "delete" to confirm deleting all sessions:');
+    if (typed?.toLowerCase() !== 'delete') {
+        showToast('Cancelled — sessions were not deleted.', 'info');
+        return;
+    }
+
+    try {
+        if (typeof localforage !== 'undefined') {
+            const store = localforage.createInstance({ name: 'SillyTavern_CharCardStudio', storeName: 'sessions' });
+            await store.clear();
+            resetCurrentSession();
+            showToast('All sessions deleted.', 'success');
+            _updateSessionInfo();
+            _updateStorageInfo();
+            closeSettings();
+        }
+    } catch (err) {
+        console.error('[CCS] Clear all error:', err);
+        showToast(`Failed: ${err.message}`, 'error');
+    }
+}

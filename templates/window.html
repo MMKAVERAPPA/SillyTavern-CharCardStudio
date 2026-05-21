@@ -1,0 +1,202 @@
+<!-- CharCardStudio v4.0.0 — Main Window -->
+<div id="ccs_window" class="ccs-window-overlay" style="display: none;">
+    <div id="ccs_app" class="ccs-app">
+
+        <!-- ═══ Top Bar ═══ -->
+        <div id="ccs_topbar" class="ccs-topbar">
+            <div class="ccs-topbar-left">
+                <select id="ccs_mode_select" class="ccs-mode-selector" title="Switch mode">
+                    <option value="studio">✦ Studio</option>
+                    <option value="janitor">🔄 JanitorAI Convert</option>
+                    <option value="html">🌐 HTML Intro</option>
+                    <option value="imageprompt">🎨 Image Prompt</option>
+                    <option value="fictionlab" disabled>🧪 FictionLab (soon)</option>
+                </select>
+                <span id="ccs_char_name" class="ccs-char-name" title="Current character">No character</span>
+            </div>
+            <div class="ccs-topbar-center">
+                <div class="ccs-progress-wrap">
+                    <div class="ccs-progress-bar">
+                        <div id="ccs_progress_fill" class="ccs-progress-fill" style="width: 0%;"></div>
+                    </div>
+                    <span id="ccs_progress_label" class="ccs-progress-label">0%</span>
+                </div>
+            </div>
+            <div class="ccs-topbar-actions">
+                <button id="ccs_inspect_btn" class="ccs-icon-btn" title="Prompt Inspector — see the raw prompt sent to the AI">
+                    <i class="fa-solid fa-magnifying-glass-chart"></i>
+                </button>
+
+                <button id="ccs_settings_btn" class="ccs-icon-btn" title="Settings">
+                    <i class="fa-solid fa-gear"></i>
+                </button>
+                <button id="ccs_close_btn" class="ccs-icon-btn" title="Close Studio">
+                    <i class="fa-solid fa-xmark"></i>
+                </button>
+            </div>
+        </div>
+
+        <!-- ═══ Read-Only Banner (multi-tab lock) ═══ -->
+        <div id="ccs_readonly_banner" class="ccs-readonly-banner" style="display: none;">
+            <i class="fa-solid fa-lock"></i>
+            <span>This character is being edited in another tab. View-only mode.</span>
+        </div>
+
+        <!-- ═══ Main Content ═══ -->
+        <div id="ccs_main" class="ccs-main">
+
+            <!-- ─── Chat Panel (Left) ─── -->
+            <div id="ccs_chat_panel" class="ccs-chat-panel">
+                <div id="ccs_messages" class="ccs-messages">
+                    <!-- Welcome message (shown when no messages exist) -->
+                    <div id="ccs_welcome" class="ccs-chat-welcome">
+                        <div class="ccs-welcome-icon">
+                            <i class="fa-solid fa-wand-magic-sparkles"></i>
+                        </div>
+                        <h3 class="ccs-welcome-title">Character Card Studio</h3>
+                        <p class="ccs-welcome-text">I'm your character card designer. Describe a character idea, paste an existing card for review, or pick a starting point below.</p>
+                        <div class="ccs-welcome-chips">
+                            <button class="ccs-chip" data-chip="Create a character from scratch">
+                                <i class="fa-solid fa-plus"></i> Create a character
+                            </button>
+                            <button class="ccs-chip" data-chip="Audit my current card and suggest improvements">
+                                <i class="fa-solid fa-magnifying-glass"></i> Audit my card
+                            </button>
+                            <button class="ccs-chip" data-chip="Build a lorebook for my character">
+                                <i class="fa-solid fa-book"></i> Build lorebook
+                            </button>
+                            <button class="ccs-chip" data-chip="Help me brainstorm character ideas">
+                                <i class="fa-solid fa-lightbulb"></i> Brainstorm ideas
+                            </button>
+                        </div>
+                    </div>
+                    <!-- Messages are injected here by ui/chat.js -->
+                </div>
+
+                <!-- Typing indicator -->
+                <div id="ccs_typing" class="ccs-typing-indicator" style="display: none;">
+                    <div class="ccs-typing-dots">
+                        <span></span><span></span><span></span>
+                    </div>
+                    <span class="ccs-typing-label">Thinking...</span>
+                </div>
+
+                <!-- Context bar (format + phase indicator) -->
+                <div id="ccs_context_bar" class="ccs-context-bar">
+                    <span class="ccs-context-pill-label">Format:</span>
+                    <span class="ccs-context-pill active" data-format="prose">Prose</span>
+                    <span class="ccs-context-pill" data-format="plist">PList</span>
+                    <span style="margin-left: 8px;" class="ccs-context-pill-label">Phase:</span>
+                    <span class="ccs-context-pill active" data-phase="ideate">Ideate</span>
+                    <span class="ccs-context-pill" data-phase="build">Build</span>
+                    <span class="ccs-context-pill" data-phase="lore">Lore</span>
+                    <span class="ccs-context-pill" data-phase="audit">Audit</span>
+                </div>
+
+                <!-- Input area -->
+                <div id="ccs_input_area" class="ccs-input-area">
+                    <div class="ccs-input-row">
+                        <textarea id="ccs_input" class="ccs-input" placeholder="Describe your character idea..." rows="1"></textarea>
+                        <div class="ccs-input-actions">
+                            <button id="ccs_cancel_btn" class="ccs-icon-btn ccs-icon-btn--danger" title="Cancel generation" style="display: none;">
+                                <i class="fa-solid fa-stop"></i>
+                            </button>
+                            <button id="ccs_send_btn" class="ccs-icon-btn ccs-icon-btn--accent" title="Send message">
+                                <i class="fa-solid fa-paper-plane"></i>
+                            </button>
+                        </div>
+                    </div>
+                    <div id="ccs_chips" class="ccs-suggestion-chips">
+                        <!-- Dynamic suggestion chips injected here -->
+                    </div>
+                </div>
+            </div>
+
+            <!-- ─── Right Panel ─── -->
+            <div id="ccs_right_panel" class="ccs-right-panel">
+                <div id="ccs_tabs" class="ccs-tab-headers">
+                    <button class="ccs-tab-btn active" data-tab="concept">
+                        <i class="fa-solid fa-compass"></i>
+                        <span>Concept</span>
+                    </button>
+                    <button class="ccs-tab-btn" data-tab="card">
+                        <i class="fa-solid fa-id-card"></i>
+                        <span>Card</span>
+                    </button>
+                    <button class="ccs-tab-btn" data-tab="lore">
+                        <i class="fa-solid fa-book-atlas"></i>
+                        <span>Lore</span>
+                    </button>
+                </div>
+
+                <div id="ccs_tab_content" class="ccs-tab-content">
+                    <!-- Concept Tab -->
+                    <div id="ccs_concept_tab" class="ccs-tab-panel active" data-tab-panel="concept">
+                        <div class="ccs-panel-header">
+                            <h4>Character Pillars</h4>
+                            <span id="ccs_pillar_count" class="ccs-badge">0/0</span>
+                        </div>
+                        <div id="ccs_pillar_list" class="ccs-pillar-list">
+                            <p class="ccs-empty-state">Start a conversation to define your character's core pillars.</p>
+                        </div>
+                        <!-- Scratchpad — persistent, never overwritten by pillar renders -->
+                        <div class="ccs-scratchpad-section" id="ccs_scratchpad_section">
+                            <button class="ccs-scratchpad-header" id="ccs_scratchpad_toggle" title="Toggle scratchpad">
+                                <span><i class="fa-solid fa-pencil"></i> Scratchpad</span>
+                                <i class="fa-solid fa-chevron-up ccs-scratchpad-chevron" id="ccs_scratchpad_chevron"></i>
+                            </button>
+                            <textarea id="ccs_scratchpad" class="ccs-scratchpad-textarea"
+                                placeholder="Notes, ideas, brainstorming… (auto-saved per character)"></textarea>
+                        </div>
+                    </div>
+
+                    <!-- Card Tab -->
+                    <div id="ccs_card_tab" class="ccs-tab-panel" data-tab-panel="card">
+                        <div class="ccs-panel-header">
+                            <h4>Card Fields</h4>
+                            <span id="ccs_card_tokens" class="ccs-badge">0t</span>
+                        </div>
+                        <div id="ccs_card_fields" class="ccs-card-fields">
+                            <p class="ccs-empty-state">No character selected. Open the studio with a character loaded.</p>
+                        </div>
+                    </div>
+
+                    <!-- Lore Tab -->
+                    <div id="ccs_lore_tab" class="ccs-tab-panel" data-tab-panel="lore">
+                        <div class="ccs-panel-header">
+                            <h4>Lorebook</h4>
+                            <span id="ccs_lore_count" class="ccs-badge">0 entries</span>
+                        </div>
+                        <div id="ccs_lore_entries" class="ccs-lore-entries">
+                            <p class="ccs-empty-state">Lorebook entries will appear here during the Lore phase.</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- ═══ Mobile Bottom Tabs ═══ -->
+        <div id="ccs_mobile_tabs" class="ccs-mobile-tabs">
+            <button class="ccs-mobile-tab-btn active" data-mobile-tab="chat">
+                <i class="fa-solid fa-comments"></i>
+                <span>Chat</span>
+            </button>
+            <button class="ccs-mobile-tab-btn" data-mobile-tab="concept">
+                <i class="fa-solid fa-compass"></i>
+                <span>Concept</span>
+            </button>
+            <button class="ccs-mobile-tab-btn" data-mobile-tab="card">
+                <i class="fa-solid fa-id-card"></i>
+                <span>Card</span>
+            </button>
+            <button class="ccs-mobile-tab-btn" data-mobile-tab="lore">
+                <i class="fa-solid fa-book-atlas"></i>
+                <span>Lore</span>
+            </button>
+        </div>
+
+    </div><!-- /#ccs_app -->
+</div><!-- /#ccs_window -->
+
+<!-- ═══ Toast Container (outside app, always visible) ═══ -->
+<div id="ccs_toast_container" class="ccs-toast-container"></div>

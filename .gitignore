@@ -24,6 +24,7 @@ build/
 .env.local
 *.key
 .pi
+Character_Creator_Assistant_v6.json
 
 # Documentation
 AGENTS.md
@@ -37,3 +38,4 @@ IDEAS.md
 # Other Directories
 examples/
 SillyTavernDocs/
+tests/

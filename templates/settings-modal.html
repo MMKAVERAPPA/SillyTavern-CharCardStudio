@@ -1,0 +1,166 @@
+<!-- CharCardStudio v4.0.0 — Settings Modal -->
+<div id="ccs_settings_overlay" class="ccs-settings-overlay" style="display: none;">
+    <div class="ccs-settings-modal">
+        <!-- Header -->
+        <div class="ccs-settings-header">
+            <h3><i class="fa-solid fa-gear"></i> Settings</h3>
+            <button id="ccs_settings_close" class="ccs-icon-btn" title="Close">
+                <i class="fa-solid fa-xmark"></i>
+            </button>
+        </div>
+
+        <!-- Tab Navigation -->
+        <div class="ccs-settings-tabs">
+            <button class="ccs-settings-tab-btn active" data-settings-tab="general">
+                <i class="fa-solid fa-sliders"></i> General
+            </button>
+            <button class="ccs-settings-tab-btn" data-settings-tab="session">
+                <i class="fa-solid fa-database"></i> Session
+            </button>
+            <button class="ccs-settings-tab-btn" data-settings-tab="data">
+                <i class="fa-solid fa-hard-drive"></i> Data
+            </button>
+            <button class="ccs-settings-tab-btn" data-settings-tab="about">
+                <i class="fa-solid fa-circle-info"></i> About
+            </button>
+        </div>
+
+        <!-- Tab Content -->
+        <div class="ccs-settings-body">
+
+            <!-- General Tab -->
+            <div class="ccs-settings-panel active" data-settings-panel="general">
+                <div class="ccs-setting-group">
+                    <label class="ccs-setting-label">Card Format Preference</label>
+                    <p class="ccs-setting-desc">Default format for new sessions. Can be changed per-session in the context bar.</p>
+                    <select id="ccs_setting_format" class="ccs-setting-select">
+                        <option value="prose">Prose (natural language)</option>
+                        <option value="plist">PList + Ali:Chat</option>
+                        <option value="mixed">Mixed (prose + PList)</option>
+                    </select>
+                </div>
+
+                <div class="ccs-setting-group">
+                    <label class="ccs-setting-label">Auto-Summarize Chat</label>
+                    <p class="ccs-setting-desc">Automatically summarize older messages when chat history exceeds the threshold. Keeps the last 15 messages intact.</p>
+                    <div class="ccs-setting-row">
+                        <label class="ccs-toggle">
+                            <input type="checkbox" id="ccs_setting_auto_summarize" checked>
+                            <span class="ccs-toggle-slider"></span>
+                        </label>
+                        <span class="ccs-setting-inline-label">Enable auto-summarize</span>
+                    </div>
+                </div>
+
+                <div class="ccs-setting-group">
+                    <label class="ccs-setting-label">Summarize Threshold</label>
+                    <p class="ccs-setting-desc">Number of messages before auto-summarize triggers.</p>
+                    <div class="ccs-setting-row">
+                        <input type="range" id="ccs_setting_summary_threshold" min="15" max="60" value="30" class="ccs-setting-range">
+                        <span id="ccs_setting_summary_value" class="ccs-setting-range-value">30</span>
+                    </div>
+                </div>
+
+                <div class="ccs-setting-group">
+                    <label class="ccs-setting-label"><i class="fa-solid fa-plug-circle-bolt"></i> Utility API Profile</label>
+                    <p class="ccs-setting-desc">Route background checks (conflict detection, token analysis) to a different ST connection profile. Useful for directing utility tasks to a cheaper or faster model while keeping your main generation on a higher quality one.</p>
+                    <select id="ccs_setting_utility_api" class="ccs-setting-select">
+                        <option value="">— Default (active ST connection) —</option>
+                        <!-- Populated dynamically from ST connection profiles -->
+                    </select>
+                    <p id="ccs_utility_api_hint" class="ccs-setting-hint" style="display:none;">
+                        <i class="fa-solid fa-triangle-exclamation"></i> No connection profiles found. Configure profiles in ST's API settings first.
+                    </p>
+                </div>
+            </div>
+
+            <!-- Session Tab -->
+            <div class="ccs-settings-panel" data-settings-panel="session">
+                <div class="ccs-setting-group">
+                    <label class="ccs-setting-label">Current Session</label>
+                    <div id="ccs_session_info" class="ccs-session-info">
+                        <p>No session loaded.</p>
+                    </div>
+                </div>
+
+                <div class="ccs-setting-group">
+                    <label class="ccs-setting-label">Export Session</label>
+                    <p class="ccs-setting-desc">Download the current session as a JSON file. Includes chat history, drafts, and pillar states.</p>
+                    <button id="ccs_export_session" class="ccs-btn ccs-btn--accent">
+                        <i class="fa-solid fa-download"></i> Export Session
+                    </button>
+                </div>
+
+                <div class="ccs-setting-group">
+                    <label class="ccs-setting-label">Import Session</label>
+                    <p class="ccs-setting-desc">Load a previously exported session file. This will replace the current session.</p>
+                    <label class="ccs-btn ccs-btn--secondary ccs-file-input-label">
+                        <i class="fa-solid fa-upload"></i> Import Session
+                        <input type="file" id="ccs_import_session" accept=".json" style="display: none;">
+                    </label>
+                </div>
+
+                <div class="ccs-setting-group ccs-setting-danger">
+                    <label class="ccs-setting-label">Clear Current Session</label>
+                    <p class="ccs-setting-desc">Delete all chat history and drafts for the current character. This cannot be undone.</p>
+                    <button id="ccs_clear_session" class="ccs-btn ccs-btn--danger">
+                        <i class="fa-solid fa-trash"></i> Clear Session
+                    </button>
+                </div>
+            </div>
+
+            <!-- Data Tab -->
+            <div class="ccs-settings-panel" data-settings-panel="data">
+                <div class="ccs-setting-group">
+                    <label class="ccs-setting-label">Storage Usage</label>
+                    <div id="ccs_storage_info" class="ccs-session-info">
+                        <p>Calculating...</p>
+                    </div>
+                </div>
+
+                <div class="ccs-setting-group ccs-setting-danger">
+                    <label class="ccs-setting-label"><i class="fa-solid fa-triangle-exclamation"></i> Danger Zone</label>
+                    <p class="ccs-setting-desc">Delete ALL CharCardStudio sessions for ALL characters. This is permanent and cannot be undone.</p>
+                    <button id="ccs_clear_all" class="ccs-btn ccs-btn--danger">
+                        <i class="fa-solid fa-skull-crossbones"></i> Delete All Sessions
+                    </button>
+                </div>
+            </div>
+
+            <!-- About Tab -->
+            <div class="ccs-settings-panel" data-settings-panel="about">
+                <div class="ccs-about-header">
+                    <div class="ccs-about-icon">
+                        <i class="fa-solid fa-wand-magic-sparkles"></i>
+                    </div>
+                    <div>
+                        <h4>Character Card Studio</h4>
+                        <span class="ccs-about-version">v4.0.0</span>
+                    </div>
+                </div>
+
+                <div class="ccs-about-desc">
+                    An agentic AI-powered character card builder for SillyTavern. Create, convert, and enhance character cards through natural conversation with an AI assistant.
+                </div>
+
+                <div class="ccs-about-links">
+                    <a href="https://github.com/MMKAVERAPPA/CharCardStudio" target="_blank" class="ccs-about-link">
+                        <i class="fa-brands fa-github"></i> GitHub
+                    </a>
+                    <span class="ccs-about-meta">Author: DeathGamerSolo</span>
+                    <span class="ccs-about-meta">License: MIT</span>
+                </div>
+
+                <div class="ccs-about-features">
+                    <p class="ccs-setting-label">Modes</p>
+                    <ul>
+                        <li><strong>Studio</strong> — Full character card builder with pillars, staged drafts, lorebook</li>
+                        <li><strong>JanitorAI</strong> — Convert ST cards to JanitorAI format</li>
+                        <li><strong>HTML Intro</strong> — Generate HTML character introductions</li>
+                        <li><strong>Image Prompt</strong> — Generate image prompts for SD, Flux, MidJourney, etc.</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>

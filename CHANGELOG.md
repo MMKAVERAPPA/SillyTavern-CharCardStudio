@@ -6,6 +6,88 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [4.1.0] — 2026-05-21
+
+Major feature update completing Phase H (Lorebook Overhaul + API Routing) and Phase I (UX Improvements), plus a full extension audit.
+
+### Added
+- **Feature 3: External Lorebook Integration** — Migrated from embedded `character_book` model to SillyTavern's native `/api/worldinfo/` REST endpoints. Users can now select, create, and manage external lorebooks from a dedicated picker inside the Lore tab. Selection persists per-character in `session.lorebookName`.
+- **Feature 5: Custom API Connection Routing** — New `core/api-router.js` module routes background checks (conflict detection, token analysis) to a configurable alternate API profile via `ConnectionManagerRequestService`. Falls back gracefully to the default connection. Configurable in Settings → General.
+- **Feature 10: Scratchpad** — Persistent, collapsible freeform notes textarea at the bottom of the Concept tab. Auto-saved with 1-second debounce per-character. Never sent to the AI.
+- **Feature 6: Prompt Inspector** — Read-only modal (🔍 button in topbar) showing the exact system prompt and message history the AI would receive, with tab switching, per-section token estimates, and clipboard copy.
+- **Feature 9: Coherence Audit** — Static analysis engine (`core/coherence-audit.js`) that checks for missing required fields, field length anomalies, lorebook keyword collisions, keyless entries, constant-entry token bloat, and cross-field consistency issues. Results displayed in a scored modal (0–100) with one-click "Ask AI to Fix" escalation.
+- **Feature 4: Ideation Phase Redesign (Quickstart)** — When in the Ideate phase with no pillars, the Concept tab now shows Concept Quickstart chip buttons (Brainstorm, Villain, Companion, Mentor, AI/Android, What If?) that inject pre-crafted prompts into the chat.
+
+### Fixed
+- **Lore phase prompt** now warns the AI that an external lorebook must be selected before `ccs_create_lore_entry` can succeed.
+- **Session defaults** updated: `scratchpad: ''` and `lorebookName: null` are now explicit session fields.
+- **Missing CSS** for `.ccs-setting-hint` — the utility API hint text now renders correctly.
+
+### Changed
+- `core/background.js` now imports `generateTextWithProfile` instead of `generateText` — all background AI checks route through the API router.
+- Session schema remains v3 (scratchpad initialises as empty string, no migration needed).
+
+---
+
+## [4.0.0] — 2026-05-20
+
+Complete rewrite from v3.x. Transitioned to an agentic architecture with a tool-calling AI assistant.
+
+### Added
+- **Phase A: Shell & Session**
+  - Extension loads as a popup overlay in SillyTavern
+  - Chat panel with message rendering, input, send, delete, regenerate
+  - Session persistence via LocalForage (IndexedDB) with auto-save (3s debounce)
+  - Session schema migration (v0 → v1 → v2) for backward compatibility
+  - Multi-tab detection and locking via localStorage heartbeat
+  - Read-only banner when another tab is editing the same character
+  - Mobile detection with responsive layout
+  - Toast notification system
+  - Cancel button wired to AbortController
+- **Phase B: Agent Loop & LLM Integration**
+  - Agentic loop with iterative tool calling (max 8 iterations)
+  - System prompt builder with layered architecture (identity → phase → format → card context → tool defs)
+  - Silent generation wrapper with abort-aware job tracking
+  - XML-like `<tool_call>` JSON-block parsing with fallback
+  - Reasoning block extraction and collapsible display
+  - Tool result history trimming to prevent token bloat
+  - Echo stub for testing without LLM
+- **Phase C: Studio Mode**
+  - 10 structured tools: `ccs_write_field`, `ccs_read_field`, `ccs_update_pillar`, `ccs_create_lore_entry`, `ccs_read_lore_entries`, `ccs_update_lore_entry`, `ccs_delete_lore_entry`, `ccs_resolve_conflict`, `ccs_update_memory`, `ccs_audit_card`
+  - Staged draft system with Apply/Edit/Regen/Skip actions
+  - Draft version navigation (prev/next between regenerations)
+  - Character Pillars panel (Concept tab) — Core, Audit, Recommendation categories
+  - Card Fields panel (Card tab) — live field display with token counts and star ratings
+  - Lorebook panel (Lore tab) — entry list with pending drafts and existing entries
+  - Phase-based workflow: Ideate → Build → Lore
+  - Card format support: Prose, PList + Ali:Chat
+  - Background check queue (conflict detection, token analysis)
+  - Session memory system (global + per-character rules)
+  - Progress bar tracking pillar + field + lore completion
+- **Phase D: Additional Modes**
+  - Mode selector dropdown in top bar (Studio, JanitorAI, HTML Intro, Image Prompt, FictionLab)
+  - Per-mode chat history isolation via `swapModeHistory()`
+  - JanitorAI conversion mode — reads card fields, generates conversion
+  - HTML Intro mode — 3 sub-modes (simple, intermediate, advanced), sandboxed iframe preview
+  - Image Prompt mode — model-specific templates (SD, Flux, MJ, DALL-E, NovelAI)
+  - FictionLab mode — blocked placeholder with "coming soon" banner
+  - Programmatic tool write-block in non-Studio modes (only `ccs_read_field` allowed)
+  - Mode-specific welcome screens and suggestion chips
+  - Right panel adaptation per mode (read-only badge, hidden elements)
+  - Default welcome screen recovery when switching back to Studio
+- **Phase E: Polish & Documentation**
+  - Settings modal with 4 tabs (General, Session, Data, About)
+  - Session export as JSON file
+  - Session import from JSON file
+  - Clear session / clear all sessions with confirmation
+  - Storage usage estimation
+  - Card format preference setting
+  - Auto-summarize threshold setting
+  - README.md with installation, features, usage guide
+  - `.pi/` folder cleanup — removed 14 obsolete planning docs
+
+---
+
 ## [3.3.0] - 2026-05-13
 
 ### Added

@@ -8,7 +8,7 @@
 
 ## About the Project
 
-CharCardStudio is a SillyTavern extension built by one person in their spare time. The codebase has evolved quickly across multiple rewrites (v1 → v2 → v3), is likely to have bugs, and almost certainly has edge cases that were never thought about. Contributions that fix bugs or clean things up are genuinely appreciated — just keep expectations realistic about review times.
+CharCardStudio is a SillyTavern extension built by one person in their spare time. The codebase has evolved quickly across multiple rewrites (v1 → v2 → v3 → v4), is likely to have bugs, and almost certainly has edge cases that were never thought about. Contributions that fix bugs or clean things up are genuinely appreciated — just keep expectations realistic about review times.
 
 ---
 
@@ -23,29 +23,27 @@ CharCardStudio is a SillyTavern extension built by one person in their spare tim
 
 1. Clone the repository into your ST extensions folder:
    ```bash
-   cd SillyTavern/data/<your-username>/extensions/third-party/
-   git clone https://github.com/MMKAVERAPPA/SillyTavern-CharCardStudio CharCardStudio
+   cd SillyTavern/public/scripts/extensions/third-party/
+   git clone https://github.com/MMKAVERAPPA/CharCardStudio.git CharCardStudio
    ```
 
 2. Enable the extension in SillyTavern's Extensions panel
 
 3. Open the browser DevTools (F12) — all CCS logs are prefixed with `[CCS]`
 
-4. Edit files directly — there is no build step. Reload ST (Ctrl+R) to pick up changes to JS/CSS files. Skill prompt files in `prompts/skills/` hot-reload on studio re-open (no full page reload needed).
+4. Edit files directly — there is no build step. Reload ST (Ctrl+R) to pick up changes to JS/CSS files.
 
 ---
 
 ## Project Structure
 
-```
-core/          — Business logic (API, memory, audit, card, parsing)
-phases/        — Phase orchestrators (ideation, generation, lorebook)
-prompts/       — AI prompt templates and skill modules
-ui/            — UI components (popup, panels, modals)
-templates/     — Character archetype JSON templates
-```
+- `core/` — Business logic (agent, tools, session, silent-generation, validators, background checks, tab lock)
+- `modes/` — Mode-specific rules & chips (Janitor, HTML, Image prompt, FictionLab)
+- `prompts/` — Mode and Phase prompt definitions
+- `ui/` — UI controllers (app, chat, settings-modal, toast)
+- `templates/` — HTML templates for overlays
 
-The main entry point is `index.js`. The studio itself lives in `ui/popup.js`, which orchestrates all panels and phases.
+The main entry point is `index.js`. The studio itself is orchestrated by `ui/app.js`.
 
 ---
 
@@ -56,8 +54,7 @@ The main entry point is `index.js`. The studio itself lives in `ui/popup.js`, wh
 - Class names in the DOM use the `ccs-` prefix to avoid conflicts with SillyTavern's own CSS
 - Async/await throughout — avoid raw Promise chains
 - Keep CSS inside `style.css` using `.ccs-*` class selectors only; never use inline styles for anything persistent
-- New settings must have a default value and a migration check in `memory.js`'s `init()` method
-- Keep skill prompt modules in `prompts/skills/` — one file per skill category
+- New settings must have a default value and a migration check in `core/session.js`'s schema migration logic
 
 ---
 
@@ -66,14 +63,14 @@ The main entry point is `index.js`. The studio itself lives in `ui/popup.js`, wh
 1. Fork the repo and create a feature branch: `git checkout -b feat/my-feature`
 2. Make your changes following the code style above
 3. Test manually in SillyTavern on both desktop and mobile if possible
-4. Update `CHANGELOG.md` under a new `## [Unreleased]` section
+4. Update `CHANGELOG.md` under the latest release section or a new unreleased draft
 5. Submit a PR with a clear description of **what** changed and **why**
 
 ### PR Checklist
 - [ ] Tested on desktop (≥ 768px)
 - [ ] Tested on mobile if the change touches UI (≤ 480px)
 - [ ] No new CSS leaking outside `.ccs-*` scope
-- [ ] New settings have defaults + migration in `memory.js`
+- [ ] New settings have defaults + migration in `core/session.js`
 - [ ] `CHANGELOG.md` updated
 
 ---
@@ -93,11 +90,11 @@ Keep in mind this is a hobby project — not every bug will get fixed immediatel
 
 ## Architecture Notes
 
-The full technical architecture is documented in `.pi/docs/ARCHITECTURE.md` in the repository. Key points:
+The technical architecture is documented in `.pi/ARCHITECTURE.md` and `.pi/ARCHITECTURE_PART2.md` in the repository. Key points:
 
-- The **Skill Router** (`core/skill-router.js`) assembles AI prompts from modular knowledge files instead of using a single monolithic system prompt. To add new AI behavior, add a new export to the appropriate `prompts/skills/*.js` file.
-- The **Memory Manager** (`core/memory.js`) is the single source of truth for all session state. All reads and writes should go through it, not directly to `extensionSettings`.
-- The **Phase orchestrators** (`phases/`) are the "controllers" — they handle user intent within a phase and delegate to `chatEngine`, `auditEngine`, and `worldInfoManager`.
+- The **Agent Loop** (`core/agent.js`) drives generation through structured `<tool_call>` definitions.
+- The **Session Manager** (`core/session.js`) is the single source of truth for all session state and handles debounced IndexedDB saves.
+- **Modes** are swapped programmatically (`swapModeHistory`), restoring separate message histories and layout templates.
 
 ---
 
