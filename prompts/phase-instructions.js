@@ -158,6 +158,14 @@ TOOLS:
 10. ccs_audit_card — Run a comprehensive card audit
     Parameters:
       focus: string (optional) — "full", "format", "consistency", "tokens", or "completeness" (default: "full")
+
+11. ccs_submit_review — Submit a structured AI Scorecard review of the card
+    Parameters:
+      overall_rating: number — The overall star rating (1-5)
+      categories: array of objects — e.g. [{"name": "Concept", "score": 4, "max": 5}, ...]
+      strengths: array of strings — List of things done well
+      weaknesses: array of strings — List of things to improve
+      suggestions: array of strings — Actionable advice for the user
 `;
 
 // ─── Per-Turn Reminder ──────────────────────────────────────────────────────

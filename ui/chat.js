@@ -368,6 +368,14 @@ function _renderMarkdown(text) {
         });
     }
 
+    // Wrap code blocks for copy button (after sanitize to preserve our injected button)
+    html = html.replace(/<pre><code([^>]*)>([\s\S]*?)<\/code><\/pre>/gi, (match, attrs, codeContent) => {
+        return `<div class="ccs-code-block">
+            <button class="ccs-code-copy-btn" title="Copy code"><i class="fa-solid fa-copy"></i></button>
+            <pre><code${attrs}>${codeContent}</code></pre>
+        </div>`;
+    });
+
     return html;
 }
 
@@ -498,9 +506,37 @@ export async function sendMessage(text) {
     } else {
         // No agent wired — echo stub
         setTyping(true);
-        await _echoResponse(text);
-        setTyping(false);
+        setTimeout(() => {
+            setTyping(false);
+            appendMessage({ id: generateId('msg'), role: 'assistant', content: "I am not wired to an agent yet.", timestamp: Date.now() });
+        }, 1000);
     }
+}
+
+/**
+ * Trigger an AI Review of the current card.
+ * Switches to the chat tab and sends a system-instructed user message.
+ */
+export async function triggerAIReview() {
+    // Switch to Chat tab
+    const chatTabBtn = document.querySelector('.ccs-tab-btn[data-tab="chat"]');
+    if (chatTabBtn) chatTabBtn.click();
+    
+    // Switch mobile to chat panel
+    const appEl = document.getElementById('ccs_app');
+    if (appEl && appEl.classList.contains('ccs-mobile')) {
+        const mobileChatBtn = document.querySelector('.ccs-mobile-tab-btn[data-mobile-tab="chat"]');
+        if (mobileChatBtn) mobileChatBtn.click();
+    }
+
+    const reviewPrompt = `Please act as a professional Character Card Reviewer. I want you to review the current state of my character card.
+Evaluate the character's depth, uniqueness, and adherence to the chosen format.
+
+CRITICAL INSTRUCTION: You MUST use the \`ccs_submit_review\` tool to submit your visual scorecard. Provide your overall 1-5 rating, scores for 3-5 specific categories (like "Concept & Hook", "Token Efficiency", etc.), strengths, weaknesses, and suggestions as JSON parameters to the tool.
+
+After calling the tool, also output your conversational critique so I can read it here.`;
+
+    await sendMessage(reviewPrompt);
 }
 
 /** Phase A stub — echo response until Phase B wires up the agent */
@@ -885,6 +921,27 @@ export function bindChatEvents() {
                 const session = getSession();
                 const msg = session?.messages?.find(m => m.id === messageId);
                 if (msg) updateRenderedMessage(messageId, { content: msg.content });
+                return;
+            }
+            // Code block copy
+            const copyBtn = e.target.closest('.ccs-code-copy-btn');
+            if (copyBtn) {
+                const codeEl = copyBtn.closest('.ccs-code-block')?.querySelector('code');
+                if (codeEl) {
+                    try {
+                        await navigator.clipboard.writeText(codeEl.textContent);
+                        const origHtml = copyBtn.innerHTML;
+                        copyBtn.innerHTML = '<i class="fa-solid fa-check"></i>';
+                        copyBtn.style.color = 'var(--ccs-success)';
+                        setTimeout(() => {
+                            copyBtn.innerHTML = origHtml;
+                            copyBtn.style.color = '';
+                        }, 2000);
+                        showToast('Code copied to clipboard', 'success', 2000);
+                    } catch (err) {
+                        showToast('Failed to copy code', 'error');
+                    }
+                }
                 return;
             }
         });

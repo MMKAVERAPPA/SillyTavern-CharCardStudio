@@ -59,6 +59,7 @@ const TOOLS = {
   ccs_resolve_conflict: toolResolveConflict,
   ccs_update_memory:    toolUpdateMemory,
   ccs_audit_card:       toolAuditCard,
+  ccs_submit_review:    toolSubmitReview,
 };
 
 /**
@@ -808,4 +809,35 @@ export async function applyLoreDraft(draftId) {
     console.error('[CCS] Apply lore draft error:', err);
     return false;
   }
+}
+
+// ─── Tool 11: Submit Review ─────────────────────────────────────────────────
+
+async function toolSubmitReview(params) {
+  const { overall_rating, categories, strengths, weaknesses, suggestions } = params;
+  
+  if (!overall_rating || !categories) {
+    return { result: `Error: overall_rating and categories are required.` };
+  }
+
+  const reviewData = {
+    rating: overall_rating,
+    categories: categories || [],
+    strengths: strengths || [],
+    weaknesses: weaknesses || [],
+    suggestions: suggestions || [],
+    timestamp: Date.now()
+  };
+
+  await updateSession({ aiReview: reviewData });
+  
+  // Re-render the app UI to show the scorecard
+  try {
+    const { renderApp } = await import('../ui/app.js');
+    renderApp();
+  } catch (e) {
+    console.warn('[CCS] Failed to refresh UI after review submit:', e);
+  }
+
+  return { result: `Success: Review scorecard saved and displayed in the Concept panel.` };
 }

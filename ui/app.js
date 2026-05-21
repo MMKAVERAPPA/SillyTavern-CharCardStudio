@@ -19,7 +19,7 @@ import { showToast } from './toast.js';
 import { openSettings } from './settings-modal.js';
 import { saveFieldDirect } from '../core/tools.js';
 import { getFieldHistory, buildFieldDiffHtml } from '../core/field-history.js';
-import { sendMessage } from './chat.js';
+import { sendMessage, triggerAIReview } from './chat.js';
 import { openPromptInspector } from './prompt-inspector.js';
 import { runCoherenceAudit } from '../core/coherence-audit.js';
 
@@ -320,12 +320,47 @@ function _renderConceptTab() {
 
     let html = '';
 
-    // Star Rating
-    const rating = calculateStarRating(session);
-    html += `<div class="ccs-star-rating">
-        <div class="ccs-star-rating-stars">${renderStarHtml(rating.stars)}</div>
-        <div class="ccs-star-rating-details">${rating.details}</div>
-        ${rating.modifiers.length ? `<div class="ccs-star-rating-modifiers">${rating.modifiers.join(' · ')}</div>` : ''}
+    // AI Scorecard
+    if (session?.aiReview) {
+        const rev = session.aiReview;
+        html += `<div class="ccs-scorecard">
+            <div class="ccs-scorecard-header">
+                <div class="ccs-scorecard-title"><i class="fa-solid fa-star-half-stroke"></i> AI Scorecard</div>
+                <div class="ccs-scorecard-stars">${renderStarHtml(rev.rating)}</div>
+            </div>
+            <div class="ccs-scorecard-grid">
+                ${(rev.categories || []).map(cat => `
+                    <div class="ccs-scorecard-item">
+                        <div class="ccs-scorecard-item-label" title="${escapeHtml(cat.name)}">${escapeHtml(cat.name)}</div>
+                        <div class="ccs-scorecard-bar-container">
+                            <div class="ccs-scorecard-bar-fill" style="width: ${(cat.score / Math.max(1, cat.max)) * 100}%;"></div>
+                        </div>
+                        <div class="ccs-scorecard-item-score">${cat.score}/${cat.max}</div>
+                    </div>
+                `).join('')}
+            </div>
+            ${(rev.suggestions?.length > 0 || rev.weaknesses?.length > 0) ? `
+                <details class="ccs-scorecard-advice">
+                    <summary><i class="fa-solid fa-lightbulb"></i> View AI Suggestions</summary>
+                    <div class="ccs-scorecard-advice-content">
+                        ${rev.strengths?.length ? `<h4>Strengths</h4><ul>${rev.strengths.map(s => `<li>${escapeHtml(s)}</li>`).join('')}</ul>` : ''}
+                        ${rev.weaknesses?.length ? `<h4>Weaknesses</h4><ul>${rev.weaknesses.map(w => `<li>${escapeHtml(w)}</li>`).join('')}</ul>` : ''}
+                        ${rev.suggestions?.length ? `<h4>Suggestions</h4><ul>${rev.suggestions.map(s => `<li>${escapeHtml(s)}</li>`).join('')}</ul>` : ''}
+                    </div>
+                </details>
+            ` : ''}
+        </div>`;
+    } else {
+        html += `<div class="ccs-scorecard" style="text-align: center; padding: 24px 16px;">
+            <div style="color: var(--ccs-text-muted); font-size: 0.8rem; margin-bottom: 8px;">No AI Scorecard generated yet</div>
+            <div style="font-size: 0.75rem; color: var(--ccs-text-secondary);">Run an AI Review to evaluate your card's depth, uniqueness, and get actionable suggestions.</div>
+        </div>`;
+    }
+
+    // Audit & Review actions
+    html += `<div style="margin-bottom: 16px; display: flex; gap: 8px; justify-content: center;">
+        <button class="ccs-btn ccs-btn--secondary" id="ccs_audit_btn"><i class="fa-solid fa-shield-halved"></i> Run Coherence Audit</button>
+        <button class="ccs-btn ccs-btn--accent" id="ccs_review_btn"><i class="fa-solid fa-star-half-stroke"></i> Run AI Review</button>
     </div>`;
 
     // Structural pillars section
@@ -367,6 +402,33 @@ function _renderConceptTab() {
     }
 
     listEl.innerHTML = html;
+
+    // Wire audit button dynamically since it's now in the volatile concept tab
+    const auditBtn = listEl.querySelector('#ccs_audit_btn');
+    if (auditBtn) {
+        auditBtn.addEventListener('click', async () => {
+            auditBtn.disabled = true;
+            auditBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Running...';
+            try {
+                // Since runCoherenceAudit is imported, we can just call it
+                // Wait, I need to make sure runCoherenceAudit and _showAuditModal are in scope.
+                const report = await runCoherenceAudit();
+                _showAuditModal(report);
+            } catch (e) {
+                showToast(`Audit failed: ${e.message}`, 'error');
+            } finally {
+                auditBtn.disabled = false;
+                auditBtn.innerHTML = '<i class="fa-solid fa-shield-halved"></i> Run Coherence Audit';
+            }
+        });
+    }
+
+    const reviewBtn = listEl.querySelector('#ccs_review_btn');
+    if (reviewBtn) {
+        reviewBtn.addEventListener('click', () => {
+            triggerAIReview();
+        });
+    }
 
     // Bind expand/collapse (once)
     if (!_pillarListenerBound) {
@@ -1103,23 +1165,8 @@ export function bindAppEvents() {
         inspectBtn.addEventListener('click', () => openPromptInspector());
     }
 
-    // Coherence Audit button
-    const auditBtn = el('ccs_audit_btn');
-    if (auditBtn) {
-        auditBtn.addEventListener('click', async () => {
-            auditBtn.disabled = true;
-            auditBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i>';
-            try {
-                const report = await runCoherenceAudit();
-                _showAuditModal(report);
-            } catch (e) {
-                showToast(`Audit failed: ${e.message}`, 'error');
-            } finally {
-                auditBtn.disabled = false;
-                auditBtn.innerHTML = '<i class="fa-solid fa-shield-halved"></i>';
-            }
-        });
-    }
+    // Coherence Audit button is now wired inside _renderConceptTab
+
 
     // Settings button
     const settingsBtn = el('ccs_settings_btn');

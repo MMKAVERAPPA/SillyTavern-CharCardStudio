@@ -2894,8 +2894,8 @@ html {
 }
 
 .ccs-inspector-modal {
-  background: var(--ccs-bg-panel);
-  border: 1px solid rgba(255,255,255,0.1);
+  background: #181822; /* Custom darker tint distinct from standard panel */
+  border: 1px solid rgba(124, 92, 191, 0.4);
   border-radius: 12px;
   width: min(680px, 100%);
   max-height: 85vh;
@@ -3115,3 +3115,166 @@ html {
   opacity: 0.85;
 }
 .ccs-setting-hint i { flex-shrink: 0; }
+
+/* ─── Code Block Copying ───────────────────────────────────────────────────── */
+
+.ccs-code-block {
+  position: relative;
+  margin: 1em 0;
+}
+
+.ccs-code-block pre {
+  margin: 0;
+  /* Ensure padding leaves room for the button */
+  padding-top: 36px;
+}
+
+.ccs-code-copy-btn {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 4px;
+  color: var(--ccs-text-secondary);
+  padding: 4px 8px;
+  font-size: 0.8rem;
+  cursor: pointer;
+  transition: all 0.2s;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.ccs-code-copy-btn:hover {
+  background: rgba(255, 255, 255, 0.2);
+  color: #fff;
+  border-color: rgba(255, 255, 255, 0.4);
+}
+
+.ccs-code-copy-btn:active {
+  transform: scale(0.95);
+}
+
+/* ─── AI Scorecard (Concept Tab) ────────────────────────────────────────────── */
+
+.ccs-scorecard {
+  background: rgba(0, 0, 0, 0.15);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  border-radius: var(--ccs-radius-md);
+  padding: 16px;
+  margin-bottom: 16px;
+}
+
+.ccs-scorecard-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+}
+
+.ccs-scorecard-title {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--ccs-text-primary);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.ccs-scorecard-title i { color: var(--ccs-accent); }
+
+.ccs-scorecard-stars {
+  font-size: 1.2rem;
+  color: var(--ccs-accent-hover);
+  display: flex;
+  gap: 2px;
+}
+
+.ccs-scorecard-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.ccs-scorecard-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.ccs-scorecard-item-label {
+  flex: 0 0 140px;
+  font-size: 0.78rem;
+  color: var(--ccs-text-secondary);
+  text-overflow: ellipsis;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.ccs-scorecard-bar-container {
+  flex: 1;
+  height: 6px;
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.ccs-scorecard-bar-fill {
+  height: 100%;
+  background: var(--ccs-accent);
+  border-radius: 3px;
+  transition: width 0.5s ease-out;
+}
+
+.ccs-scorecard-item-score {
+  flex: 0 0 40px;
+  text-align: right;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--ccs-text-primary);
+}
+
+.ccs-scorecard-advice {
+  margin-top: 12px;
+  border-top: 1px solid rgba(255, 255, 255, 0.05);
+  padding-top: 12px;
+}
+
+.ccs-scorecard-advice summary {
+  font-size: 0.78rem;
+  color: var(--ccs-text-muted);
+  cursor: pointer;
+  user-select: none;
+  font-weight: 500;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.ccs-scorecard-advice summary:hover {
+  color: var(--ccs-text-secondary);
+}
+
+.ccs-scorecard-advice-content {
+  margin-top: 12px;
+  font-size: 0.8rem;
+  color: var(--ccs-text-secondary);
+  line-height: 1.5;
+}
+
+.ccs-scorecard-advice-content h4 {
+  margin: 12px 0 6px;
+  font-size: 0.85rem;
+  color: var(--ccs-text-primary);
+}
+
+.ccs-scorecard-advice-content ul {
+  margin: 0 0 12px;
+  padding-left: 20px;
+}
+
+.ccs-scorecard-advice-content li {
+  margin-bottom: 4px;
+}
