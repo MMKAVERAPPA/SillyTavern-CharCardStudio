@@ -1,9 +1,9 @@
 /**
- * CharCardStudio v4.0.0 — Tool Implementations
- * 
- * All 10 tools that the agent can call. Each tool receives parameters
+ * CharCardStudio v4.1.0 — Tool Implementations
+ *
+ * All 13 tools that the agent can call. Each tool receives parameters
  * and returns a result string that gets injected back into the conversation.
- * 
+ *
  * Write operations are STAGED — they create drafts that the user must approve.
  */
 
@@ -49,17 +49,23 @@ const VALID_FIELDS = new Set(Object.keys(CCS_TO_MERGE));
 // ─── Tool Registry ──────────────────────────────────────────────────────────
 
 const TOOLS = {
-  ccs_write_field:      toolWriteField,
-  ccs_read_field:       toolReadField,
-  ccs_update_pillar:    toolUpdatePillar,
-  ccs_create_lore_entry:toolCreateLoreEntry,
-  ccs_read_lore_entries:toolReadLoreEntries,
-  ccs_update_lore_entry:toolUpdateLoreEntry,
-  ccs_delete_lore_entry:toolDeleteLoreEntry,
-  ccs_resolve_conflict: toolResolveConflict,
-  ccs_update_memory:    toolUpdateMemory,
-  ccs_audit_card:       toolAuditCard,
-  ccs_submit_review:    toolSubmitReview,
+  ccs_write_field:       toolWriteField,
+  ccs_read_field:        toolReadField,
+  ccs_update_pillar:     toolUpdatePillar,
+  ccs_create_lore_entry: toolCreateLoreEntry,
+  ccs_read_lore_entries: toolReadLoreEntries,
+  ccs_update_lore_entry: toolUpdateLoreEntry,
+  ccs_delete_lore_entry: toolDeleteLoreEntry,
+  ccs_resolve_conflict:  toolResolveConflict,
+  ccs_update_memory:     toolUpdateMemory,
+  ccs_audit_card:        toolAuditCard,
+  ccs_submit_review:     toolSubmitReview,
+  ccs_set_card_type:     toolSetCardType,
+  ccs_set_platform:      toolSetPlatform,
+  ccs_write_brief:       toolWriteBrief,
+  ccs_read_brief:        toolReadBrief,
+  ccs_optimize_tokens:   toolOptimizeTokens,
+  ccs_semantic_search:   toolSemanticSearch,
 };
 
 /**
@@ -840,4 +846,268 @@ async function toolSubmitReview(params) {
   }
 
   return { result: `Success: Review scorecard saved and displayed in the Concept panel.` };
+}
+
+// ─── Tool 12: Set Card Type ──────────────────────────────────────────────────
+
+/**
+ * Record the identified card type into session state.
+ * Called during ideation when the card type is identified.
+ */
+async function toolSetCardType(params) {
+  const { card_type, description } = params;
+  const VALID_TYPES = ['A', 'B', 'C', 'D', 'E'];
+
+  if (!card_type || !VALID_TYPES.includes(String(card_type).toUpperCase())) {
+    return { result: `Error: card_type must be one of: ${VALID_TYPES.join(', ')}` };
+  }
+
+  const type = String(card_type).toUpperCase();
+  const TYPE_NAMES = {
+    A: 'Single Character',
+    B: 'Multi-Character Cast',
+    C: 'Scenario / World Card',
+    D: 'NPC Support Card',
+    E: 'Universe / Campaign',
+  };
+
+  await updateSession({
+    cardType: type,
+    cardTypeDescription: description || TYPE_NAMES[type],
+  });
+
+  return { result: `Success: Card type set to Type ${type} — ${TYPE_NAMES[type]}. ${description ? `Note: ${description}` : ''}` };
+}
+
+// ─── Tool 13: Set Platform ───────────────────────────────────────────────────
+
+/**
+ * Record the target platform (SillyTavern or JanitorAI) into session state.
+ * Called during ideation when the platform is identified.
+ */
+async function toolSetPlatform(params) {
+  const { platform, note } = params;
+  const VALID_PLATFORMS = ['sillyTavern', 'janitorai'];
+
+  if (!platform || !VALID_PLATFORMS.includes(platform)) {
+    return { result: `Error: platform must be one of: ${VALID_PLATFORMS.join(', ')}` };
+  }
+
+  await updateSession({
+    targetPlatform: platform,
+    platformNote: note || null,
+  });
+
+  const label = platform === 'sillyTavern' ? 'SillyTavern' : 'JanitorAI';
+  return { result: `Success: Target platform set to ${label}.${note ? ` Note: ${note}` : ''} Platform-specific rules and token budgets will now apply during Build phase.` };
+}
+
+// ─── Tool 14: Write Concept Brief ─────────────────────────────────────────
+
+/**
+ * Write or update the concept brief — a living markdown document the AI
+ * maintains during the Ideate phase. Stored in session.conceptBrief.
+ */
+async function toolWriteBrief(params) {
+  const { content, mode = 'replace' } = params;
+
+  if (!content || typeof content !== 'string') {
+    return { result: 'Error: content parameter is required.' };
+  }
+
+  const session = getSession();
+  let newBrief;
+
+  if (mode === 'append' && session?.conceptBrief) {
+    newBrief = session.conceptBrief + '\n\n' + content;
+  } else {
+    newBrief = content;
+  }
+
+  await updateSession({ conceptBrief: newBrief });
+
+  // Re-render to show brief in Concept Tab
+  try {
+    const { renderApp } = await import('../ui/app.js');
+    renderApp();
+  } catch (e) {
+    console.warn('[CCS] Failed to refresh UI after brief update:', e);
+  }
+
+  const wordCount = newBrief.split(/\s+/).length;
+  return { result: `Success: Concept Brief updated (${wordCount} words). The Brief panel is now visible in the Concept Tab.` };
+}
+
+// ─── Tool 15: Read Concept Brief ─────────────────────────────────────────
+
+/**
+ * Read the current concept brief back for context.
+ */
+async function toolReadBrief() {
+  const session = getSession();
+  const brief = session?.conceptBrief;
+
+  if (!brief) {
+    return { result: 'No Concept Brief exists yet. Use ccs_write_brief to create one.' };
+  }
+
+  return { result: `Concept Brief (${brief.split(/\s+/).length} words):\n\n${brief}` };
+}
+
+// ─── Tool 16: Optimize Tokens ───────────────────────────────────────────
+
+/**
+ * Stage a token-optimized rewrite of a card field.
+ * The AI generates the compressed content and passes it here;
+ * this tool stages it as a draft (same as ccs_write_field) with a token summary.
+ */
+async function toolOptimizeTokens(params) {
+  const { field, optimized_content, target_tokens, original_tokens } = params;
+
+  if (!field || !optimized_content) {
+    return { result: 'Error: field and optimized_content are required.' };
+  }
+
+  // Delegate to the staged write system — same approval flow as regular writes
+  const writeResult = await toolWriteField({ field, content: optimized_content });
+
+  if (writeResult.result.startsWith('Error')) {
+    return writeResult;
+  }
+
+  const newTokens = Math.round(optimized_content.split(/\s+/).length * 0.75); // rough estimate
+  const saved = (original_tokens || 0) - (target_tokens || newTokens);
+  const savedStr = saved > 0 ? ` (saved ~${saved}t)` : '';
+
+  return {
+    result: `Success: Optimized ${field} staged for approval${savedStr}. Review the draft in the Card Tab — click Apply when ready.`,
+    draft: writeResult.draft,
+  };
+}
+
+// ─── Tool 17: Semantic Search ───────────────────────────────────────────────
+
+/**
+ * Pure-JS semantic search across all card fields and lorebook entries.
+ * No API call needed — this is a local substring/keyword search.
+ * Returns matching excerpts with field/entry context.
+ */
+async function toolSemanticSearch(params) {
+  const { query, max_results = 10 } = params;
+
+  if (!query || typeof query !== 'string') {
+    return { result: 'Error: query parameter is required.' };
+  }
+
+  const ctx = getCtx();
+  const results = [];
+  const terms = query.toLowerCase().split(/\s+/).filter(t => t.length > 2);
+
+  if (terms.length === 0) {
+    return { result: 'Error: query must contain at least one term longer than 2 characters.' };
+  }
+
+  // Helper: score a text block against all query terms
+  const scoreText = (text) => {
+    if (!text) return 0;
+    const lower = text.toLowerCase();
+    return terms.reduce((sum, term) => {
+      const idx = lower.indexOf(term);
+      return idx >= 0 ? sum + 1 : sum;
+    }, 0);
+  };
+
+  // Helper: extract excerpt around first match
+  const excerpt = (text, maxLen = 200) => {
+    if (!text) return '';
+    const lower = text.toLowerCase();
+    let bestIdx = -1;
+    for (const term of terms) {
+      const idx = lower.indexOf(term);
+      if (idx >= 0 && (bestIdx < 0 || idx < bestIdx)) bestIdx = idx;
+    }
+    if (bestIdx < 0) return text.slice(0, maxLen);
+    const start = Math.max(0, bestIdx - 60);
+    const end = Math.min(text.length, bestIdx + maxLen - 60);
+    return (start > 0 ? '…' : '') + text.slice(start, end).trim() + (end < text.length ? '…' : '');
+  };
+
+  // ── Search card fields ────────────────────────────────────────────────────
+  try {
+    const fields = ctx?.getCharacterCardFields?.();
+    if (fields) {
+      const fieldMap = {
+        description: fields.description,
+        personality: fields.personality,
+        scenario: fields.scenario,
+        first_mes: fields.firstMessage,
+        mes_example: fields.mesExamples,
+        system_prompt: fields.system,
+        creator_notes: fields.creatorNotes,
+        character_note: fields.charDepthPrompt,
+      };
+
+      for (const [field, text] of Object.entries(fieldMap)) {
+        const content = Array.isArray(text) ? text.join('\n') : (text || '');
+        const score = scoreText(content);
+        if (score > 0) {
+          results.push({ type: 'field', id: field, score, excerpt: excerpt(content) });
+        }
+      }
+
+      // Alt greetings
+      if (Array.isArray(fields.alternateGreetings)) {
+        fields.alternateGreetings.forEach((g, i) => {
+          const score = scoreText(g);
+          if (score > 0) results.push({ type: 'field', id: `alt_greeting_${i + 1}`, score, excerpt: excerpt(g) });
+        });
+      }
+    }
+  } catch (e) {
+    console.warn('[CCS] Semantic search: card field read failed:', e.message);
+  }
+
+  // ── Search lorebook entries ───────────────────────────────────────────────
+  try {
+    const session = getSession();
+    if (session?.lorebookName) {
+      const entries = await getLorebookEntries({ include_content: true });
+      for (const entry of (entries || [])) {
+        const combined = [entry.name, entry.content, ...(entry.keys || [])].join(' ');
+        const score = scoreText(combined);
+        if (score > 0) {
+          results.push({
+            type: 'lore',
+            id: entry.uid || entry.name,
+            name: entry.name,
+            category: entry.category,
+            score,
+            excerpt: excerpt(entry.content),
+          });
+        }
+      }
+    }
+  } catch (e) {
+    console.warn('[CCS] Semantic search: lorebook read failed:', e.message);
+  }
+
+  // ── Sort and format results ───────────────────────────────────────────────
+  results.sort((a, b) => b.score - a.score);
+  const topResults = results.slice(0, max_results);
+
+  if (topResults.length === 0) {
+    return { result: `No matches found for: "${query}"` };
+  }
+
+  const lines = [`Search results for "${query}" (${topResults.length} match${topResults.length !== 1 ? 'es' : ''}):`, ''];
+  for (const r of topResults) {
+    if (r.type === 'field') {
+      lines.push(`[FIELD: ${r.id}] — ${r.excerpt}`);
+    } else {
+      const cat = r.category ? ` [${r.category}]` : '';
+      lines.push(`[LORE: ${r.name}${cat}] — ${r.excerpt}`);
+    }
+  }
+
+  return { result: lines.join('\n') };
 }

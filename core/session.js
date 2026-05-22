@@ -14,7 +14,7 @@
 
 // ─── Constants ──────────────────────────────────────────────────────────────
 
-const CURRENT_VERSION = 3;
+const CURRENT_VERSION = 5;
 const SAVE_DEBOUNCE_MS = 3000;
 const STORE_NAME = 'SillyTavern_CharCardStudio';
 const KEY_PREFIX = 'session_';
@@ -182,6 +182,13 @@ function createDefaultSession(avatar, name = '') {
         mode: 'studio',
         phase: 'ideate',
         cardFormat: 'prose',
+        cardType: null,              // Identified card type: 'A'|'B'|'C'|'D'|'E' or null
+        cardTypeDescription: null,   // Human-readable card type description
+        targetPlatform: 'sillyTavern', // 'sillyTavern' or 'janitorai'
+        platformNote: null,          // Optional notes about platform-specific constraints
+        conceptBrief: null,          // Markdown brief written by AI during ideation (2.1)
+        briefAnnotation: '',         // User annotations added to the brief
+        personalityMatrix: null,     // { introvert, logical, chaotic, aggressive, serious, secretive } (3.2)
         messages: [],
         pillarStates: [],
         stagedDrafts: [],
@@ -262,8 +269,24 @@ function migrateSession(data) {
         console.log('[CCS] Migrated session to v3 (lorebookName, scratchpad):', session.characterAvatar);
     }
 
-    // Future migrations go here:
-    // if (session.version < 4) { ... session.version = 4; }
+    // Version 3 → 4: Add card type and platform tracking
+    if (session.version < 4) {
+        session.cardType = session.cardType ?? null;
+        session.cardTypeDescription = session.cardTypeDescription ?? null;
+        session.targetPlatform = session.targetPlatform ?? 'sillyTavern';
+        session.platformNote = session.platformNote ?? null;
+        session.version = 4;
+        console.log('[CCS] Migrated session to v4 (cardType, targetPlatform):', session.characterAvatar);
+    }
+
+    // Version 4 → 5: Add concept brief and personality matrix
+    if (session.version < 5) {
+        session.conceptBrief = session.conceptBrief ?? null;
+        session.briefAnnotation = session.briefAnnotation ?? '';
+        session.personalityMatrix = session.personalityMatrix ?? null;
+        session.version = 5;
+        console.log('[CCS] Migrated session to v5 (conceptBrief, personalityMatrix):', session.characterAvatar);
+    }
 
     return session;
 }

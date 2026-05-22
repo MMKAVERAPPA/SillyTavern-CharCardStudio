@@ -72,8 +72,18 @@
                         <i class="fa-solid fa-triangle-exclamation"></i> No connection profiles found. Configure profiles in ST's API settings first.
                     </p>
                 </div>
+                <div class="ccs-setting-group">
+                    <label class="ccs-setting-label"><i class="fa-solid fa-palette"></i> Theme Sync</label>
+                    <p class="ccs-setting-desc">Automatically match SillyTavern's active color theme. When enabled, the Studio will adopt ST's background and text colors. Disable if you prefer the Studio's fixed dark theme.</p>
+                    <div class="ccs-setting-row">
+                        <label class="ccs-toggle">
+                            <input type="checkbox" id="ccs_setting_theme_sync" checked>
+                            <span class="ccs-toggle-slider"></span>
+                        </label>
+                        <span class="ccs-setting-inline-label">Sync with ST theme</span>
+                    </div>
+                </div>
             </div>
-
             <!-- Session Tab -->
             <div class="ccs-settings-panel" data-settings-panel="session">
                 <div class="ccs-setting-group">

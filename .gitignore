@@ -27,10 +27,7 @@ build/
 Character_Creator_Assistant_v6.json
 
 # Documentation
-AGENTS.md
-BUG_REPORT.md
-ARCHITECTURE.md
-IDEAS.md
+Plan.md
 
 # Logs
 *.log

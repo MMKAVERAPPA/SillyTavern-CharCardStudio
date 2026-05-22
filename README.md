@@ -32,30 +32,30 @@ The studio supports multiple isolated modes, each with its own chat history:
 
 ### 💡 Guided Ideation (Studio Mode)
 - Pitch a concept and get a **5-axis rating** (Hook Strength, Longevity, Originality, RP Potential, Platform Appeal).
+- **Concept Brief System** — A living, AI-maintained markdown document capturing your core design decisions. Includes a persistent user annotation field.
 - Work through **Structural Pillars** — foundational creative questions that shape every field.
 - **Smart pillar detection** automatically marks pillars as resolved as you answer them in chat.
-- **Card type detection** — the AI identifies whether this is a single, multi, or scenario card.
+- **Card type detection** — the AI identifies whether this is a single, multi, NPC, universe, or scenario card (Types A-E).
 - **Voice calibration** — 3 sample lines to confirm the character's speech patterns before writing begins.
 - **Psychological depth profiling** — Core Motivation, Primary Fear, Hidden Desire, Central Contradiction, The Wound, Stress Behavior, Social Mask — stored and distributed across all fields.
-- **Proposed Profile** summary before a single word is written — confirm the creative direction first.
 
 ### 📝 Field Generation (Studio Mode)
 - Generate any field individually, or **Generate All** at once.
 - **Chain-of-thought** — every field goes through Plan → Draft → Self-Check → Output.
 - **Staged drafts** — every AI-generated field is shown for review before being applied.
-- **🎲 Variations mode** — get 3 parallel options for any field, pick or blend.
-- **Quick rewrite actions** (hover any accepted field): Shorten · Lengthen · Darker · More Specific · Elevate · Fix Format · Voice.
-- **Edit & Resend** any message in the chat — rolls back history and regenerates from that point.
-- **Revision History Timeline** — every accepted version is tracked for one-click restore.
-- **Character test drive** — AI simulates the character across 4 scenarios and critiques the card.
+- **Token Optimizer** — Use the AI to intelligently compress card fields that are eating up too much budget.
+- **Semantic Search** — Fast, native keyword search across all your card fields and lorebook entries to instantly find contradictions.
+- **Dynamic Theme Sync** — Seamlessly maps SillyTavern's active theme to the studio, so it always matches your exact CSS environment.
+- **Token Budget Visualizer** — Real-time tracking of constant vs conditional tokens directly in the Card Tab header.
+- **AI Scorecard** — Run a Coherence Audit, see the scored results, and click any failing category to auto-generate a targeted repair prompt.
 
 ### 📖 Lorebook Builder (Studio Mode)
 - Brainstorm all needed entries by category before generating.
+- **Lore Category Folders** — Entries are automatically grouped into clean, collapsible accordions (Geography, NPCs, Factions, etc.).
+- **Auto-Context Injection** — A smart summary of your current lorebook is injected into the AI's system prompt so it always remembers the established lore.
 - **Full World Info spec** — entries include all 18+ metadata features (Timed Effects, Inclusion Groups, Outlet positions, Character Filters, and more).
 - **Staged entries** — review before inserting; accept individually or all at once.
-- **Duplicate detection** — automatically skips entries already in the target lorebook.
 - **Keyword quality checker** — flags keys that are too broad, too narrow, or conflicting.
-- **Search and filter** by keyword or category across entries.
 - **Always writes to an external named lorebook** — select or create one; selection is persisted.
 
 ### 🔄 JanitorAI Conversion
@@ -238,7 +238,7 @@ CharCardStudio/
 
 Built by **DeathGamerSolo**  
 Character card writing philosophy informed by years of SillyTavern card authoring.  
-v4.0.0 agentic architecture built with heavy AI assistance.
+v4.2.0 agentic architecture built with heavy AI assistance.
 
 ---
 

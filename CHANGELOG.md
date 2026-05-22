@@ -6,9 +6,27 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
-## [4.1.0] — 2026-05-21
+## [4.2.0] — 2026-05-22
 
-Major feature update completing Phase H (Lorebook Overhaul + API Routing) and Phase I (UX Improvements), plus a full extension audit.
+Major update focused on prompt enrichment, UI/UX polish, and advanced agentic lore management (Priority 1 & 2 Roadmap).
+
+### Added
+- **Feature 11: Concept Brief System** — New living ideation document (`session.conceptBrief`) visible in the Concept Tab. Includes a user annotation textarea that persists to the session. The brief and annotations are automatically injected into the system prompt to anchor the AI's creative direction. Tools: `ccs_write_brief`, `ccs_read_brief`.
+- **Feature 12: Token Optimizer** — New `ccs_optimize_tokens` tool allows the AI to rewrite card fields specifically for token compression. Optimized content is staged as a draft and displays the estimated token savings.
+- **Feature 13: Semantic Search** — Pure-JS utility `ccs_semantic_search` allowing the AI to scan all card fields and lorebook entries for concepts and contradictions without burning an API call.
+- **Dynamic Theme Sync** — Live CSS variable mapping from SillyTavern's native `--SmartTheme*` variables to CharCardStudio. Ensures the extension looks perfectly native to whatever ST theme the user is running. Includes a fallback toggle in Settings.
+- **Lore Category Folders** — Lorebook entries are now rendered in collapsible `<details>` accordions grouped by their assigned category (Geography, Factions, NPCs, etc.), complete with category icons, token budgets, and entry counts.
+- **Lorebook Context Injection** — The `buildSystemPrompt` now automatically injects a compact summary of the selected lorebook directly into the system prompt. If ≤ 20 entries, it lists them by category and key; if > 20, it provides a statistical breakdown.
+
+### Changed
+- **System Prompt Enhancements** — Re-wrote `buildSystemPrompt` and `identity.js` to strictly adhere to the v6 Golden Preset standards. Explicitly defines card types A-E, differentiates between SillyTavern and JanitorAI logic, and clarifies that Prose is the default over PList.
+- **AI Scorecard Updates** — Scorecard category bars are now clickable "Fix" buttons that automatically send a targeted repair prompt to the AI. Added a "Redo" button to easily regenerate the review.
+- **Token Budget Visualizer** — Real-time, color-coded token usage bar in the Card Tab header, tracking constant vs conditional tokens with a warning threshold at 3000 tokens.
+- **Session State** — Bumped schema to `v5` to support `conceptBrief`, `briefAnnotation`, and `personalityMatrix`. Automated migration on load.
+
+---
+
+## [4.1.0] — 2026-05-21
 
 ### Added
 - **Feature 3: External Lorebook Integration** — Migrated from embedded `character_book` model to SillyTavern's native `/api/worldinfo/` REST endpoints. Users can now select, create, and manage external lorebooks from a dedicated picker inside the Lore tab. Selection persists per-character in `session.lorebookName`.

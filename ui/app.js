@@ -30,6 +30,7 @@ let _isMobile = false;
 let _activeTab = 'concept';
 let _activeMobileTab = 'chat';
 let _defaultWelcomeHtml = null;
+let _themeSyncObserver = null;  // MutationObserver for live theme sync
 const MOBILE_BREAKPOINT = 768;
 
 // ─── DOM Helpers ─────────────────────────────────────────────────────────────
@@ -102,6 +103,9 @@ export async function openStudio() {
 
     // Import and render right panel tabs
     _renderRightPanel();
+
+    // Apply theme sync (Priority 1.4)
+    _applyThemeSync();
 }
 
 /**
@@ -111,6 +115,9 @@ export function closeStudio() {
     const window_el = el('ccs_window');
     if (window_el) window_el.style.display = 'none';
     _isOpen = false;
+
+    // Stop theme sync observer
+    _stopThemeSync();
 
     // Force-save session before closing
     saveSession(true);
@@ -327,15 +334,21 @@ function _renderConceptTab() {
             <div class="ccs-scorecard-header">
                 <div class="ccs-scorecard-title"><i class="fa-solid fa-star-half-stroke"></i> AI Scorecard</div>
                 <div class="ccs-scorecard-stars">${renderStarHtml(rev.rating)}</div>
+                <button class="ccs-btn ccs-btn--sm ccs-scorecard-regen-btn" title="Regenerate review">
+                    <i class="fa-solid fa-rotate"></i> Redo
+                </button>
             </div>
             <div class="ccs-scorecard-grid">
                 ${(rev.categories || []).map(cat => `
-                    <div class="ccs-scorecard-item">
+                    <div class="ccs-scorecard-item" data-cat-name="${escapeHtml(cat.name)}">
                         <div class="ccs-scorecard-item-label" title="${escapeHtml(cat.name)}">${escapeHtml(cat.name)}</div>
                         <div class="ccs-scorecard-bar-container">
                             <div class="ccs-scorecard-bar-fill" style="width: ${(cat.score / Math.max(1, cat.max)) * 100}%;"></div>
                         </div>
                         <div class="ccs-scorecard-item-score">${cat.score}/${cat.max}</div>
+                        <button class="ccs-scorecard-fix-btn" data-cat="${escapeHtml(cat.name)}" data-score="${cat.score}" data-max="${cat.max}" title="Ask AI to improve ${escapeHtml(cat.name)}">
+                            🔧
+                        </button>
                     </div>
                 `).join('')}
             </div>
@@ -357,11 +370,50 @@ function _renderConceptTab() {
         </div>`;
     }
 
+    // ── Session context badges (card type + platform)
+    const ctxBadges = [];
+    if (session?.cardType) {
+        const TYPE_LABELS = { A: 'Type A: Single Char', B: 'Type B: Multi-Cast', C: 'Type C: Scenario', D: 'Type D: NPC', E: 'Type E: Universe' };
+        ctxBadges.push(`<span class="ccs-badge ccs-badge--info" title="Card type">${TYPE_LABELS[session.cardType] || `Type ${session.cardType}`}</span>`);
+    }
+    if (session?.targetPlatform) {
+        const plat = session.targetPlatform === 'janitorai' ? 'JanitorAI' : 'SillyTavern';
+        ctxBadges.push(`<span class="ccs-badge ccs-badge--secondary" title="Target platform">${plat}</span>`);
+    }
+    if (ctxBadges.length > 0) {
+        html += `<div class="ccs-session-ctx-badges">${ctxBadges.join('')}</div>`;
+    }
+
+    // ── Concept Brief panel (2.1)
+    if (session?.conceptBrief) {
+        html += `
+        <details class="ccs-brief-panel" open>
+            <summary class="ccs-brief-summary">
+                <i class="fa-solid fa-file-lines"></i>
+                <span>Concept Brief</span>
+                <span class="ccs-brief-word-count">${session.conceptBrief.split(/\s+/).length} words</span>
+            </summary>
+            <div class="ccs-brief-content">
+                <div class="ccs-brief-text">${escapeHtml(session.conceptBrief)}</div>
+                <div class="ccs-brief-annotation-wrap">
+                    <label class="ccs-brief-annotation-label">
+                        <i class="fa-solid fa-pen-to-square"></i> Your annotations
+                        <span class="ccs-brief-annotation-hint">(sent to AI on next message)</span>
+                    </label>
+                    <textarea class="ccs-brief-annotation" id="ccs_brief_annotation"
+                        placeholder="Add notes here: &lt;!-- make her darker --&gt; or any free-form thoughts..."
+                        rows="3">${escapeHtml(session.briefAnnotation || '')}</textarea>
+                </div>
+            </div>
+        </details>`;
+    }
+
     // Audit & Review actions
     html += `<div style="margin-bottom: 16px; display: flex; gap: 8px; justify-content: center;">
         <button class="ccs-btn ccs-btn--secondary" id="ccs_audit_btn"><i class="fa-solid fa-shield-halved"></i> Run Coherence Audit</button>
         <button class="ccs-btn ccs-btn--accent" id="ccs_review_btn"><i class="fa-solid fa-star-half-stroke"></i> Run AI Review</button>
     </div>`;
+
 
     // Structural pillars section
     html += `<div class="ccs-pillar-section">`;
@@ -427,6 +479,43 @@ function _renderConceptTab() {
     if (reviewBtn) {
         reviewBtn.addEventListener('click', () => {
             triggerAIReview();
+        });
+    }
+
+    // Wire scorecard Fix buttons and Redo button
+    listEl.querySelectorAll('.ccs-scorecard-fix-btn').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            const catName = btn.dataset.cat;
+            const score = parseInt(btn.dataset.score, 10);
+            const max = parseInt(btn.dataset.max, 10);
+            const pct = Math.round((score / max) * 100);
+            const urgency = pct < 40 ? 'critically weak' : pct < 70 ? 'underdeveloped' : 'could be stronger';
+            sendMessage(
+                `[AI Scorecard Fix] The "${catName}" category scored ${score}/${max} (${pct}%) — ${urgency}. ` +
+                `Please analyze the current card content and suggest specific, concrete improvements to strengthen the ${catName}. ` +
+                `Be detailed and actionable — show me what to change and why.`
+            );
+            showToast(`Asking AI to fix: ${catName}`, 'info', 2000);
+        });
+    });
+
+    const regenBtn = listEl.querySelector('.ccs-scorecard-regen-btn');
+    if (regenBtn) {
+        regenBtn.addEventListener('click', () => {
+            triggerAIReview();
+        });
+    }
+
+    // Wire brief annotation textarea — persist on input (debounced)
+    const briefAnnotationEl = listEl.querySelector('#ccs_brief_annotation');
+    if (briefAnnotationEl) {
+        let _briefDebounce = null;
+        briefAnnotationEl.addEventListener('input', () => {
+            clearTimeout(_briefDebounce);
+            _briefDebounce = setTimeout(() => {
+                updateSession({ briefAnnotation: briefAnnotationEl.value });
+            }, 800);
         });
     }
 
@@ -739,7 +828,58 @@ function _renderCardTab() {
         `;
     }).join('');
 
-    fieldsEl.innerHTML = rows || '<p class="ccs-empty-state">No fields found.</p>';
+    // ─── Token Budget Visualizer ────────────────────────────────────────────
+    // Build a rough segmented budget bar from sync estimates
+    const SEGMENT_FIELDS = [
+        { label: 'Desc+Persona', keys: ['description', 'personality'], color: 'var(--ccs-accent)' },
+        { label: 'Scenario+FM', keys: ['scenario', 'first_mes'], color: '#5c8dd6' },
+        { label: 'Examples+Sys', keys: ['mes_example', 'system_prompt'], color: '#56a56a' },
+        { label: 'Notes+Greets', keys: ['creator_notes', 'character_note', 'alternate_greetings'], color: '#b07d2e' },
+    ];
+
+    // Map the FIELD_LABELS key → CCS field name for token counting
+    const keyToCcs = {
+        description: 'description', personality: 'personality', scenario: 'scenario',
+        firstMessage: 'first_mes', mesExamples: 'mes_example', system: 'system_prompt',
+        creatorNotes: 'creator_notes', charDepthPrompt: 'character_note',
+        alternateGreetings: 'alternate_greetings',
+    };
+
+    // Build token-per-CCS-field map from the fields we already have
+    let ccsTokenMap = {};
+    Object.entries(FIELD_LABELS).forEach(([key]) => {
+        const val = Array.isArray(fields[key]) ? fields[key].join('\n---\n') : (fields[key] || '');
+        ccsTokenMap[keyToCcs[key] || key] = countTokensSync(val);
+    });
+
+    const segmentTotals = SEGMENT_FIELDS.map(seg => ({
+        ...seg,
+        tokens: seg.keys.reduce((sum, k) => sum + (ccsTokenMap[k] || 0), 0),
+    }));
+    const budgetTotal = segmentTotals.reduce((sum, s) => sum + s.tokens, 0);
+    const BUDGET_CAP = 3000; // tokens where bar is "full"
+    const budgetColor = budgetTotal < 1500 ? 'var(--ccs-success)' : budgetTotal < 2500 ? 'var(--ccs-warning)' : 'var(--ccs-error)';
+
+    const budgetBarHtml = `
+        <div class="ccs-token-budget-bar-wrap">
+            <div class="ccs-token-budget-bar-header">
+                <span class="ccs-token-budget-title"><i class="fa-solid fa-gauge-high"></i> Token Budget</span>
+                <span class="ccs-token-budget-total" style="color: ${budgetColor};">~${budgetTotal}t</span>
+            </div>
+            <div class="ccs-token-budget-bar">
+                ${segmentTotals.map(seg => {
+                    const pct = Math.min(100, (seg.tokens / BUDGET_CAP) * 100);
+                    return pct > 0 ? `<div class="ccs-token-budget-segment" style="width:${pct}%; background:${seg.color};" title="${seg.label}: ~${seg.tokens}t"></div>` : '';
+                }).join('')}
+            </div>
+            <div class="ccs-token-budget-legend">
+                ${segmentTotals.map(seg => `
+                    <span class="ccs-token-budget-key" style="--seg-color:${seg.color}">${seg.label}: ~${seg.tokens}t</span>
+                `).join('')}
+            </div>
+        </div>`;
+
+    fieldsEl.innerHTML = budgetBarHtml + rows || '<p class="ccs-empty-state">No fields found.</p>';
     if (tokensEl) tokensEl.textContent = `~${totalTokens}t`;
 
     // Async upgrade: replace estimates with real token counts
@@ -751,14 +891,43 @@ function _renderCardTab() {
     if (Object.keys(fieldContents).length > 0) {
         countTokensForFields(fieldContents).then(counts => {
             let newTotal = 0;
+            // Build updated CCS token map for budget bar refresh
+            const updatedCcsMap = {};
             for (const [key, count] of Object.entries(counts)) {
                 const row = fieldsEl.querySelector(`[data-field="${key}"]`);
                 const tokenSpan = row?.querySelector('.ccs-field-tokens');
                 if (tokenSpan) tokenSpan.textContent = `${count}t`;
                 newTotal += count;
+                const ccsKey = keyToCcs[key] || key;
+                updatedCcsMap[ccsKey] = count;
             }
             // Add zero-content fields back as 0
             if (tokensEl) tokensEl.textContent = `${newTotal}t`;
+
+            // Refresh budget bar total label with real counts
+            const budgetTotalEl = fieldsEl.querySelector('.ccs-token-budget-total');
+            if (budgetTotalEl) {
+                const realTotal = SEGMENT_FIELDS.reduce((sum, seg) =>
+                    sum + seg.keys.reduce((s, k) => s + (updatedCcsMap[k] || 0), 0), 0);
+                const realColor = realTotal < 1500 ? 'var(--ccs-success)' : realTotal < 2500 ? 'var(--ccs-warning)' : 'var(--ccs-error)';
+                budgetTotalEl.textContent = `${realTotal}t`;
+                budgetTotalEl.style.color = realColor;
+                // Update segments
+                SEGMENT_FIELDS.forEach((seg, i) => {
+                    const segEl = fieldsEl.querySelectorAll('.ccs-token-budget-segment')[i];
+                    if (segEl) {
+                        const t = seg.keys.reduce((s, k) => s + (updatedCcsMap[k] || 0), 0);
+                        const pct = Math.min(100, (t / BUDGET_CAP) * 100);
+                        segEl.style.width = `${pct}%`;
+                        segEl.title = `${seg.label}: ${t}t`;
+                    }
+                    const keyEl = fieldsEl.querySelectorAll('.ccs-token-budget-key')[i];
+                    if (keyEl) {
+                        const t = seg.keys.reduce((s, k) => s + (updatedCcsMap[k] || 0), 0);
+                        keyEl.textContent = `${seg.label}: ${t}t`;
+                    }
+                });
+            }
         }).catch(() => { /* token upgrade is best-effort */ });
     }
 
@@ -1050,25 +1219,67 @@ async function _renderLoreTab() {
         </div>`;
     }
 
-    // Existing entries
+    // Existing entries — grouped by category (2.5 — Lore Category Folders)
     if (!entries.length && !pendingDrafts.length) {
         html += `<p class="ccs-empty-state">No entries yet. Switch to the Lore phase and ask the AI to create entries.</p>`;
     } else if (entries.length > 0) {
-        html += `<div class="ccs-lore-existing-section">
-            <h5 class="ccs-lore-section-title">${escapeHtml(bookName)} (${entries.length})</h5>
-            ${entries.map(e => `
-                <div class="ccs-lore-entry ${e.enabled ? '' : 'ccs-lore-entry--disabled'}">
-                    <div class="ccs-lore-entry-header">
-                        <span class="ccs-lore-entry-name">${escapeHtml(e.name || 'Unnamed')}</span>
-                        ${e.constant ? '<span class="ccs-badge ccs-badge--info">📌</span>' : ''}
-                        ${!e.enabled ? '<span class="ccs-badge ccs-badge--muted">off</span>' : ''}
-                        <span class="ccs-lore-entry-tokens">~${e.tokens}t</span>
-                    </div>
-                    ${e.keys.length ? `<div class="ccs-lore-entry-keys">Keys: ${e.keys.map(k => escapeHtml(k)).join(', ')}</div>` : ''}
-                    <div class="ccs-lore-entry-preview">${escapeHtml((e.content || '').substring(0, 120))}${(e.content || '').length > 120 ? '…' : ''}</div>
+        // Group entries by category
+        const CATEGORY_ORDER = ['Geography', 'Factions', 'NPCs', 'Magic System', 'Items', 'History', 'Culture', 'Rules', 'Constant'];
+        const grouped = {};
+        for (const e of entries) {
+            const cat = (e.category || '').trim() || (e.constant ? 'Rules' : 'Uncategorized');
+            if (!grouped[cat]) grouped[cat] = [];
+            grouped[cat].push(e);
+        }
+
+        // Sort categories: known order first, then alphabetical, Uncategorized last
+        const sortedCats = Object.keys(grouped).sort((a, b) => {
+            const ia = CATEGORY_ORDER.indexOf(a);
+            const ib = CATEGORY_ORDER.indexOf(b);
+            if (a === 'Uncategorized') return 1;
+            if (b === 'Uncategorized') return -1;
+            if (ia >= 0 && ib >= 0) return ia - ib;
+            if (ia >= 0) return -1;
+            if (ib >= 0) return 1;
+            return a.localeCompare(b);
+        });
+
+        const CATEGORY_ICONS = {
+            'Geography': '🗺️', 'Factions': '⚔️', 'NPCs': '👤',
+            'Magic System': '✨', 'Items': '🎒', 'History': '📜',
+            'Culture': '🎭', 'Rules': '📋', 'Constant': '📌', 'Uncategorized': '📂',
+        };
+
+        html += `<div class="ccs-lore-existing-section">`;
+        for (const cat of sortedCats) {
+            const catEntries = grouped[cat];
+            const icon = CATEGORY_ICONS[cat] || '📁';
+            const totalTokens = catEntries.reduce((s, e) => s + (e.tokens || 0), 0);
+            html += `
+            <details class="ccs-lore-folder" open>
+                <summary class="ccs-lore-folder-header">
+                    <span class="ccs-lore-folder-icon">${icon}</span>
+                    <span class="ccs-lore-folder-name">${escapeHtml(cat)}</span>
+                    <span class="ccs-badge ccs-badge--secondary">${catEntries.length}</span>
+                    <span class="ccs-lore-folder-tokens">~${totalTokens}t</span>
+                </summary>
+                <div class="ccs-lore-folder-entries">
+                    ${catEntries.map(e => `
+                        <div class="ccs-lore-entry ${e.enabled ? '' : 'ccs-lore-entry--disabled'}">
+                            <div class="ccs-lore-entry-header">
+                                <span class="ccs-lore-entry-name">${escapeHtml(e.name || 'Unnamed')}</span>
+                                ${e.constant ? '<span class="ccs-badge ccs-badge--info" title="Always active">📌</span>' : ''}
+                                ${!e.enabled ? '<span class="ccs-badge ccs-badge--muted">off</span>' : ''}
+                                <span class="ccs-lore-entry-tokens">~${e.tokens || 0}t</span>
+                            </div>
+                            ${e.keys?.length ? `<div class="ccs-lore-entry-keys">Keys: ${e.keys.map(k => escapeHtml(k)).join(', ')}</div>` : ''}
+                            <div class="ccs-lore-entry-preview">${escapeHtml((e.content || '').substring(0, 120))}${(e.content || '').length > 120 ? '…' : ''}</div>
+                        </div>
+                    `).join('')}
                 </div>
-            `).join('')}
-        </div>`;
+            </details>`;
+        }
+        html += `</div>`;
     }
 
     // Recursion warnings
@@ -1151,6 +1362,135 @@ function escapeHtml(str) {
     el.textContent = str;
     return el.innerHTML;
 }
+
+// ─── Theme Sync (Priority 1.4) ────────────────────────────────────────────────
+
+/**
+ * Map SillyTavern CSS custom properties to CCS variables.
+ * This runs once on open and re-runs whenever ST changes its theme class.
+ * Only runs if user hasn't disabled theme sync in settings.
+ */
+function _applyThemeSync() {
+    const overlay = el('ccs_window');
+    if (!overlay) return;
+
+    // Check if theme sync is enabled (default: true)
+    try {
+        const ext = SillyTavern?.getContext?.()?.extensionSettings?.CharCardStudio;
+        if (ext && ext.themeSync === false) {
+            console.log('[CCS] Theme sync disabled by user setting');
+            return;
+        }
+    } catch (_) { /* no settings — proceed with sync */ }
+
+    _doThemeSync(overlay);
+
+    // Watch for ST theme changes (ST adds classes like 'theme-*' to <html> or <body>)
+    if (!_themeSyncObserver && typeof MutationObserver !== 'undefined') {
+        _themeSyncObserver = new MutationObserver(() => {
+            if (_isOpen) _doThemeSync(overlay);
+        });
+        _themeSyncObserver.observe(document.documentElement, {
+            attributes: true,
+            attributeFilter: ['class', 'data-theme'],
+        });
+        _themeSyncObserver.observe(document.body, {
+            attributes: true,
+            attributeFilter: ['class'],
+        });
+    }
+}
+
+/**
+ * Actually read ST CSS variables and apply them to the CCS overlay.
+ * @param {HTMLElement} overlay
+ */
+function _doThemeSync(overlay) {
+    const computed = getComputedStyle(document.documentElement);
+
+    // ST variable → CCS variable mapping.
+    // Priority: ST's SmartTheme vars (most reliable) → generic ST vars → fallbacks.
+    // Multiple names tried in order — first non-empty value wins.
+    const readVar = (...names) => {
+        for (const name of names) {
+            const val = computed.getPropertyValue(name)?.trim();
+            if (val) return val;
+        }
+        return null;
+    };
+
+    const map = [
+        // ── Backgrounds ──────────────────────────────────────────────────────
+        // SmartThemeBodyColor = the main body/chat bg. Use as our deepest bg.
+        ['--ccs-bg-primary',
+            readVar('--SmartThemeBodyColor', '--main-bg-darker', '--color-bg-base', '--bg-darker')],
+        // BlurTintColor = the slightly lighter tinted overlay color. Good for panels.
+        ['--ccs-bg-secondary',
+            readVar('--SmartThemeBlurTintColor', '--main-bg', '--color-bg-surface', '--bg')],
+        // Lighter still for cards/tabs
+        ['--ccs-bg-tertiary',
+            readVar('--SmartThemeBodyColor', '--main-bg-lighter', '--color-bg-elevated')],
+        // Input backgrounds tend to be darker
+        ['--ccs-bg-input',
+            readVar('--SmartThemeBodyColor', '--input-bg', '--color-input-bg', '--bg-input')],
+
+        // ── Text ─────────────────────────────────────────────────────────────
+        // SmartThemeFontColor = main readable text
+        ['--ccs-text-primary',
+            readVar('--SmartThemeFontColor', '--white-text', '--color-text-primary', '--text-color')],
+        ['--ccs-text-secondary',
+            readVar('--SmartThemeFontColor', '--text-subdued', '--color-text-secondary')],
+        ['--ccs-text-muted',
+            readVar('--text-muted', '--color-text-tertiary')],
+
+        // ── Accent ────────────────────────────────────────────────────────────
+        // SmartThemeEmColor = emphasis/accent color (links, active items)
+        ['--ccs-accent',
+            readVar('--SmartThemeEmColor', '--active-option-color', '--color-accent', '--accent-color')],
+
+        // ── Borders ──────────────────────────────────────────────────────────
+        ['--ccs-border',
+            readVar('--separator-color', '--color-border', '--border-color')],
+    ];
+
+    let appliedCount = 0;
+    for (const [ccsVar, stVal] of map) {
+        if (stVal) {
+            overlay.style.setProperty(ccsVar, stVal);
+            appliedCount++;
+        }
+    }
+
+    if (appliedCount > 0) {
+        overlay.setAttribute('data-ccs-theme', 'synced');
+        console.log(`[CCS] Theme sync applied ${appliedCount} ST variable overrides`);
+    } else {
+        overlay.removeAttribute('data-ccs-theme');
+        console.log('[CCS] Theme sync: no ST variables found, using CCS built-in dark theme');
+    }
+}
+
+/**
+ * Stop the theme sync observer. Called on closeStudio().
+ */
+function _stopThemeSync() {
+    if (_themeSyncObserver) {
+        _themeSyncObserver.disconnect();
+        _themeSyncObserver = null;
+    }
+    // Reset any applied overrides so next open starts fresh
+    const overlay = el('ccs_window');
+    if (overlay) {
+        overlay.removeAttribute('data-ccs-theme');
+        // Clear inline style overrides (theme sync vars only)
+        [
+            '--ccs-bg-primary', '--ccs-bg-secondary', '--ccs-bg-tertiary', '--ccs-bg-input',
+            '--ccs-text-primary', '--ccs-text-secondary', '--ccs-text-muted',
+            '--ccs-accent', '--ccs-border',
+        ].forEach(v => overlay.style.removeProperty(v));
+    }
+}
+
 
 // ─── Event Binding ────────────────────────────────────────────────────────────
 

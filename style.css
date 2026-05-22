@@ -3278,3 +3278,321 @@ html {
 .ccs-scorecard-advice-content li {
   margin-bottom: 4px;
 }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   SCORECARD — FIX BUTTONS & REDO (Priority 1.3)
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+.ccs-scorecard-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  position: relative;
+}
+
+.ccs-scorecard-fix-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border: none;
+  border-radius: var(--ccs-radius-sm);
+  background: transparent;
+  cursor: pointer;
+  font-size: 13px;
+  opacity: 0;
+  transition: opacity var(--ccs-transition), background var(--ccs-transition);
+  flex-shrink: 0;
+  padding: 0;
+  line-height: 1;
+}
+
+.ccs-scorecard-item:hover .ccs-scorecard-fix-btn {
+  opacity: 1;
+}
+
+.ccs-scorecard-fix-btn:hover {
+  background: var(--ccs-warning-dim);
+}
+
+.ccs-scorecard-fix-btn:active {
+  transform: scale(0.9);
+}
+
+.ccs-scorecard-regen-btn {
+  margin-left: auto;
+  flex-shrink: 0;
+  font-size: 11px;
+  padding: 3px 8px;
+  opacity: 0.7;
+  transition: opacity var(--ccs-transition);
+}
+
+.ccs-scorecard-regen-btn:hover {
+  opacity: 1;
+}
+
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   TOKEN BUDGET VISUALIZER (Priority 1.2)
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+.ccs-token-budget-bar-wrap {
+  margin: 0 0 12px;
+  padding: 10px 12px;
+  background: var(--ccs-bg-primary);
+  border: 1px solid var(--ccs-border);
+  border-radius: var(--ccs-radius);
+}
+
+.ccs-token-budget-bar-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.ccs-token-budget-title {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--ccs-text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.ccs-token-budget-title i {
+  font-size: 11px;
+}
+
+.ccs-token-budget-total {
+  font-size: 12px;
+  font-weight: 700;
+  transition: color var(--ccs-transition);
+}
+
+.ccs-token-budget-bar {
+  display: flex;
+  height: 8px;
+  border-radius: 4px;
+  overflow: hidden;
+  background: rgba(255, 255, 255, 0.06);
+  gap: 2px;
+  margin-bottom: 6px;
+}
+
+.ccs-token-budget-segment {
+  height: 100%;
+  border-radius: 4px;
+  transition: width 0.4s ease;
+  min-width: 2px;
+  cursor: help;
+}
+
+.ccs-token-budget-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 12px;
+}
+
+.ccs-token-budget-key {
+  font-size: 10px;
+  color: var(--ccs-text-muted);
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.ccs-token-budget-key::before {
+  content: '';
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+  background: var(--seg-color, var(--ccs-accent));
+  flex-shrink: 0;
+}
+
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   THEME SYNC — CSS BRIDGE (Priority 1.4)
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* When theme sync is enabled, the JS will set data-ccs-theme on the overlay.
+   These fallbacks apply when theme sync is active — ST color vars override CCS defaults. */
+
+[data-ccs-theme] .ccs-app {
+  /* Background will be driven by --ccs-bg-primary which is overridden by JS */
+  transition: background 0.3s ease, color 0.3s ease;
+}
+
+[data-ccs-theme] .ccs-topbar {
+  transition: background 0.3s ease;
+}
+
+[data-ccs-theme] .ccs-right-panel {
+  transition: background 0.3s ease;
+}
+
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   LORE CATEGORY FOLDERS (Priority 2.5)
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+.ccs-lore-folder {
+  margin-bottom: 4px;
+  border: 1px solid var(--ccs-border);
+  border-radius: var(--ccs-radius);
+  overflow: hidden;
+}
+
+.ccs-lore-folder-header {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 8px 10px;
+  cursor: pointer;
+  background: var(--ccs-bg-secondary);
+  user-select: none;
+  list-style: none;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--ccs-text-primary);
+  transition: background var(--ccs-transition);
+}
+
+.ccs-lore-folder-header:hover {
+  background: var(--ccs-bg-tertiary);
+}
+
+.ccs-lore-folder[open] > .ccs-lore-folder-header::before {
+  content: "▾";
+  font-size: 10px;
+  color: var(--ccs-text-muted);
+}
+
+.ccs-lore-folder:not([open]) > .ccs-lore-folder-header::before {
+  content: "▸";
+  font-size: 10px;
+  color: var(--ccs-text-muted);
+}
+
+.ccs-lore-folder-icon { font-size: 14px; flex-shrink: 0; }
+.ccs-lore-folder-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ccs-lore-folder-tokens { font-size: 10px; color: var(--ccs-text-muted); margin-left: auto; flex-shrink: 0; }
+
+.ccs-lore-folder-entries {
+  padding: 4px 6px 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.ccs-lore-folder-entries .ccs-lore-entry { margin-left: 4px; }
+
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   CONCEPT BRIEF PANEL (Priority 2.1)
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+.ccs-brief-panel {
+  margin-bottom: 12px;
+  border: 1px solid var(--ccs-border);
+  border-radius: var(--ccs-radius);
+  overflow: hidden;
+}
+
+.ccs-brief-summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 12px;
+  cursor: pointer;
+  background: var(--ccs-bg-secondary);
+  user-select: none;
+  list-style: none;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--ccs-text-primary);
+  transition: background var(--ccs-transition);
+}
+
+.ccs-brief-summary:hover { background: var(--ccs-bg-tertiary); }
+.ccs-brief-word-count { margin-left: auto; font-size: 10px; font-weight: 400; color: var(--ccs-text-muted); }
+
+.ccs-brief-content {
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.ccs-brief-text {
+  font-size: 0.78rem;
+  line-height: 1.6;
+  color: var(--ccs-text-secondary);
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 200px;
+  overflow-y: auto;
+  padding: 8px 10px;
+  background: var(--ccs-bg-primary);
+  border-radius: var(--ccs-radius-sm);
+  border: 1px solid var(--ccs-border);
+}
+
+.ccs-brief-annotation-wrap { display: flex; flex-direction: column; gap: 4px; }
+
+.ccs-brief-annotation-label {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--ccs-text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  cursor: default;
+}
+
+.ccs-brief-annotation-hint {
+  font-weight: 400;
+  font-size: 10px;
+  text-transform: none;
+  color: var(--ccs-accent);
+  opacity: 0.7;
+  letter-spacing: 0;
+}
+
+.ccs-brief-annotation {
+  width: 100%;
+  resize: vertical;
+  min-height: 60px;
+  padding: 7px 9px;
+  background: var(--ccs-bg-input);
+  border: 1px solid var(--ccs-border);
+  border-radius: var(--ccs-radius-sm);
+  color: var(--ccs-text-primary);
+  font-size: 0.78rem;
+  line-height: 1.5;
+  font-family: inherit;
+  transition: border var(--ccs-transition);
+  box-sizing: border-box;
+}
+
+.ccs-brief-annotation:focus { outline: none; border-color: var(--ccs-accent); }
+
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   SESSION CONTEXT BADGES
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+.ccs-session-ctx-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 10px;
+}
