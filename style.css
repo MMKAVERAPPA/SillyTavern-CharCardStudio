@@ -3596,3 +3596,386 @@ html {
   gap: 6px;
   margin-bottom: 10px;
 }
+
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   PRIORITY 3.1 — VISUAL LORE GRAPH
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* Lore tab view toggle buttons */
+.ccs-lb-info-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.ccs-lb-view-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: 1px solid var(--ccs-border);
+  border-radius: var(--ccs-radius-sm);
+  background: transparent;
+  color: var(--ccs-text-muted);
+  cursor: pointer;
+  font-size: 12px;
+  transition: all var(--ccs-transition);
+}
+.ccs-lb-view-btn:hover {
+  background: var(--ccs-bg-hover);
+  color: var(--ccs-text-primary);
+  border-color: var(--ccs-border-strong);
+}
+.ccs-lb-view-btn.active {
+  background: var(--ccs-accent-glow);
+  border-color: var(--ccs-accent);
+  color: var(--ccs-accent-hover);
+}
+
+/* Graph container */
+.ccs-lore-graph-container {
+  width: 100%;
+  height: 400px;
+  min-height: 300px;
+  border: 1px solid var(--ccs-border);
+  border-radius: var(--ccs-radius);
+  overflow: hidden;
+  background: var(--ccs-bg-primary);
+  position: relative;
+  margin-top: 8px;
+  cursor: grab;
+}
+.ccs-lore-graph-container:active {
+  cursor: grabbing;
+}
+
+.ccs-lore-graph-svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+/* Graph edges */
+.ccs-graph-edge {
+  stroke: var(--ccs-border-strong);
+  stroke-width: 1.2;
+  stroke-opacity: 0.6;
+  transition: stroke-opacity 0.2s;
+}
+
+.ccs-graph-arrow-path {
+  fill: var(--ccs-border-strong);
+  fill-opacity: 0.7;
+}
+
+/* Graph nodes */
+.ccs-graph-node {
+  cursor: pointer;
+  transition: filter 0.2s;
+}
+.ccs-graph-node:hover {
+  filter: brightness(1.3) drop-shadow(0 0 6px rgba(255,255,255,0.2));
+}
+.ccs-graph-node--dragging {
+  cursor: grabbing;
+  filter: brightness(1.4) drop-shadow(0 0 8px var(--ccs-accent));
+}
+
+.ccs-graph-node-circle {
+  transition: stroke-width 0.2s, filter 0.2s;
+}
+.ccs-graph-node-circle.ccs-graph-node--selected {
+  stroke: #fff !important;
+  stroke-width: 3 !important;
+  filter: drop-shadow(0 0 8px rgba(255,255,255,0.6));
+}
+
+.ccs-graph-node-label {
+  font-size: 9px;
+  fill: var(--ccs-text-secondary);
+  pointer-events: none;
+  font-family: inherit;
+  user-select: none;
+}
+
+.ccs-graph-orphan-badge {
+  fill: var(--ccs-warning);
+  pointer-events: none;
+  font-size: 10px;
+}
+
+.ccs-graph-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  color: var(--ccs-text-muted);
+  font-size: 13px;
+}
+
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   PRIORITY 3.2 — PERSONALITY RADAR CHART
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+.ccs-radar-panel {
+  border: 1px solid var(--ccs-border);
+  border-radius: var(--ccs-radius);
+  background: var(--ccs-bg-primary);
+  margin-bottom: 12px;
+  overflow: hidden;
+}
+
+.ccs-radar-summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ccs-text-primary);
+  list-style: none;
+  user-select: none;
+  transition: background var(--ccs-transition);
+}
+.ccs-radar-summary::-webkit-details-marker { display: none; }
+.ccs-radar-summary:hover { background: var(--ccs-bg-hover); }
+.ccs-radar-summary i { color: var(--ccs-accent); font-size: 12px; }
+
+.ccs-radar-summary-hint {
+  margin-left: auto;
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--ccs-text-muted);
+  max-width: 160px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ccs-radar-body {
+  padding: 12px 16px 16px;
+  border-top: 1px solid var(--ccs-border);
+}
+
+.ccs-radar-container {
+  width: 100%;
+  aspect-ratio: 1;
+  max-width: 260px;
+  min-height: 220px;
+  margin: 0 auto 12px;
+  user-select: none;
+  touch-action: none;
+}
+
+.ccs-radar-svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+
+.ccs-radar-polygon {
+  transition: none; /* No transition — we update positions in rAF */
+}
+
+.ccs-radar-axis-label {
+  font-size: 8.5px;
+  fill: var(--ccs-text-secondary);
+  pointer-events: none;
+  font-family: inherit;
+}
+.ccs-radar-axis-label--opposite {
+  fill: var(--ccs-text-muted);
+  font-size: 7.5px;
+}
+
+.ccs-radar-handle {
+  fill: var(--ccs-accent);
+  stroke: rgba(255, 255, 255, 0.7);
+  stroke-width: 1.5;
+  cursor: grab;
+  transition: r 0.15s ease, fill 0.15s ease;
+}
+.ccs-radar-handle:hover {
+  fill: var(--ccs-accent-hover);
+  r: 9;
+}
+.ccs-radar-handle--dragging {
+  fill: var(--ccs-accent-hover);
+  cursor: grabbing;
+  filter: drop-shadow(0 0 5px var(--ccs-accent));
+}
+
+.ccs-radar-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   PRIORITY 3.3 — INLINE ASK AI FLOATING TOOLBAR
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* Utility: hidden class (toggled by JS) */
+.ccs-hidden { display: none !important; }
+
+.ccs-inline-toolbar {
+  position: fixed;
+  z-index: 99999;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 4px 6px;
+  background: var(--ccs-bg-secondary);
+  border: 1px solid var(--ccs-border-strong);
+  border-radius: 100px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(124, 92, 191, 0.15);
+  backdrop-filter: blur(12px);
+  animation: ccs-toolbar-appear 0.15s ease;
+  pointer-events: all;
+}
+
+.ccs-inline-toolbar--visible {
+  display: flex !important;
+}
+
+@keyframes ccs-toolbar-appear {
+  from { opacity: 0; transform: translateY(6px) scale(0.96); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+.ccs-inline-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 10px;
+  border: none;
+  border-radius: 100px;
+  background: transparent;
+  color: var(--ccs-text-secondary);
+  font-size: 11.5px;
+  font-family: inherit;
+  cursor: pointer;
+  transition: all var(--ccs-transition);
+  white-space: nowrap;
+}
+.ccs-inline-btn:hover {
+  background: var(--ccs-accent-glow);
+  color: var(--ccs-accent-hover);
+}
+.ccs-inline-btn i {
+  font-size: 10px;
+}
+.ccs-inline-btn--close {
+  color: var(--ccs-text-muted);
+  padding: 5px 7px;
+}
+.ccs-inline-btn--close:hover {
+  background: var(--ccs-error-dim);
+  color: var(--ccs-error);
+}
+
+.ccs-inline-sep {
+  width: 1px;
+  height: 18px;
+  background: var(--ccs-border);
+  margin: 0 2px;
+  flex-shrink: 0;
+}
+
+/* Custom instruction popup (appears below the toolbar) */
+.ccs-inline-custom-popup {
+  position: fixed;
+  z-index: 99998;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  background: var(--ccs-bg-secondary);
+  border: 1px solid var(--ccs-border-strong);
+  border-radius: var(--ccs-radius);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+  backdrop-filter: blur(12px);
+  min-width: 280px;
+  /* Position is set by JS to align with toolbar */
+  top: 50px;
+  left: 50px;
+  animation: ccs-toolbar-appear 0.12s ease;
+}
+
+.ccs-inline-custom-input {
+  flex: 1;
+  background: var(--ccs-bg-input);
+  border: 1px solid var(--ccs-border);
+  border-radius: var(--ccs-radius-sm);
+  color: var(--ccs-text-primary);
+  padding: 5px 10px;
+  font-size: 12px;
+  font-family: inherit;
+  outline: none;
+  transition: border-color var(--ccs-transition);
+}
+.ccs-inline-custom-input:focus {
+  border-color: var(--ccs-accent);
+}
+
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   PRIORITY 3.4 — SPLIT-SCREEN WIDE MODE
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* Active icon button state (used for Wide Mode toggle indicator) */
+.ccs-icon-btn--active {
+  color: var(--ccs-accent-hover) !important;
+  background: var(--ccs-accent-glow) !important;
+}
+.ccs-icon-btn--active:hover {
+  background: rgba(124, 92, 191, 0.35) !important;
+}
+
+/* Wide mode layout — desktop only (won't apply on mobile) */
+@media (min-width: 769px) {
+  .ccs-app.ccs-wide-mode {
+    max-width: 100%;
+  }
+
+  /* In wide mode, the main area becomes two fixed columns side by side */
+  .ccs-app.ccs-wide-mode .ccs-main {
+    flex-direction: row;
+  }
+
+  /* Chat panel: fixed at 40% width, doesn't grow/shrink */
+  .ccs-app.ccs-wide-mode .ccs-chat-panel {
+    flex: 0 0 40%;
+    max-width: 40%;
+    border-right: 2px solid var(--ccs-accent-dim);
+  }
+
+  /* Right panel: takes remaining 60% */
+  .ccs-app.ccs-wide-mode .ccs-right-panel {
+    flex: 1;
+    min-width: 0;
+  }
+
+  /* In wide mode, the tab content area is always visible */
+  .ccs-app.ccs-wide-mode .ccs-tab-panel {
+    /* Tab switching still works, just both panels coexist */
+  }
+
+  /* Slightly smaller font in panels to fit more content */
+  .ccs-app.ccs-wide-mode .ccs-tab-panel {
+    font-size: 13px;
+  }
+
+  /* Visual divider accent between panels in wide mode */
+  .ccs-app.ccs-wide-mode .ccs-topbar {
+    border-bottom-color: var(--ccs-accent);
+  }
+}
+

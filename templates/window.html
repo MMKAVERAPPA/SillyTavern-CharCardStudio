@@ -27,6 +27,10 @@
                     <i class="fa-solid fa-magnifying-glass-chart"></i>
                 </button>
 
+                <button id="ccs_wide_mode_btn" class="ccs-icon-btn" title="Wide Mode — side-by-side chat &amp; editor (desktop only)">
+                    <i class="fa-solid fa-table-columns"></i>
+                </button>
+
                 <button id="ccs_settings_btn" class="ccs-icon-btn" title="Settings">
                     <i class="fa-solid fa-gear"></i>
                 </button>
@@ -200,3 +204,42 @@
 
 <!-- ═══ Toast Container (outside app, always visible) ═══ -->
 <div id="ccs_toast_container" class="ccs-toast-container"></div>
+
+<!-- ═══ Inline Ask AI Floating Toolbar ═══ -->
+<!--
+    Positioned absolutely by JS on text selection in a card field expand panel.
+    Hidden by default. JS sets top/left and removes 'ccs-hidden'.
+-->
+<div id="ccs_inline_toolbar" class="ccs-inline-toolbar ccs-hidden" role="toolbar" aria-label="AI text actions">
+    <button class="ccs-inline-btn" data-action="rewrite" title="Rewrite selection">
+        <i class="fa-solid fa-pen-nib"></i>
+        <span>Rewrite</span>
+    </button>
+    <button class="ccs-inline-btn" data-action="dramatic" title="Make more dramatic">
+        <i class="fa-solid fa-fire"></i>
+        <span>Dramatize</span>
+    </button>
+    <button class="ccs-inline-btn" data-action="condense" title="Condense / shorten">
+        <i class="fa-solid fa-compress"></i>
+        <span>Condense</span>
+    </button>
+    <div class="ccs-inline-sep"></div>
+    <button class="ccs-inline-btn" data-action="custom" title="Custom instruction">
+        <i class="fa-solid fa-wand-magic-sparkles"></i>
+        <span>Custom…</span>
+    </button>
+    <button class="ccs-inline-btn ccs-inline-btn--close" id="ccs_inline_close" title="Close toolbar">
+        <i class="fa-solid fa-xmark"></i>
+    </button>
+</div>
+<!-- Custom instruction input popup -->
+<div id="ccs_inline_custom_popup" class="ccs-inline-custom-popup ccs-hidden">
+    <input type="text" id="ccs_inline_custom_input" class="ccs-inline-custom-input"
+        placeholder="e.g. Make this sound more gothic..." />
+    <button class="ccs-btn ccs-btn--sm ccs-btn--accent" id="ccs_inline_custom_submit">
+        <i class="fa-solid fa-paper-plane"></i>
+    </button>
+    <button class="ccs-btn ccs-btn--sm" id="ccs_inline_custom_cancel">
+        <i class="fa-solid fa-xmark"></i>
+    </button>
+</div>

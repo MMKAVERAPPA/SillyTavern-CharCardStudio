@@ -524,3 +524,9 @@ These are small improvements that can be done anytime:
 4. **Lore Graph performance** — For lorebooks with 50+ entries, the force-directed graph could get expensive. Should we implement a simplified static layout first (grid by category) and add physics later?
 
 5. **`ccs_analyze_chat_logs` scope** — How many messages? 50? 100? The last full story arc? Should the user be able to select a range?
+
+
+
+## EXTRA THOUGHTS
+1. The system instructions should not be incluced to be generated
+2. The ai must know that not all fields are required to be filled, especially the persoanlity field is not required for world type cards

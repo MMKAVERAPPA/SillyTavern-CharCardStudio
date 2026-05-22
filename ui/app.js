@@ -22,6 +22,8 @@ import { getFieldHistory, buildFieldDiffHtml } from '../core/field-history.js';
 import { sendMessage, triggerAIReview } from './chat.js';
 import { openPromptInspector } from './prompt-inspector.js';
 import { runCoherenceAudit } from '../core/coherence-audit.js';
+import { renderLoreGraph, destroyLoreGraph } from './lore-graph.js';
+import { renderRadarChart, matrixToPromptString } from './personality-radar.js';
 
 // ─── State ───────────────────────────────────────────────────────────────────
 
@@ -31,6 +33,8 @@ let _activeTab = 'concept';
 let _activeMobileTab = 'chat';
 let _defaultWelcomeHtml = null;
 let _themeSyncObserver = null;  // MutationObserver for live theme sync
+let _isWideMode = false;        // Priority 3.4: Split-screen workspace state
+let _loreViewMode = 'list';     // Priority 3.1: 'list' | 'graph' per lore-tab session
 const MOBILE_BREAKPOINT = 768;
 
 // ─── DOM Helpers ─────────────────────────────────────────────────────────────
@@ -408,6 +412,30 @@ function _renderConceptTab() {
         </details>`;
     }
 
+    // ── Personality Radar Chart (3.2) ─────────────────────────────────────
+    const matrixStr = session?.personalityMatrix
+        ? matrixToPromptString(session.personalityMatrix)
+        : null;
+    html += `
+    <details class="ccs-radar-panel" ${session?.personalityMatrix ? 'open' : ''}>
+        <summary class="ccs-radar-summary">
+            <i class="fa-solid fa-spider"></i>
+            <span>Personality Matrix</span>
+            ${matrixStr ? `<span class="ccs-radar-summary-hint">${escapeHtml(matrixStr.substring(0, 40))}…</span>` : '<span class="ccs-radar-summary-hint">Drag handles to define traits</span>'}
+        </summary>
+        <div class="ccs-radar-body">
+            <div id="ccs_radar_container" class="ccs-radar-container"></div>
+            <div class="ccs-radar-actions">
+                <button class="ccs-btn ccs-btn--sm ccs-btn--accent" id="ccs_radar_generate_btn">
+                    <i class="fa-solid fa-wand-magic-sparkles"></i> Generate from Matrix
+                </button>
+                <button class="ccs-btn ccs-btn--sm" id="ccs_radar_reset_btn">
+                    <i class="fa-solid fa-arrows-rotate"></i> Reset
+                </button>
+            </div>
+        </div>
+    </details>`;
+
     // Audit & Review actions
     html += `<div style="margin-bottom: 16px; display: flex; gap: 8px; justify-content: center;">
         <button class="ccs-btn ccs-btn--secondary" id="ccs_audit_btn"><i class="fa-solid fa-shield-halved"></i> Run Coherence Audit</button>
@@ -516,6 +544,37 @@ function _renderConceptTab() {
             _briefDebounce = setTimeout(() => {
                 updateSession({ briefAnnotation: briefAnnotationEl.value });
             }, 800);
+        });
+    }
+
+    // ── Personality Radar Chart (3.2) — mount after innerHTML is set ──────
+    const radarContainer = listEl.querySelector('#ccs_radar_container');
+    if (radarContainer) {
+        const currentMatrix = session?.personalityMatrix || null;
+        renderRadarChart(radarContainer, currentMatrix, (newMatrix) => {
+            updateSession({ personalityMatrix: newMatrix });
+        });
+    }
+
+    const radarGenerateBtn = listEl.querySelector('#ccs_radar_generate_btn');
+    if (radarGenerateBtn) {
+        radarGenerateBtn.addEventListener('click', () => {
+            const s = getSession();
+            const matrixDesc = matrixToPromptString(s?.personalityMatrix || null);
+            sendMessage(
+                `[Personality Matrix] Using this trait matrix: ${matrixDesc}.\n` +
+                `Please draft a personality paragraph for the character that naturally reflects all these traits. ` +
+                `Be specific and show don't-tell — let personality emerge through behaviour and mannerisms.`
+            );
+            showToast('Asking AI to write personality from matrix…', 'info', 2500);
+        });
+    }
+
+    const radarResetBtn = listEl.querySelector('#ccs_radar_reset_btn');
+    if (radarResetBtn) {
+        radarResetBtn.addEventListener('click', () => {
+            updateSession({ personalityMatrix: null });
+            showToast('Personality matrix reset to defaults', 'info', 2000);
         });
     }
 
@@ -1101,6 +1160,35 @@ function _renderCardTab() {
             }
         });
 
+        // ── Inline Ask AI (3.3): show floating toolbar on text selection ────
+        // Only on desktop — mobile selection is unreliable
+        if (!_isMobile) {
+            fieldsEl.addEventListener('mouseup', (e) => {
+                // Only trigger from inside a .ccs-field-full-content (expanded view)
+                if (!e.target.closest('.ccs-field-full-content')) {
+                    _hideInlineToolbar();
+                    return;
+                }
+
+                const selection = window.getSelection();
+                const selectedText = selection?.toString().trim();
+                if (!selectedText || selectedText.length < 5) {
+                    _hideInlineToolbar();
+                    return;
+                }
+
+                // Store context for the toolbar actions
+                const fieldRow = e.target.closest('.ccs-field-row');
+                const ccsFieldKey = fieldRow?.dataset?.ccsField || null;
+                _inlineToolbarContext = { selectedText, ccsFieldKey };
+
+                // Position toolbar near selection
+                const range = selection.getRangeAt(0);
+                const rect = range.getBoundingClientRect();
+                _showInlineToolbar(rect);
+            });
+        }
+
         _cardListenerBound = true;
     }
 }
@@ -1160,7 +1248,7 @@ async function _renderLoreTab() {
         return;
     }
 
-    // ── Lorebook selected: render entries ─────────────────────────────────
+    // ── Lorebook selected: render entries / graph ─────────────────────────
     const bookName = session.lorebookName;
     const loreDrafts = session?.loreDrafts || [];
     const pendingDrafts = loreDrafts.filter(d => d.status === 'pending');
@@ -1183,14 +1271,49 @@ async function _renderLoreTab() {
 
     let html = '';
 
-    // Book info bar with "Change" button
+    // Book info bar with "Change" button + view toggle
     html += `<div class="ccs-lb-info-bar">
         <span class="ccs-lb-info-name"><i class="fa-solid fa-book"></i> ${escapeHtml(bookName)}</span>
-        <button class="ccs-lb-change-btn" id="ccs_lb_change_btn" title="Switch lorebook">
-            <i class="fa-solid fa-arrows-rotate"></i> Change
-        </button>
+        <div class="ccs-lb-info-actions">
+            <button class="ccs-lb-view-btn ${_loreViewMode === 'list' ? 'active' : ''}" id="ccs_lb_list_btn" title="List View">
+                <i class="fa-solid fa-list"></i>
+            </button>
+            <button class="ccs-lb-view-btn ${_loreViewMode === 'graph' ? 'active' : ''}" id="ccs_lb_graph_btn" title="Graph View">
+                <i class="fa-solid fa-diagram-project"></i>
+            </button>
+            <button class="ccs-lb-change-btn" id="ccs_lb_change_btn" title="Switch lorebook">
+                <i class="fa-solid fa-arrows-rotate"></i> Change
+            </button>
+        </div>
     </div>`;
 
+    // ── Graph View ────────────────────────────────────────────────────────
+    if (_loreViewMode === 'graph') {
+        html += `<div id="ccs_lore_graph_container" class="ccs-lore-graph-container"></div>`;
+        loreEl.innerHTML = html;
+
+        // Wire buttons before async graph render
+        _wireLoreViewBtns(loreEl, entries);
+
+        const graphContainer = loreEl.querySelector('#ccs_lore_graph_container');
+        if (graphContainer && entries.length > 0) {
+            // Use a small delay so the container has a real clientWidth
+            setTimeout(() => {
+                renderLoreGraph(graphContainer, entries, (clickedEntry) => {
+                    showToast(`Entry: ${clickedEntry.name || 'Unnamed'}`, 'info', 2000);
+                });
+            }, 50);
+        } else if (graphContainer) {
+            graphContainer.innerHTML = '<div class="ccs-graph-empty">No lorebook entries to display.</div>';
+        }
+        return;
+    }
+
+    // Destroy any stale graph when switching to list
+    const staleGraphEl = loreEl.querySelector('#ccs_lore_graph_container');
+    if (staleGraphEl) destroyLoreGraph(staleGraphEl);
+
+    // ── List View ─────────────────────────────────────────────────────────
     // Token budget
     if (tokenBudget && entries.length > 0) {
         html += `<div class="ccs-lore-budget">
@@ -1219,11 +1342,10 @@ async function _renderLoreTab() {
         </div>`;
     }
 
-    // Existing entries — grouped by category (2.5 — Lore Category Folders)
+    // Existing entries — grouped by category (2.5)
     if (!entries.length && !pendingDrafts.length) {
         html += `<p class="ccs-empty-state">No entries yet. Switch to the Lore phase and ask the AI to create entries.</p>`;
     } else if (entries.length > 0) {
-        // Group entries by category
         const CATEGORY_ORDER = ['Geography', 'Factions', 'NPCs', 'Magic System', 'Items', 'History', 'Culture', 'Rules', 'Constant'];
         const grouped = {};
         for (const e of entries) {
@@ -1232,7 +1354,6 @@ async function _renderLoreTab() {
             grouped[cat].push(e);
         }
 
-        // Sort categories: known order first, then alphabetical, Uncategorized last
         const sortedCats = Object.keys(grouped).sort((a, b) => {
             const ia = CATEGORY_ORDER.indexOf(a);
             const ib = CATEGORY_ORDER.indexOf(b);
@@ -1298,11 +1419,30 @@ async function _renderLoreTab() {
     }
 
     loreEl.innerHTML = html;
+    _wireLoreViewBtns(loreEl, entries);
+}
 
-    // Wire "Change" button (element is now in DOM)
+/**
+ * Wire the List/Graph view toggle buttons into the lore tab.
+ * @param {HTMLElement} loreEl
+ * @param {Array} entries
+ */
+function _wireLoreViewBtns(loreEl, entries) {
     loreEl.querySelector('#ccs_lb_change_btn')?.addEventListener('click', () => {
         updateSession({ lorebookName: null });
         _renderLoreTab();
+    });
+    loreEl.querySelector('#ccs_lb_list_btn')?.addEventListener('click', () => {
+        if (_loreViewMode !== 'list') {
+            _loreViewMode = 'list';
+            _renderLoreTab();
+        }
+    });
+    loreEl.querySelector('#ccs_lb_graph_btn')?.addEventListener('click', () => {
+        if (_loreViewMode !== 'graph') {
+            _loreViewMode = 'graph';
+            _renderLoreTab();
+        }
     });
 }
 
@@ -1361,6 +1501,94 @@ function escapeHtml(str) {
     const el = document.createElement('span');
     el.textContent = str;
     return el.innerHTML;
+}
+
+// ─── Inline Ask AI (3.3) ─────────────────────────────────────────────────────
+
+/** Stores context for the currently-active inline toolbar: { selectedText, ccsFieldKey } */
+let _inlineToolbarContext = null;
+
+/**
+ * Position and show the floating inline Ask AI toolbar.
+ * @param {DOMRect} selectionRect - Bounding rect of the text selection
+ */
+function _showInlineToolbar(selectionRect) {
+    const toolbar = document.getElementById('ccs_inline_toolbar');
+    if (!toolbar) return;
+
+    // Position just above the selection
+    const top = selectionRect.top + window.scrollY - toolbar.offsetHeight - 8;
+    const left = Math.max(4, selectionRect.left + window.scrollX + selectionRect.width / 2 - 100);
+
+    toolbar.style.top = `${top}px`;
+    toolbar.style.left = `${left}px`;
+    toolbar.classList.remove('ccs-hidden');
+    toolbar.classList.add('ccs-inline-toolbar--visible');
+}
+
+/** Hide the floating inline Ask AI toolbar. */
+function _hideInlineToolbar() {
+    const toolbar = document.getElementById('ccs_inline_toolbar');
+    if (toolbar) {
+        toolbar.classList.remove('ccs-inline-toolbar--visible');
+        toolbar.classList.add('ccs-hidden');
+    }
+    const popup = document.getElementById('ccs_inline_custom_popup');
+    if (popup) popup.classList.add('ccs-hidden');
+    _inlineToolbarContext = null;
+}
+
+/**
+ * Build the AI prompt string for an inline rewrite action.
+ * @param {'rewrite'|'dramatic'|'condense'|string} action
+ * @param {string} selectedText
+ * @param {string|null} ccsFieldKey
+ * @returns {string}
+ */
+function _buildInlinePrompt(action, selectedText, ccsFieldKey) {
+    const fieldCtx = ccsFieldKey ? ` (in the ${ccsFieldKey} field)` : '';
+    const instructions = {
+        rewrite:  `Rewrite this selected passage to be clearer, more evocative, and more in-character${fieldCtx}. Keep the same meaning but improve the prose quality.`,
+        dramatic: `Rewrite this selected passage to be more dramatic, intense, and emotionally charged${fieldCtx}. Raise the stakes, sharpen the imagery.`,
+        condense: `Condense this selected passage${fieldCtx} to be shorter without losing any key information or emotional beats.`,
+    };
+    const instruction = instructions[action] || action;
+    return `[Inline Rewrite${fieldCtx}]\n\nSelected text:\n\'\'\'\n${selectedText}\n\'\'\'\n\n${instruction}\n\nReturn ONLY the rewritten replacement text — no commentary, no quotes around it.`;
+}
+
+// ─── Wide Mode (3.4) ─────────────────────────────────────────────────────────
+
+/**
+ * Toggle wide mode (split-screen layout).
+ * Wide Mode is desktop-only — silently ignored on mobile.
+ */
+export function toggleWideMode() {
+    if (_isMobile) {
+        showToast('Wide Mode is only available on desktop screens', 'warning', 2500);
+        return;
+    }
+    _isWideMode = !_isWideMode;
+    _applyWideMode();
+}
+
+function _applyWideMode() {
+    const app = el('ccs_app');
+    const btn = el('ccs_wide_mode_btn');
+    if (!app) return;
+
+    app.classList.toggle('ccs-wide-mode', _isWideMode);
+    if (btn) {
+        btn.classList.toggle('ccs-icon-btn--active', _isWideMode);
+        btn.title = _isWideMode
+            ? 'Exit Wide Mode'
+            : 'Wide Mode — side-by-side chat & editor (desktop only)';
+    }
+
+    // In wide mode, always show right panel (no need for tab switch to see card)
+    if (_isWideMode) {
+        // Ensure the right panel is visible by defaulting to card tab
+        if (_activeTab === 'concept') switchTab('card');
+    }
 }
 
 // ─── Theme Sync (Priority 1.4) ────────────────────────────────────────────────
@@ -1505,10 +1733,74 @@ export function bindAppEvents() {
         inspectBtn.addEventListener('click', () => openPromptInspector());
     }
 
-    // Coherence Audit button is now wired inside _renderConceptTab
+    // ── Wide Mode toggle (3.4) ────────────────────────────────────────────
+    const wideModeBtn = el('ccs_wide_mode_btn');
+    if (wideModeBtn) {
+        wideModeBtn.addEventListener('click', toggleWideMode);
+    }
 
+    // ── Inline Ask AI toolbar events (3.3) ───────────────────────────────
+    const inlineToolbar = document.getElementById('ccs_inline_toolbar');
+    if (inlineToolbar) {
+        // Action buttons
+        inlineToolbar.querySelectorAll('.ccs-inline-btn[data-action]').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                const action = btn.dataset.action;
+                if (action === 'custom') {
+                    // Show custom input popup
+                    const popup = document.getElementById('ccs_inline_custom_popup');
+                    if (popup) {
+                        popup.classList.remove('ccs-hidden');
+                        document.getElementById('ccs_inline_custom_input')?.focus();
+                    }
+                    return;
+                }
+                if (!_inlineToolbarContext) return;
+                const { selectedText, ccsFieldKey } = _inlineToolbarContext;
+                const prompt = _buildInlinePrompt(action, selectedText, ccsFieldKey);
+                sendMessage(prompt);
+                showToast(`Asking AI to ${action}…`, 'info', 2000);
+                _hideInlineToolbar();
+            });
+        });
 
-    // Settings button
+        // Close button
+        document.getElementById('ccs_inline_close')?.addEventListener('click', _hideInlineToolbar);
+    }
+
+    // Custom inline prompt submit
+    document.getElementById('ccs_inline_custom_submit')?.addEventListener('click', () => {
+        const input = document.getElementById('ccs_inline_custom_input');
+        const customInstruction = input?.value?.trim();
+        if (!customInstruction) return;
+        if (!_inlineToolbarContext) return;
+        const { selectedText, ccsFieldKey } = _inlineToolbarContext;
+        const prompt = _buildInlinePrompt(customInstruction, selectedText, ccsFieldKey);
+        sendMessage(prompt);
+        showToast('Asking AI with custom instruction…', 'info', 2000);
+        input.value = '';
+        _hideInlineToolbar();
+    });
+
+    document.getElementById('ccs_inline_custom_cancel')?.addEventListener('click', () => {
+        const popup = document.getElementById('ccs_inline_custom_popup');
+        if (popup) popup.classList.add('ccs-hidden');
+    });
+
+    // Dismiss inline toolbar on click outside
+    document.addEventListener('mousedown', (e) => {
+        const toolbar = document.getElementById('ccs_inline_toolbar');
+        const popup = document.getElementById('ccs_inline_custom_popup');
+        if (toolbar && !toolbar.contains(e.target) && popup && !popup.contains(e.target)) {
+            _hideInlineToolbar();
+        }
+    });
+
+    document.getElementById('ccs_inline_custom_input')?.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') document.getElementById('ccs_inline_custom_submit')?.click();
+        if (e.key === 'Escape') _hideInlineToolbar();
+    });
+
     const settingsBtn = el('ccs_settings_btn');
     if (settingsBtn) {
         settingsBtn.addEventListener('click', () => {
