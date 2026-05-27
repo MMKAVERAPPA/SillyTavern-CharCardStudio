@@ -1,5 +1,5 @@
 /**
- * CharCardStudio v4.2.1 — ui/settings-modal.js
+ * CharCardStudio v5.0.0 — ui/settings-modal.js
  * Settings modal: open/close, tab switching, export/import sessions, clear data.
  */
 

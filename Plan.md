@@ -1,532 +1,924 @@
-# CharCardStudio — Master Roadmap & Implementation Plan
+# CharCardStudio — v5.0 Roadmap
 
-> **Note:** This file is the single source of truth for all future development. It merges and supersedes `Plan.md` (v4.0.0 audit) and `comprehensive_expansion_plan.md`. All previously documented bugs have been resolved. Work items are organized by priority — tackle them in order from top to bottom.
+> **Status as of v4.2.1:** Priorities 1 through 3 and all housekeeping items are fully implemented.
+> This document covers **Priority 4 only** — the v5.0 major systems.
+> This is the single source of truth for all future development.
 
 ---
 
 ## 📚 Resources & References
 
-### Codebase References
-- **v6 Preset (Gold Standard):** `D:\Development Folder\SillyTavern Stuff\CharCardStudio\CharCardStudio\Character_Creator_Assistant_v6.json`
-- **ST Docs:** `D:\Development Folder\SillyTavern Stuff\CharCardStudio\CharCardStudio\SillyTavernDocs`
-- **Reference Extension Analysis:** `D:\Development Folder\SillyTavern Stuff\Studio\EXTENSION_ANALYSIS.md`
-- **Reference Extensions Doc:** `D:\Development Folder\SillyTavern Stuff\Studio\REFERENCE_EXTENSIONS.md`
-- **Old Studio (UI inspiration only):** `D:\Development Folder\SillyTavern Stuff\OLDSTUDIO`
-
-### Reference Extensions (GitHub)
-- **Saints-Silly-Extensions** — Best architecture: modular, `Promise.race` cancellation, streaming: https://github.com/Saintshroomie/Saints-Silly-Extensions
-- **ST-Copilot** — Best UI/features: floating window, lorebook management, diff engine, ConnectionManagerRequestService: https://github.com/Supker/ST-Copilot
-- **Lorewalker** — Lorebook-focused patterns: https://github.com/Rukongai/Lorewalker
-- **CardGenV2** — Anti-pattern reference (standalone app, don't copy): https://github.com/zebede1980/CardGenV2
-- **World-Forge** — ST JSON internals docs, multi-phase pipeline design: https://github.com/AndreiNicu/World-Forge
-- **Agents Are Thinking** — Agentic tool calling patterns: https://github.com/czl9707/agents-are-thinking
-
-### Key Patterns to Adopt (from Reference Analysis)
-1. **Saints' `Promise.race` abort pattern** — for all cancellable background generation
-2. **ST-Copilot's `ConnectionManagerRequestService`** — for utility/alternate API profile support
-3. **ST-Copilot's JSON-block fallback** — for non-tool-calling API backends
-4. **ST-Copilot's diff engine** — for staged draft comparison (LCS-based, ~150 lines)
-5. **World-Forge's multi-phase pipeline** — with explicit user approval gates between phases
+- **ST World Info Docs:** `SillyTavernDocs/Usage/worldinfo.md` — canonical reference for all WI behavior
+- **v6 Preset (Gold Standard):** `Character_Creator_Assistant_v6.json`
+- **Reference Extension Analysis:** `../Studio/EXTENSION_ANALYSIS.md`
+- **Reference Extensions:** ST-Copilot, Saints-Silly-Extensions, Lorewalker, World-Forge (see old Plan archive)
 
 ---
 
-## 🗺️ Visual Architecture Roadmap
+## 🗺️ v5.0 Architecture Overview
 
-```mermaid
-graph TD
-    A[CharCardStudio Suite] --> P1[Priority 1: Quick Wins]
-    A --> P2[Priority 2: Core Improvements]
-    A --> P3[Priority 3: New Features]
-    A --> P4[Priority 4: Major Systems]
+```
+v5.0 Release
+├── 4.1 — Advanced Lore Graph (canvas-based, full visual intelligence)
+├── 4.2 — Avatar Generation Hook (AI writes SD prompt, user confirms, ST generates)
+├── 4.3 — Chat Log Analysis (user picks N messages, AI stages targeted card updates)
+└── 4.4 — World / Campaign Mode (new 'World' mode tab, Campaign View, cross-world AI tools)
+```
 
-    P1 --> P1a[Prompt Enrichment v6 Alignment]
-    P1 --> P1b[Token Budget Visualizer]
-    P1 --> P1c[Scorecard AI Fix Buttons]
-    P1 --> P1d[Dynamic Theme Sync]
+All four features ship together as v5.0. Design and plan everything now, implement in order 4.1 → 4.4.
 
-    P2 --> P2a[Concept Brief System]
-    P2 --> P2b[New Tools: optimize / alt-greetings / semantic-search]
-    P2 --> P2c[Lore Category Folders]
-    P2 --> P2d[Lorebook Context Injection]
+---
 
-    P3 --> P3a[Visual Lore Graph]
-    P3 --> P3b[Personality Radar Chart]
-    P3 --> P3c[Contextual Inline Ask AI]
-    P3 --> P3d[Split-Screen Workspace]
+## 🌐 4.1 — Advanced Lore Graph (v5.0)
 
-    P4 --> P4a[World / Campaign Mode]
-    P4 --> P4b[Avatar Generation Hook]
-    P4 --> P4c[Chat Log Analysis Tool]
+### Overview
+
+A complete rebuild of the existing basic SVG lore graph (`ui/lore-graph.js`) into a **canvas-based, fully interactive visual intelligence system** that makes the lorebook's activation topology instantly understandable.
+
+The graph is opened via a **full-screen overlay** button in the Lore tab — a dedicated 🗺️ icon that expands the graph to fill the entire Studio window (the `#ccs_window` layer), with the rest of the UI temporarily hidden behind it.
+
+---
+
+### 4.1.1 — Rendering Engine
+
+**File:** New `ui/lore-graph-v2.js` (replaces `ui/lore-graph.js`)
+
+**Why rebuild:** The current SVG-based renderer cannot handle:
+- Zoom/pan with smooth performance at 50+ nodes
+- Canvas-level interactivity (hover, lasso, drag with grid snap)
+- Mobile pinch-to-zoom
+- Minimap rendering
+- Node sizing by token weight
+
+**Technology choice:** `<canvas>` 2D API — no external libraries. Pure JS physics simulation + canvas rendering loop. This keeps the bundle small and gives maximum control.
+
+**Rendering loop:**
+```
+requestAnimationFrame loop:
+  1. Run physics tick (force simulation)
+  2. Clear canvas
+  3. Draw edges (arrows, colors based on type)
+  4. Draw nodes (circles/cards, colored by category)
+  5. Draw labels
+  6. Draw minimap (separate small canvas in corner)
+  7. Draw overlay panels (search, simulate, node detail)
 ```
 
 ---
 
-## ✅ Completed / Already Implemented
+### 4.1.2 — Node Appearance
 
-These items were in the original plan but are confirmed done in the current codebase:
+Each node is a **rounded rectangle card** (not just a circle) containing:
 
-- [x] **Async/sync validator fix** — `validateField()` is now synchronous
-- [x] **Lorebook API fix** — `toolReadLoreEntries` uses `getLorebookEntries()` from `lorebook.js`
-- [x] **API router crash fix** — generator-detection logic is robust with non-streaming fallbacks
-- [x] **Scratchpad session migration** — `session.scratchpad` initialized in v3 migration
-- [x] **AI Scorecard** — `ccs_submit_review` tool + Concept Panel scorecard UI with progress bars, strengths/weaknesses accordion
-- [x] **Draft versioning** — `draft.versions[]` with version navigation (swipe-to-compare data layer exists)
-- [x] **Field version history + diff** — `field-history.js` + `buildFieldDiffHtml()` 
-- [x] **Pillar system** — Structural + World pillars, progress tracking, `syncPillarsWithCard()`
-- [x] **Multi-tab lock** — Prevents session conflicts
-- [x] **Mode histories** — Per-mode isolated chat histories (Studio, Janitor, HTML, etc.)
-- [x] **Background checks** — Conflict detection, token checks, validation
-- [x] **Coherence Audit** — `runCoherenceAudit()` with modal report
-
----
-
-## 🔥 Priority 1 — Quick Wins (High Impact, Low Effort)
-
-These are the most impactful changes that require the least architectural work. Do these first.
-
----
-
-### 1.1 — Prompt Enrichment: v6 Alignment
-
-**Files:** `prompts/identity.js`, `prompts/phase-instructions.js`
-
-**Problem:** The current system prompts are well-structured but abbreviated. The Ideate phase prompt is a sparse list of DOs and DON'Ts with no card type definitions, no rich behavioral guidance, and no deep integration with the v6 preset's creative logic.
-
-**What's already good:**
-- Banned names list ✅
-- Prose 5-paragraph structure ✅
-- PList notation ✅
-- Flipped Scenario technique ✅
-- Naming rules by world type ✅
-
-**What's missing:**
-
-1. **Card type definitions** — The v6 preset distinguishes multiple card types. The Ideate prompt should define them so the AI knows what it can build:
-   - **Type A: Single Character** — Standard waifu/companion/antagonist card
-   - **Type B: Scenario/Situation** — Card centers on a setup, not a person (e.g., "You wake up in a spaceship")
-   - **Type C: Multi-Character Cast** — Multiple named characters in one card
-   - **Type D: RPG/Quest** — Structured quest/adventure card with mechanics
-   - **Type E: World/Lorebook** — No character at all — just world lore (relevant for Campaign Mode later)
-
-2. **Richer ideation behavioral guidance** — The Ideate phase should tell the AI to:
-   - Explicitly identify the card type early in conversation
-   - Propose a "character DNA" snapshot (3-4 sentences: hook, core trait, dark side, relationship role)
-   - Suggest 2-3 different "directions" the concept could go before committing
-   - Not move to Build until the user has approved a direction
-
-3. **Platform differentiation** — JanitorAI cards have different rules (PList at bottom of Scenario, no `{{user}}` lines in mes_example). The session should track target platform and the build prompt should adapt.
-
-4. **PList clarification** — PList is **optional and secondary**, not the default. The prompt should be clear that Prose is the default and PList is only used when the user explicitly requests it or for smaller/older models.
-
-**Implementation:**
-- Add card type enum to session state
-- Enrich `PHASE_PROMPTS.ideate` with the above behavioral rules
-- Add platform field (`sillyTavern | janitorai`) to session, with JanitorAI-specific build instructions
-
----
-
-### 1.2 — Token Budget Visualizer
-
-**Files:** `ui/app.js` (`_renderCardTab()`), `style.css`
-
-**Problem:** Token counts exist per-field but there's no at-a-glance overview of the card's total token footprint with visual warnings.
-
-**What to build:**
-- A segmented horizontal bar at the top of the Card Tab
-- Each segment represents a field group, colored differently:
-  - 🔵 Description + Personality
-  - 🟢 Scenario + First Message
-  - 🟡 Example Messages + System Prompt
-  - 🟠 Lorebook entries (from `getLorebookTokenBudget()`)
-  - ⚪ Other (Creator Notes, Character Note, Alt Greetings)
-- **Warning threshold:** Configurable in settings, defaulting to **3,000 tokens** (user note: cards go up to 3-4k, so warning should start at ~3k, not 1.5-2k as originally planned)
-- Color changes: green → amber → red as total approaches threshold
-
-**Session integration:** The lorebook token count is already available via `getLorebookTokenBudget()`. Field token counts are already being calculated in `_renderCardTab()`.
-
----
-
-### 1.3 — Scorecard "AI Fix" Buttons
-
-**Files:** `ui/app.js` (`_renderConceptTab()`, scorecard section)
-
-**Problem:** The AI Scorecard shows category scores (e.g., "Voice & Tone: 3/5") but clicking them does nothing.
-
-**What to build:**
-- Make each scorecard category bar clickable
-- On click: switch to the Chat panel and call `sendMessage()` with a targeted repair prompt, e.g.:
-  > *"The AI review gave Voice & Tone 3/5. Looking at the First Message and Example Messages, please rewrite them to give the character a more distinct speech pattern and unique verbal mannerisms."*
-- The prompt should be constructed dynamically from the category name, score, and any weakness text from the scorecard
-
-**Extra:** Add a "Regenerate Review" button to the scorecard header that calls `triggerAIReview()` again.
-
----
-
-### 1.4 — Dynamic Theme Sync
-
-**Files:** `style.css`, `ui/app.js`
-
-**Problem:** The extension uses hardcoded `--ccs-*` CSS variables that don't adapt to the user's SillyTavern theme, making it look foreign.
-
-**What to build:**
-- On `openStudio()`, read SillyTavern's active CSS custom properties:
-  - `--SmartThemeBodyColor` → map to `--ccs-bg-primary`
-  - `--SmartThemeBlurTintColor` → map to `--ccs-bg-secondary`
-  - `--SmartThemeBodyColor` variations → other bg levels
-  - `--SmartThemeFontColor` → map to `--ccs-text-primary`
-  - `--SmartThemeEmColor` → map to `--ccs-accent`
-- Apply them to the `#ccs_window` element via `element.style.setProperty()`
-- Add a settings toggle: "Sync with SillyTavern Theme" (default: on)
-- If toggled off, use CCS's built-in dark theme
-
----
-
-## 🧠 Priority 2 — Core Improvements (Medium Effort, High Value)
-
----
-
-### 2.1 — Concept Brief System (Agentic Ideation Artifact)
-
-**Files:** `core/session.js`, `ui/app.js`, `prompts/phase-instructions.js`, `core/tools.js`
-
-**Background:** The user's idea — inspired by how Antigravity's IDE creates living plan documents that the user can comment on — is to give the AI a structured document it writes to during ideation, which the user can annotate. This replaces the questionnaire concept entirely.
-
-**How it works:**
-1. During the Ideate phase, the AI can call a new tool `ccs_write_brief(content)` to write/update a structured Concept Brief document
-2. The brief is stored in `session.conceptBrief` (string, markdown)
-3. It's rendered in a new "Brief" sub-panel in the Concept Tab — a rich text area the user can directly annotate
-4. User can add `<!-- note: make her darker -->` style inline comments
-5. When the user sends a follow-up message, the brief (with annotations) is injected into context
-6. The AI reads the annotations and refines its proposals
-7. Once the concept is approved, the AI populates pillars from the brief
-
-**Brief format (AI writes this):**
-```markdown
-## Character Concept Brief
-
-**Working Title:** [Name or concept placeholder]
-**Card Type:** [Type A/B/C/D/E]
-**Genre/Tone:** [e.g., Dark Fantasy, Slice of Life, Sci-Fi Horror]
-
-### Core Identity
-[1-2 sentences: the essence of who they are]
-
-### Hook
-[What makes a stranger want to play this character immediately?]
-
-### Appearance
-[Key visual traits — NOT a full description yet, just anchors]
-
-### Personality Directions
-[2-3 possible interpretations of the character, user picks/merges]
-
-### Dark Side / Cost
-[What does their strongest trait cost them?]
-
-### Open Questions
-[Things the AI needs to know before building — numbered list]
+```
+┌─────────────────────────────────┐
+│ [CATEGORY BADGE]   🔵 CONSTANT  │  ← strategy icon
+│ Entry Name                      │
+│ ~142t  ⟳ recursion-level: 2    │  ← token count + flags
+└─────────────────────────────────┘
 ```
 
-**New tool to add:**
-```javascript
-// ccs_write_brief(content) — writes/updates the concept brief
-// ccs_read_brief() — reads it back for context injection
-```
+**Node sizing:** When **Token Count Overlay Mode** is active (toggle in toolbar), node width scales proportionally to token count — visually revealing which entries are "heavy" vs "light".
 
-**Does this conflict with pillars?** No. The brief is created during Ideation. Once the user approves a direction, the AI calls `ccs_update_pillar` to create structural pillars based on the brief. The brief then becomes a reference document, not an active editing surface.
+**Node color:** Category-based, consistent with the list view:
+- Geography → `#3b82f6` (blue)
+- Factions → `#ef4444` (red)
+- NPCs → `#f59e0b` (amber)
+- Magic System → `#8b5cf6` (purple)
+- Items → `#10b981` (emerald)
+- History → `#6b7280` (gray)
+- Culture → `#ec4899` (pink)
+- Rules/Constant → `#f97316` (orange)
+- Uncategorized → `#4b5563` (dark gray)
+
+**Node decorations (overlaid icons):**
+- 🔵 Constant strategy — pulsing glow ring around node
+- 🔗 Vector/keyless — dashed border
+- ⚪ Disabled — node rendered at 30% opacity with strikethrough on name
+- ⛔ Non-recursable — small grey shield icon in top-right corner of card
+- 🛑 Prevent further recursion — red stop icon in top-right corner
+- ⏳ Delay until recursion — clock icon, dotted border
+- 🎲 Probability < 100% — dice icon with % number overlay
+- 📌 Pinned (user locked position) — pin icon in top-left corner
+- 🔒 Inclusion group member — lock icon (group label shown on hover)
 
 ---
 
-### 2.2 — New Tool: `ccs_optimize_tokens`
+### 4.1.3 — Edge (Connection) Visual Language
 
-**Files:** `core/tools.js`, `prompts/phase-instructions.js`
+Edges represent activation relationships between entries. Multiple visual types:
 
-**What it does:** AI rewrites a card field to compress it under a target token count while retaining all semantic facts.
+| Edge Type | Visual | Meaning |
+|---|---|---|
+| **Direct activation** | Solid arrow, category color | Entry A's content contains Entry B's primary key |
+| **Conditional activation** | Dashed arrow, dimmer color | Activation depends on secondary key logic (AND ANY / NOT ANY) |
+| **Constant → anything** | Glowing/pulsing solid arrow | Source is CONSTANT so this link always fires |
+| **Stops recursion** | Red arrow with ⛔ at target end | Source activates target but target has "Prevent further recursion" |
+| **Probabilistic** | Yellow arrow | Target has Probability < 100%, may not fire even when triggered |
+| **Inclusion group** | Purple bidirectional dashed line | Entries compete — only one will activate |
+| **Recursive-only path** | Dotted arrow with ⏳ | Target only activates during recursive scan passes |
+
+**Arrow direction:** Always Source → Target (A triggers B = A → B arrow).
+
+**Edge labels:** On hover, an edge shows a tooltip: `"Contains key: 'rufus'" | AND ANY: ['dog','companion']`
+
+---
+
+### 4.1.4 — Physics Simulation
+
+**Default layout:** Physics-based force simulation, **with category clustering**.
+
+The algorithm:
+1. **Category repulsion zones:** Virtual "center-of-mass" attractors per category. Each node is pulled toward its category's centroid.
+2. **Node-node repulsion:** All nodes repel each other (Barnes-Hut approximation for performance).
+3. **Edge attraction:** Connected nodes are pulled together (spring force, proportional to edge strength).
+4. **Damping:** Velocity is damped each tick so simulation settles to a stable state.
+5. **Grid snap:** When grid snap is enabled (toolbar toggle), nodes snap to a 40px grid on release.
+
+**Performance:** For 50+ nodes, Barnes-Hut spatial partitioning is used. For 100+ nodes, a simplified "category cluster" static layout is used instead of physics (user can toggle physics back on).
+
+**Pinned nodes:** User can lock any node (`📌`). Pinned nodes have zero velocity — they act as anchors for the physics simulation around them.
+
+---
+
+### 4.1.5 — Interactive Controls
+
+**Full-screen overlay toolbar (top bar):**
+```
+[← Back to Lore] [📐 Grid Snap] [📌 Lock Mode] [🔢 Token Size Mode]
+[🔍 Search] [⚡ Simulate] [📤 Export PNG] [📊 Stats]
+```
+
+**Navigation (all platforms):**
+- **Desktop:** Scroll wheel = zoom, click+drag on empty space = pan, click node = select, drag node = move
+- **Mobile:** Pinch = zoom, one-finger drag on empty space = pan, tap node = select, long-press node = context menu
+
+**Lasso selection:** Click+drag on empty space (while holding Shift) draws a selection rectangle. All nodes within are selected together for bulk operations.
+
+**Minimap:** Small `<canvas>` in the bottom-right corner (120×80px) showing a scaled overview of the full graph with a viewport indicator rectangle. Click minimap to jump to that area.
+
+**Zoom controls:** `+` / `-` buttons in corner for accessibility. Zoom level shown as `120%`. Fit-to-screen button centers and scales all nodes.
+
+---
+
+### 4.1.6 — Search & Filter Bar
+
+**Location:** Expandable bar under the top toolbar (toggle via 🔍 button).
+
+**Behavior:**
+- Type a keyword or entry name → matching nodes pulse/glow, non-matching nodes dim to 20% opacity
+- Matching includes: entry name, entry keys, entry content (partial match)
+- **Clear button** resets all nodes to full opacity
+- Results count shown: `3 entries match "rufus"`
+
+**Filter chips** (additional filters that can stack with search):
+- `Constant only` — show only blue-circle entries
+- `Orphaned` — show entries with no incoming or outgoing edges
+- `Recursive loops` — highlight only entries involved in circular chains
+- `Heavy (>300t)` — highlight token-expensive entries
+- `Disabled` — show/highlight disabled entries
+- `Has probability <100%` — show probabilistic entries
+
+---
+
+### 4.1.7 — Keyword Activation Simulator
+
+**Location:** Expandable panel under the toolbar (toggle via ⚡ button).
+
+**Purpose:** Simulate what entries would activate if the AI generates or the user types a given message, without actually running ST.
+
+**UI:**
+```
+┌────────────────────────────────────────────────────────────────┐
+│ ⚡ Activation Simulator                              [×] Close │
+│ Test message: [Commander Vlatko rode into Neo-Tokyo...      ] │
+│                                                               │
+│ Scan Depth: [3 msgs ▼]  Recursion: [ON ▼]  Budget: [2000t ▼] │
+│                                                    [▶ Simulate] │
+├────────────────────────────────────────────────────────────────┤
+│ Pass 1 — Direct keyword matches (scan depth: 3 msgs):         │
+│   ✅ Commander Vlatko  (key: "vlatko") — ~142t                │
+│   ✅ Neo-Tokyo         (key: "neo-tokyo") — ~89t              │
+│                                                               │
+│ Pass 2 — Recursive activation from Pass 1 content:           │
+│   ✅ Iron Circle       (key: "iron circle", in Vlatko entry) │
+│   ⛔ House Aldric      (CONSTANT, always loaded) — ~67t       │
+│                                                               │
+│ Pass 3 — No new activations.                                  │
+│                                                               │
+│ Total activated: 4 entries  |  ~298t / 2000t budget  ✅       │
+│                                                               │
+│ ⚠️  Circular chain detected: Vlatko → Iron Circle → Vlatko  │
+└────────────────────────────────────────────────────────────────┘
+```
+
+**Graph sync:** While the simulator is open, activated entries glow on the graph in simulation-specific colors (Pass 1 = green, Pass 2 = amber, Pass 3+ = orange). Non-activated entries dim.
+
+**Algorithm (pure JS, no AI):**
 
 ```javascript
-// Tool parameters:
-{
-  field: 'description',      // Which field to compress
-  target_tokens: 600,        // Target token budget
-  preserve_plist: true        // Keep PList notation intact if present
+function simulateActivation(testMessage, entries, options) {
+  const { scanDepth, recursionEnabled, tokenBudget } = options;
+  const activated = new Set();
+  const passes = [];
+  let usedTokens = 0;
+
+  // Always include CONSTANT entries first
+  for (const entry of entries) {
+    if (entry.constant && entry.enabled) {
+      activated.add(entry.uid);
+      usedTokens += entry.tokens;
+    }
+  }
+
+  // Build scan buffer (last N messages + test message)
+  let scanBuffer = testMessage;
+
+  // Pass 1: direct keyword scan
+  const pass1 = [];
+  for (const entry of entries) {
+    if (activated.has(entry.uid)) continue;
+    if (!entry.enabled) continue;
+    if (entry.delayUntilRecursion) continue; // skip in pass 1
+    if (_matchesKeys(scanBuffer, entry)) {
+      if (_passesSecondaryFilter(scanBuffer, entry)) {
+        if (Math.random() * 100 <= (entry.probability ?? 100)) {
+          if (usedTokens + entry.tokens <= tokenBudget) {
+            activated.add(entry.uid);
+            usedTokens += entry.tokens;
+            pass1.push(entry);
+          }
+        }
+      }
+    }
+  }
+  passes.push(pass1);
+
+  if (!recursionEnabled) return { passes, activated, usedTokens };
+
+  // Recursive passes
+  let prevActivated = new Set(pass1.map(e => e.uid));
+  let recursionStep = 0;
+
+  while (prevActivated.size > 0) {
+    recursionStep++;
+    const newContent = [...prevActivated].map(uid =>
+      entries.find(e => e.uid === uid)?.content || ''
+    ).join('\n');
+
+    const passN = [];
+    for (const entry of entries) {
+      if (activated.has(entry.uid)) continue;
+      if (!entry.enabled) continue;
+      // Check if any already-activated entry has "preventRecursion"
+      if (_anySourcePreventsRecursion(prevActivated, entries, entry)) continue;
+      if (_matchesKeys(newContent, entry)) {
+        if (usedTokens + entry.tokens <= tokenBudget) {
+          activated.add(entry.uid);
+          usedTokens += entry.tokens;
+          passN.push(entry);
+        }
+      }
+    }
+
+    if (passN.length === 0) break;
+    passes.push(passN);
+    prevActivated = new Set(passN.map(e => e.uid));
+  }
+
+  // Detect circular chains (already computed by detectRecursion())
+  return { passes, activated, usedTokens, circularChains: detectCircular(activated, entries) };
 }
 ```
 
-**Flow:**
-1. AI calls `ccs_read_field` to get current content
-2. AI calls `ccs_optimize_tokens` with the rewrite
-3. This internally calls `ccs_write_field` to stage a draft for approval
-4. The result message tells the user: "Compressed description from 847t → 592t. Waiting for approval."
+---
+
+### 4.1.8 — Node Interactions
+
+**Click (tap on mobile):** Selects node. Highlights all connected edges and neighbor nodes.
+
+**Double-click (desktop) / Tap again (mobile):** Opens the **inline node editor panel** — a side panel that slides in from the right edge of the graph overlay:
+
+```
+┌──────────────────────────────┐
+│ ✏️ Edit Entry                │
+│ Name: [Iron Circle         ] │
+│ Category: [Factions ▼]       │
+│ Keys: [iron circle] [faction]│
+│ Strategy: ● Keyword          │
+│ Position: [After Char ▼]     │
+│ Order: [100    ]             │
+│ Probability: [100%   ]       │
+│ ☐ Constant  ☐ Non-recursable │
+│ ☐ Prevent recursion          │
+│ ☐ Delay until recursion      │
+│ Content:                     │
+│ [The Iron Circle is a secret]│
+│ [organization of mercenaries]│
+│ [who operate in Neo-Tokyo…  ]│
+│                              │
+│ Tokens: ~89t   [Save] [Del]  │
+└──────────────────────────────┘
+```
+
+Changes made in this panel are saved immediately to the lorebook via `updateLorebookEntry()`. The graph re-renders after save to reflect any new connections (if keys changed).
+
+**Right-click / Long-press context menu:**
+- View entry (opens side panel in read-only mode)
+- Edit entry (opens side panel in edit mode)
+- Find all connections (zooms to show this node + its neighbors, dims everything else)
+- Enable / Disable entry (toggle without opening editor)
+- Pin / Unpin node position
+- Delete entry (with confirmation)
 
 ---
 
-### 2.3 — New Tool: `ccs_generate_alt_greetings`
+### 4.1.9 — World Mode Dual Lorebook View
 
-**Files:** `core/tools.js`, `prompts/phase-instructions.js`
+When the Studio is in **World Mode** (Priority 4.4), the lore graph can display **two lorebooks simultaneously**:
 
-**What it does:** Generates multiple alternate greeting drafts in parallel, each staging a different opening scenario.
+- World lorebook nodes: larger, with a 🌍 badge
+- Character lorebook nodes: standard size, with a 👤 badge
+- Edges between the two lorebooks: shown as dashed gold arrows labeled "World link" — these represent world entries whose keywords appear in character entries, indicating the character references world lore
+
+This view makes it immediately obvious which world entries a character "uses" vs. which are orphaned in the world lorebook.
+
+---
+
+### 4.1.10 — Stats Panel
+
+A collapsible stats strip under the toolbar:
+
+```
+Entries: 23  |  Edges: 41  |  Orphaned: 3  |  Circular chains: 1
+Constant tokens: ~340t  |  Conditional tokens: ~1,240t  |  Est. usage: ~1,108t
+Largest entry: "The Iron Circle" (~189t)  |  Most connected: "Neo-Tokyo" (7 edges)
+```
+
+---
+
+### 4.1.11 — Export
+
+**Export PNG:** Renders the current canvas view (with all nodes, edges, minimap hidden) to a full-resolution PNG. The graph is rendered to an offscreen canvas at 2x resolution first, then `canvas.toBlob()` → download link.
+
+**Export SVG:** Not supported (canvas-based renderer doesn't have an SVG equivalent). PNG only.
+
+---
+
+### 4.1.12 — New AI Tools for the Lore Graph
+
+#### `ccs_read_lore_graph()`
+
+Returns a JSON summary of the current lorebook's graph topology for AI reasoning:
 
 ```javascript
-// Tool parameters:
+// Returns:
 {
-  count: 3,          // How many greetings to generate
-  themes: ['morning', 'conflict', 'mystery']  // Optional tone hints per greeting
+  entries: [{ uid, name, category, tokens, constant, enabled, keys, flags }],
+  edges: [{ from_uid, to_uid, type: 'direct'|'conditional'|'group' }],
+  orphaned: [uid, ...],
+  circularChains: [[uid, uid, ...], ...],
+  stats: { totalEntries, totalTokens, estimatedUsage, mostConnected }
 }
 ```
 
-**Flow:** AI generates `count` alternate greetings and calls `ccs_write_field` for each (`greeting_index: 0`, `greeting_index: 1`, etc.). User can apply or skip each independently.
+Use case: AI can call this before suggesting lore structure improvements — it sees which entries are isolated, which are overconnected, which create loops.
+
+#### `ccs_suggest_lore_connections()`
+
+AI reads the full lorebook content (via `ccs_read_lore_entries`) and the graph topology (via `ccs_read_lore_graph`), then suggests:
+
+1. **New keyword additions:** "The 'Iron Circle' entry should add 'mercenary' as a secondary key, since the 'Combat Mercenaries' entry mentions it but doesn't link back."
+2. **Bridge entries:** "There's no entry linking 'Commander Vlatko' to 'Neo-Tokyo' despite both being major nodes — suggest creating an NPC entry for Vlatko's handler in the city."
+3. **Loop warnings:** "Entries #4 and #7 form a circular recursion chain. Consider adding 'Prevent further recursion' to #7."
+4. **Orphan resolution:** "Entry 'The Old Quarter' has no keys in any other entry's content — it will never activate via recursion. Add 'old quarter' to the 'Neo-Tokyo' entry."
+
+The AI stages these as **suggestions in the chat**, not as automatic changes.
 
 ---
 
-### 2.4 — New Tool: `ccs_semantic_search`
+### 4.1.13 — Mobile Compatibility
 
-**Files:** `core/tools.js`, `prompts/phase-instructions.js`
+The full-screen graph overlay uses the same bottom-sheet overlay system as the settings modal (appended to `#ccs_window`, full-viewport).
 
-**What it does:** Scans all card fields + lorebook entries for a concept or keyword, returning matches. Lets the AI resolve contradictions or compile background facts before writing.
+Mobile-specific behaviors:
+- **Pinch to zoom** via `TouchEvent` handling on the canvas
+- **Single-finger pan** on empty canvas space
+- **Tap to select** node
+- **Long-press** for context menu (300ms delay)
+- **Node editor panel** slides up from the bottom instead of from the right (bottom-sheet style)
+- **Simulator panel** and **Search bar** are collapsible via a bottom drawer
+- Grid snap and lasso selection are **disabled on mobile** (too hard to use with touch)
+- Minimap is **hidden on mobile** (too small to be useful)
+
+---
+
+### 4.1.14 — Files
+
+| File | Action | Description |
+|------|--------|-------------|
+| `ui/lore-graph-v2.js` | **[NEW]** | Full canvas-based renderer + physics + interaction |
+| `ui/lore-graph.js` | **[KEEP]** | Old SVG renderer, kept as lightweight fallback, but the graph button in the Lore tab now calls lore-graph-v2 |
+| `ui/app.js` | **[MODIFY]** | Update graph button to open the full-screen overlay, import new tools |
+| `core/tools.js` | **[MODIFY]** | Add `ccs_read_lore_graph`, `ccs_suggest_lore_connections` |
+| `prompts/phase-instructions.js` | **[MODIFY]** | Add tool definitions for new AI tools |
+| `style.css` | **[MODIFY]** | Full-screen graph overlay styles, node editor panel, simulator panel |
+
+---
+
+## 🖼️ 4.2 — Avatar Generation Hook (v5.0)
+
+### Overview
+
+A two-step flow where the AI writes an optimized image generation prompt based on the character's Description and visual traits, the user reviews and optionally edits it, then clicks Generate to submit it to SillyTavern's existing image generation pipeline.
+
+### 4.2.1 — Flow
+
+```
+User: "Generate an avatar for her"
+  ↓
+AI calls: ccs_generate_avatar_prompt({ style: 'cinematic' })
+  ↓
+AI returns a staged prompt in the chat:
+  ┌────────────────────────────────────────────────────────┐
+  │ 🖼️ Avatar Prompt Ready                                 │
+  │                                                        │
+  │ Style: Cinematic portrait                              │
+  │                                                        │
+  │ Positive: "young woman, silver hair, pale skin, violet │
+  │ eyes, mysterious expression, elegant court dress,      │
+  │ dramatic lighting, dark fantasy, oil painting style,  │
+  │ highly detailed, 8k"                                   │
+  │                                                        │
+  │ Negative: "deformed, blurry, watermark, lowres,        │
+  │ extra limbs, bad anatomy"                              │
+  │                                                        │
+  │ [✏️ Edit Prompt]  [▶ Generate Avatar]  [✕ Dismiss]   │
+  └────────────────────────────────────────────────────────┘
+  ↓ (user clicks Generate)
+  ↓
+CCS calls ST's image generation API
+  ↓
+ST generates the image, CCS sets it as the character's avatar
+  ↓
+Toast: "Avatar generated and applied! ✅"
+```
+
+### 4.2.2 — Tool: `ccs_generate_avatar_prompt`
 
 ```javascript
-// Tool parameters:
+// Parameters:
 {
-  query: 'sword fighting'   // Natural language or keyword
+  style: 'cinematic' | 'anime' | 'painterly' | 'realistic',  // optional, default 'cinematic'
+  emphasis: 'face' | 'full_body' | 'bust',                   // optional, default 'bust'
+  extra_tags: ['dark fantasy', 'dramatic lighting']          // optional user hints
+}
+
+// AI constructs this from:
+// 1. session.cardFields.description (visual traits mentioned)
+// 2. session.conceptBrief (appearance section if present)
+// 3. session.personalityMatrix (extreme values suggest visual traits)
+// 4. The style parameter determines aesthetic framing
+```
+
+### 4.2.3 — ST Integration Research Needed
+
+Before implementation, audit ST's image generation API surface:
+- `SillyTavernDocs/extensions/` — check for image generation hooks
+- Look for `ctx.generateQuietPrompt` pattern used by other extensions
+- Check ST-Copilot reference code for how it calls generation pipelines
+- Determine if SD/DALL-E/ComfyUI all share a unified API or need separate branches
+
+### 4.2.4 — Edit Prompt UI
+
+The "Edit Prompt" button opens an inline editor in the chat message:
+```
+Positive prompt: [editable textarea                          ]
+Negative prompt: [editable textarea                          ]
+Style: [Cinematic ▼]   Emphasis: [Bust ▼]
+[▶ Generate with edits]
+```
+
+### 4.2.5 — Error Handling
+
+- If no image generation is configured in ST → show actionable error: "No image generator configured. Go to ST's Extensions → Image Generation to set one up."
+- If generation fails → show error toast with ST's error message
+- If avatar is set successfully → re-render the character name area in the topbar to show the new avatar thumbnail
+
+### 4.2.6 — Files
+
+| File | Action | Description |
+|------|--------|-------------|
+| `core/tools.js` | **[MODIFY]** | Add `toolGenerateAvatarPrompt`, `toolSubmitAvatarGeneration` |
+| `ui/chat.js` | **[MODIFY]** | Render avatar prompt staged message with Edit/Generate/Dismiss buttons |
+| `prompts/phase-instructions.js` | **[MODIFY]** | Add `ccs_generate_avatar_prompt` tool definition |
+| `style.css` | **[MODIFY]** | Avatar prompt card styles |
+
+---
+
+## 📖 4.3 — Chat Log Analysis Tool (v5.0)
+
+### Overview
+
+The user selects how many recent messages to analyze (via a slider). The AI reads that chat history alongside the current card content, identifies character drift and evolution, and stages targeted field updates as drafts for the user to approve or reject.
+
+### 4.3.1 — Flow
+
+```
+User: "Analyze how she's evolved in our roleplay"
+  ↓
+UI shows a slider: "Analyze last N messages" [====●====] 50
+And a Generate button
+  ↓
+CCS reads ctx.chat (last N messages)
+CCS reads all card fields
+  ↓
+AI receives:
+  - Current card fields (description, personality, scenario, etc.)
+  - Last N messages (formatted as [USER] / [CHAR] pairs)
+  - Task: identify drift, evolution, inconsistencies, propose updates
+  ↓
+AI calls ccs_write_field() for each suggested update
+  (updates are staged as drafts — NOT applied automatically)
+  ↓
+AI also writes a chat analysis report in its message:
+  ┌────────────────────────────────────────────────────────┐
+  │ 📖 Chat Log Analysis — 50 messages                     │
+  │                                                        │
+  │ Character Evolution:                                   │
+  │ • She started formal, grew more playful by message 30  │
+  │ • Developed a catchphrase "as you wish, my liege"     │
+  │ • Her fear of water was never referenced after msg 12  │
+  │                                                        │
+  │ Proposed Card Updates: (3 drafts staged for approval)  │
+  │ • Personality: Added "playful undercurrent"            │
+  │ • First Message: Updated to reflect evolved tone       │
+  │ • Mes Examples: Added new catchphrase example          │
+  │                                                        │
+  │ Inconsistencies Found:                                 │
+  │ • Card says "hates crowds" but actively sought them    │
+  │   in messages 15, 22, 31                               │
+  └────────────────────────────────────────────────────────┘
+```
+
+### 4.3.2 — Message Range Slider
+
+The slider appears when the user says something like "analyze my chat" — a quick-action chip that shows the slider before submitting:
+
+```
+┌────────────────────────────────────────┐
+│ 📖 Analyze Chat Log                    │
+│ Messages to analyze:                   │
+│ [10 ●━━━━━━━━━━━━━━━━━━━━━] 200        │
+│              50 messages               │
+│                                        │
+│ [▶ Start Analysis]  [✕ Cancel]         │
+└────────────────────────────────────────┘
+```
+
+### 4.3.3 — Token Budget Awareness
+
+Reading 200 messages could be 10k+ tokens. Before sending:
+1. Count tokens in the message range
+2. If > 4000t, show a warning: "200 messages = ~6,200 tokens. Consider reducing to ~50 messages (~1,500t) for better results."
+3. Older messages are summarized first (use session memory summaries if available)
+
+### 4.3.4 — Tool: `ccs_analyze_chat_logs`
+
+This is handled via the normal `sendMessage()` flow — there's no separate JS tool call. The AI receives the message history as part of the user's message context. The AI then calls existing `ccs_write_field()` to stage the proposed updates.
+
+A helper function is added to prepare the message context:
+```javascript
+function _buildChatLogContext(messageCount) {
+  const messages = getCtx()?.chat?.slice(-messageCount) || [];
+  return messages.map(m =>
+    `[${m.is_user ? 'USER' : 'CHAR'}] ${m.mes}`
+  ).join('\n\n');
 }
 ```
 
-**Implementation:** Pure JS — reads all fields from `ctx.getCharacterCardFields()` and lorebook entries from `getLorebookEntries()`, does case-insensitive substring search, returns matching excerpts. No API call needed.
+### 4.3.5 — Files
+
+| File | Action | Description |
+|------|--------|-------------|
+| `ui/app.js` | **[MODIFY]** | Chat log slider UI, `_buildChatLogContext()` helper |
+| `ui/chat.js` | **[MODIFY]** | Render analysis result message with evolution summary |
+| `style.css` | **[MODIFY]** | Analysis slider UI, analysis result card styles |
 
 ---
 
-### 2.5 — Lore Tab: AI-Driven Category Folders
+## 🏗️ 4.4 — World / Campaign Mode (v5.0)
 
-**Files:** `ui/app.js` (`_renderLoreTab()`), `core/lorebook.js`
+### Overview
 
-**Problem:** The Lore Tab is a flat list. Large lorebooks become unmanageable.
+A fully separate **"World" mode** in the Studio mode selector (alongside Studio, Janitor, HTML, Image Prompt). This mode is for building **shared world lorebooks** — worlds that multiple characters can inhabit.
 
-**What to build:**
-- The `category` field already exists in `ccs_create_lore_entry` — the AI already assigns categories
-- Group lore entries in the UI into expandable folder-style accordions by category
-- Categories: Geography, Factions, NPCs, Magic System, Items, History, Culture, Rules (Constant)
-- Entries without a category go into an "Uncategorized" folder
-- Each folder shows entry count badge + can be collapsed/expanded
-- The AI is instructed in the Lore phase prompt to **always assign a category** when creating entries
+Each character's Studio session can link to a world lorebook. A **Campaign View** shows all characters that belong to a world as a visual card wall, with cross-world intelligence indicators.
 
 ---
 
-### 2.6 — Lorebook Context Injection
+### 4.4.1 — Storage Architecture
 
-**Files:** `prompts/phase-instructions.js`, `core/session.js`
+**World sessions:** Stored in localforage (same as character sessions) under a special key pattern:
+```javascript
+`world_session_${worldName}` // e.g., "world_session_World of Aethoria"
+```
 
-**Problem:** The AI doesn't know what's already in the lorebook unless it explicitly calls `ccs_read_lore_entries`. For large lorebooks, this burns tokens. For small ones, it should happen automatically.
+A world session has its own schema (see 4.4.6).
 
-**What to build:**
-- In `buildSystemPrompt()`, if a lorebook is selected (`session.lorebookName`) and has ≤ 20 entries, auto-inject a compact lorebook summary into the system prompt:
+**Global registry:** Stored in `extensionSettings.CharCardStudio.worldRegistry`:
+```javascript
+{
+  worlds: {
+    "World of Aethoria": {
+      lorebookName: "World of Aethoria",
+      characters: ["avatar_commander_vlatko", "avatar_miroslava"],
+      createdAt: 1748303245,
+      lastModified: 1748303245
+    }
+  }
+}
+```
+
+**Character → World link:** Each character session gets a new field:
+```javascript
+session.linkedWorld = "World of Aethoria" | null
+```
+
+This allows the Campaign View to query all sessions and group them by world.
+
+**Linking flow:** A character can be linked to a world:
+1. Inside their Studio session → new "Link to World" dropdown in the Lore tab header
+2. Inside the World mode Campaign View → drag-and-drop or "Link Character" button
+
+---
+
+### 4.4.2 — World Mode: UI Entry
+
+A new option in the mode selector dropdown:
+```html
+<option value="world">🌍 World Builder</option>
+```
+
+When this mode is selected:
+- The right panel shows **World** tabs instead of Concept/Card/Lore:
+  - **⚡ Ideation** — world concept brief
+  - **🗺️ World Lore** — the world's primary lorebook (same Lore tab UI)
+  - **👥 Campaign** — all characters linked to this world
+
+---
+
+### 4.4.3 — World Mode: Phase Flow
+
+**Phase 1 — World Ideation:**
+- AI asks: What kind of world? Genre, conflict, factions, tech level, tone?
+- AI calls `ccs_write_brief()` to produce a **World Brief** (same concept brief system, different template)
+- World Brief template:
+  ```markdown
+  ## World Brief: [Working Title]
+  **Genre:** [Dark Fantasy / Sci-Fi / Historical / etc.]
+  **Scale:** [City / Nation / Planet / Multiverse]
+  **Central Conflict:** [What's the main tension driving events?]
+  **Factions:** [List with 1-line descriptions]
+  **Tone:** [Grim & gritty / Epic / Cozy / etc.]
+  **Key Themes:** [Power, betrayal, survival, etc.]
+  **What makes it unique:** [1-2 sentences]
+  ### Open Questions
+  [Things to resolve before building entries]
   ```
-  ━━━ CURRENT LOREBOOK SUMMARY ━━━
-  Selected: "World of Aethoria" (12 entries)
-  • [Geography] Neo-Tokyo (keys: neo-tokyo, city)
-  • [Factions] Iron Circle (keys: iron circle, faction)
-  ...
-  Use ccs_read_lore_entries for full content.
-  ```
-- If > 20 entries, just inject the count and category breakdown — don't list all entries
+
+**Phase 2 — World Build:**
+- AI creates lorebook entries for the world (geography, factions, species, rules, history)
+- Uses ALL existing lore tools: `ccs_create_lore_entry`, `ccs_update_lore_entry`, etc.
+- The AI is instructed to categorize every entry carefully (they will be shared across characters)
+- Constant entries are used for world rules that always need to be in context
+- New AI tool: `ccs_find_lore_gaps()` (see 4.4.5)
+
+**Phase 3 — World Review:**
+- Run coherence audit on the world lorebook (same `runCoherenceAudit()` system)
+- Open lore graph to check for orphaned entries and missing connections
+- New AI tool: `ccs_generate_character_from_lore()` — propose a character concept that fits the world
 
 ---
 
-## 🌐 Priority 3 — New Features (Significant Effort, High Value)
+### 4.4.4 — Campaign View
 
----
+**Location:** The "Campaign" tab inside World Mode.
 
-### 3.1 — Visual Lore Graph
+**Layout:** A visual **card wall** — responsive grid of character cards:
 
-**Files:** New `ui/lore-graph.js`, `ui/app.js`, `style.css`
-
-**Background:** An interactive node graph (like Obsidian's graph view) showing how lorebook entries link to each other via trigger keywords.
-
-**How it works:**
-- Nodes = lorebook entries (colored by category)
-- Edges = keyword overlaps (Entry A's content contains Entry B's key → draw arrow A→B)
-- Instantly reveals: orphaned entries (no connections), recursion loops (A→B→A), and clusters
-- Clicking a node opens the entry detail
-
-**Technical approach:**
-- Lightweight custom SVG force-directed graph (no D3.js — too heavy)
-- Physics: simple spring simulation (repulsion between nodes + attraction along edges)
-- Rendered into a `<svg>` element inside the Lore Tab
-- Toggle button: "List View" ↔ "Graph View"
-
-**Why valuable:** Makes recursion loops (`detectRecursion()` already flags these) instantly *visible* instead of just logged. Orphaned entries become obvious at a glance.
-
----
-
-### 3.2 — Visual Personality Radar Chart
-
-**Files:** New `ui/personality-radar.js`, `ui/app.js`, `core/session.js`, `style.css`
-
-**What to build:**
-- A small SVG radar/spider chart in the Concept Tab (collapsible, hidden by default)
-- 6 axes: Introvert↔Extrovert, Logical↔Emotional, Chaotic↔Orderly, Gentle↔Aggressive, Serious↔Playful, Secretive↔Open
-- User drags nodes to set values (0-100 per axis)
-- Values stored in `session.personalityMatrix` (object: `{introvert: 70, logical: 40, ...}`)
-- A "Generate from Matrix" button: sends the matrix values to the AI as context to draft a personality paragraph that reflects the settings
-
----
-
-### 3.3 — Contextual Inline "Ask AI" (Text Selection Rewrite)
-
-**Files:** `ui/app.js` (card tab field handling), `ui/chat.js`
-
-**What to build:**
-- In the card field full-content view (expand a field), user can select text
-- A floating mini-toolbar appears near the selection with options:
-  - ✏️ "Rewrite" — sends only the selected sentence(s) to the AI for refinement
-  - 🔊 "Make more dramatic"
-  - ✂️ "Condense"
-  - 💬 "Custom..." — opens a small input for custom instruction
-- The AI receives: [selected text] + [instruction] + [field context]
-- Returns a rewrite which is diffed against the original and staged as a draft for just that snippet
-
-**Mobile caveat:** Selection API is unreliable on mobile — hide this feature on mobile viewports.
-
----
-
-### 3.4 — Split-Screen Workspace
-
-**Files:** `ui/app.js`, `style.css`, templates
-
-**What to build:**
-- A "Wide Mode" toggle in the top bar (desktop only)
-- In Wide Mode: chat panel permanently visible on the left (40%), active editor panel on the right (60%)
-- No more tab switching between Chat and Card/Concept
-- The right panel shows whichever tab was last active (Concept, Card, Lore, Scratchpad)
-- Persisted in `session.wideMode` or `extensionSettings`
-
----
-
-## 🏗️ Priority 4 — Major New Systems (Architectural, Long-Term)
-
----
-
-### 4.1 — World / Campaign Mode
-
-**Background (user's idea):** Currently the studio creates single character cards. The user wants to create **world lorebooks first** (factions, races, geography, magic system, NPCs), and then create **multiple characters** who all live in that world. Each character gets their own secondary lorebook that references the main world lorebook.
-
-**Model:**
 ```
-World Lorebook (Primary) — "World of Aethoria"
-  ├── [Geography] The Shattered Wastes
-  ├── [Factions] House Aldric, The Iron Circle
-  ├── [Species] Aether Elves, Ironborn
-  ├── [Rules] Magic system, tech level, time period
-  └── [History] The Sundering War
-
-Character A — "Commander Vlatko"
-  ├── Links to: World of Aethoria (always loaded in ST)
-  └── Secondary Lorebook: "Vlatko's World"
-        ├── NPCs specific to Vlatko's story
-        ├── Personal history entries
-        └── Locations only Vlatko visits
-
-Character B — "Miroslava the Alchemist"
-  ├── Links to: World of Aethoria
-  └── Secondary Lorebook: "Miroslava's World"
-        └── Her own specific entries...
+┌──────────────────────────────────────────────────────┐
+│ 🌍 World of Aethoria — Campaign View                 │
+│ 3 characters  |  World lore: 24 entries, ~1,240t     │
+│ [+ Link Character]  [📊 World Analysis]              │
+├──────────────────────────────────────────────────────┤
+│ ┌─────────────┐  ┌─────────────┐  ┌─────────────┐  │
+│ │ [avatar]    │  │ [avatar]    │  │ [avatar]    │  │
+│ │ Commander   │  │ Miroslava   │  │ [+ Add New  │  │
+│ │ Vlatko      │  │ Alchemist   │  │  Character] │  │
+│ │ ──────────  │  │ ──────────  │  │             │  │
+│ │ 8 lore      │  │ 5 lore      │  │             │  │
+│ │ entries     │  │ entries     │  │             │  │
+│ │ ⚠️ 2 heavy  │  │ ✅ Clean    │  │             │  │
+│ │             │  │             │  │             │  │
+│ │ [Open]      │  │ [Open]      │  │             │  │
+│ └─────────────┘  └─────────────┘  └─────────────┘  │
+└──────────────────────────────────────────────────────┘
 ```
 
-**New Studio Mode: "World" Mode**
+**Opening a character from Campaign View:** Clicking "Open" switches the Studio to Studio mode and loads that character's session. The world context remains injected.
 
-A new mode alongside Studio, Janitor, HTML, etc. with its own phase flow:
+**Linking a character:** Clicking "+ Link Character" shows a list of all known CCS sessions (queried from localforage). User selects one → that character's `session.linkedWorld` is set.
 
-- **World Ideation Phase:** AI brainstorms world concepts — "What kind of world? What factions? What's the conflict?" — iterating via the Concept Brief system
-- **World Build Phase:** AI creates lorebook entries for the world (geography, factions, species, rules). These are the "Primary Lorebook" entries.
-- **Character Phase:** User can switch to Studio mode, and the AI knows about the world lorebook. It creates character cards that are coherent with the world.
-- **Campaign View:** A new tab showing all characters linked to a world, their secondary lorebooks, and cross-character links
-
-**Session model changes needed:**
-- `session.worldLorebook` — name of the primary world lorebook
-- `session.worldMode` — boolean for world mode
-- Campaign sessions that persist multiple character → world relationships
-
-**This is a v5.0 feature.** Needs design discussion before implementation. The current architecture CAN support it — `lorebookName` already exists in session, tool calls already exist for lorebook CRUD. The work is primarily UI and session model extensions.
+**Creating a new character from the world:** Clicking "+ Add New Character" switches to Studio mode with a world-aware start prompt: "Create a new character for the world [World of Aethoria]. The AI knows the world lorebook and will suggest coherent characters."
 
 ---
 
-### 4.2 — Avatar Generation Hook
+### 4.4.5 — New AI Tools for World Mode
 
-**Files:** `core/tools.js`, `prompts/phase-instructions.js`
+#### `ccs_find_lore_gaps()`
 
-**New tool: `ccs_generate_avatar(prompt)`**
+```javascript
+// Parameters: none (reads current lorebook automatically)
+// AI analyzes existing entries and identifies structural gaps:
+// - "Faction 'Iron Circle' is mentioned but has no leader NPC"
+// - "Geography entries mention 'the north' but no entry defines it"
+// - "Magic system entry has no rules entry limiting its use"
+// - "3 character NPCs reference 'The Old War' — no history entry for it"
+```
 
-Hook into SillyTavern's existing image generation integration (Stable Diffusion / DALL-E) to:
-1. Have the AI write an optimized image generation prompt based on the character's Description field
-2. Submit it to ST's image generation pipeline
-3. Set the generated image as the character's avatar
+#### `ccs_generate_character_from_lore()`
 
-**Implementation research needed:** ST's image generation API surface needs to be checked against the SillyTavernDocs. Look in `SillyTavernDocs/extensions/` for image generation hooks.
+```javascript
+// Parameters:
+{
+  role: 'protagonist' | 'antagonist' | 'side_character' | 'npc',  // optional
+  faction: 'Iron Circle',                                           // optional affiliation
+  card_type: 'A' | 'B' | 'C'                                      // optional type
+}
+// AI reads the world lorebook via ccs_read_lore_entries
+// Proposes a character concept that fits:
+// - The world's factions
+// - The world's geography
+// - The world's tone and rules
+// AI writes a World-aware Concept Brief and proposes transitioning to Studio mode
+```
 
----
+#### `ccs_analyze_world_coherence()`
 
-### 4.3 — Chat Log Analysis Tool
+```javascript
+// Checks if the current character session is consistent with its linked world lorebook:
+// - Does the character reference factions that exist in the world?
+// - Does the character's description use world-specific terms correctly?
+// - Are there any contradictions between character lore and world rules?
+// Returns a coherence report (same format as runCoherenceAudit)
+```
 
-**New tool: `ccs_analyze_chat_logs(messages)`**
+#### `ccs_read_lore_graph()` (also used in 4.1)
 
-Reads the user's roleplay history with the character to:
-- Summarize character growth and relationship evolution that emerged in RP
-- Automatically suggest card field updates that reflect the evolved state
-- Flag inconsistencies between the card and how the character actually played out
+Returns graph topology including multi-lorebook data when in World Mode.
 
-**Implementation:** Read `ctx.chat` (ST's current chat array), take the last N messages, send to AI with the current card content, have the AI compare and suggest targeted updates via `ccs_write_field`.
+#### `ccs_suggest_lore_connections()` (also used in 4.1)
 
----
-
-## 📋 Minor / Housekeeping Items
-
-These are small improvements that can be done anytime:
-
-- **`pillars.js` tags mapping:** Verify `ST_TO_CCS` includes `tags: 'tags'` — currently may still be missing
-- **`lorebook.js` recursion logic:** Verify the dependency graph direction in `detectRecursion()` is correct (the reversed mapping bug from the original plan)
-- **Tab event racing fix:** Wrap DOM updates in generation state check — disable input elements during AI generation to prevent chips/buttons reappearing
-- **Export/Backup Manager:** Export the full CCS session (messages, pillars, drafts, brief) as a JSON file. Import it back. Useful for sharing sessions or recovering from character deletion.
-- **Inline Context Tooltips:** Hovering over a field label shows a tooltip explaining what the field does and best-practice tips (e.g., hovering over "Scenario" shows: "Sets the permanent world frame. NOT for specific scene locations.")
-
----
-
-## 🔖 Implementation Priority Summary
-
-| # | Feature | Effort | Impact | Start Here? |
-|---|---------|--------|--------|-------------|
-| 1.1 | Prompt Enrichment (v6 alignment) | Medium | 🔥🔥🔥 | **YES** |
-| 1.2 | Token Budget Visualizer | Low | 🔥🔥🔥 | **YES** |
-| 1.3 | Scorecard AI Fix Buttons | Low | 🔥🔥 | **YES** |
-| 1.4 | Dynamic Theme Sync | Low | 🔥🔥🔥 | **YES** |
-| 2.1 | Concept Brief System | Medium | 🔥🔥🔥 | After P1 |
-| 2.2 | Tool: optimize_tokens | Low | 🔥🔥 | After P1 |
-| 2.3 | Tool: generate_alt_greetings | Low | 🔥🔥 | After P1 |
-| 2.4 | Tool: semantic_search | Low | 🔥🔥 | After P1 |
-| 2.5 | Lore Category Folders | Medium | 🔥🔥 | After P1 |
-| 2.6 | Lorebook Context Injection | Low | 🔥🔥 | After P1 |
-| 3.1 | Visual Lore Graph | High | 🔥🔥🔥 | After P2 |
-| 3.2 | Personality Radar Chart | Medium | 🔥 | After P2 |
-| 3.3 | Inline Ask AI | Medium | 🔥🔥 | After P2 |
-| 3.4 | Split-Screen Workspace | Medium | 🔥🔥 | After P2 |
-| 4.1 | World / Campaign Mode | Very High | 🔥🔥🔥🔥 | v5.0 |
-| 4.2 | Avatar Generation | Medium | 🔥🔥 | v5.0 |
-| 4.3 | Chat Log Analysis | Medium | 🔥🔥🔥 | v5.0 |
+Can operate across both the character lorebook and the linked world lorebook simultaneously in World Mode.
 
 ---
 
-## 🗒️ Open Design Questions (Discuss Before Implementing)
+### 4.4.6 — World Session Schema
 
-1. **Concept Brief vs Pillars** — Brief is the ideation narrative document, Pillars are the build checklist. Should the Brief *generate* pillars automatically when the user approves a direction, or should that still be manual/conversational?
+```javascript
+{
+  // Identity
+  _type: 'world',                    // Distinguishes from character sessions
+  worldName: 'World of Aethoria',    // The world's name
+  lorebookName: 'World of Aethoria', // The bound primary lorebook
 
-2. **World Mode Architecture** — When in World Mode, does the AI still use the same `build` phase tools (`ccs_write_field`) for the world lorebook entries? Or should World Mode bypass card fields entirely and go straight to `ccs_create_lore_entry`? What does the "card" even represent for a World session?
+  // Brief / Ideation
+  conceptBrief: null,                // World brief (same field, world template)
+  briefAnnotation: '',               // User annotations
 
-3. **PList platform differentiation** — Should the target platform (SillyTavern vs JanitorAI) be a setting in the settings modal, or should the AI ask during Ideation?
+  // State
+  phase: 'ideate' | 'build' | 'review',
+  messages: [],                      // Chat history for this world session
+  createdAt: timestamp,
+  lastModified: timestamp,
 
-4. **Lore Graph performance** — For lorebooks with 50+ entries, the force-directed graph could get expensive. Should we implement a simplified static layout first (grid by category) and add physics later?
+  // No card fields — world sessions don't have character card data
+  // No pillarStates — world doesn't use the pillar system
+  // No personalityMatrix — N/A for worlds
+}
+```
 
-5. **`ccs_analyze_chat_logs` scope** — How many messages? 50? 100? The last full story arc? Should the user be able to select a range?
+---
 
+### 4.4.7 — Cross-World Intelligence (Campaign Analysis)
 
+Activated via the "📊 World Analysis" button in Campaign View. Runs a pure-JS scan, no AI call needed:
 
-## EXTRA THOUGHTS - Do not implement them yet, i will say when to do so
-1. The system instructions should not be incluced to be generated
-2. The ai must know that not all fields are required to be filled, especially the persoanlity field is not required for world type cards
+**Analysis 1: Token weight warning**
+- Identify world lorebook entries with > 200 tokens
+- These are "heavy" — they inflate context for every character that uses the world
+- Report: "3 entries exceed 200t: [The Sundering War, Iron Circle History, Magic System]. Consider splitting these."
+
+**Analysis 2: NPC name conflicts**
+- Scan all linked character lorebooks for entries that share the same name
+- Check if their content contradicts each other
+- Report: "Character A and Character B both have an NPC entry named 'General Aldric' — they describe him differently."
+
+---
+
+### 4.4.8 — Session Manager Extensions Needed
+
+```javascript
+// New functions in core/session.js:
+
+// Load a world session
+async function loadWorldSession(worldName) { ... }
+
+// Save a world session
+async function saveWorldSession(worldSession) { ... }
+
+// Get all character sessions linked to a world
+async function getLinkedCharacters(worldName) { ... }
+
+// Link a character to a world
+async function linkCharacterToWorld(characterAvatar, worldName) { ... }
+
+// Get global world registry
+function getWorldRegistry() { ... }
+
+// Update global world registry
+function updateWorldRegistry(worldName, data) { ... }
+```
+
+---
+
+### 4.4.9 — Files
+
+| File | Action | Description |
+|------|--------|-------------|
+| `ui/app.js` | **[MODIFY]** | World mode tab UI, Campaign View, phase flow, mode selector option |
+| `core/session.js` | **[MODIFY]** | World session schema, `loadWorldSession`, `saveWorldSession`, `getLinkedCharacters`, `linkCharacterToWorld`, world registry functions |
+| `core/tools.js` | **[MODIFY]** | `ccs_find_lore_gaps`, `ccs_generate_character_from_lore`, `ccs_analyze_world_coherence` |
+| `prompts/phase-instructions.js` | **[MODIFY]** | World mode phase prompts (world ideation, world build, world review), new tool definitions |
+| `style.css` | **[MODIFY]** | Campaign View styles, world mode tab styles, character card wall grid |
+| `templates/window.html` | **[MODIFY]** | Add World mode option to mode selector |
+
+---
+
+## 📊 Priority 4 Implementation Summary
+
+| # | Feature | Effort | Impact | Notes |
+|---|---------|--------|--------|-------|
+| 4.1 | Advanced Lore Graph (canvas rebuild) | Very High | 🔥🔥🔥🔥 | New file `lore-graph-v2.js`, full canvas renderer |
+| 4.1a | — Physics simulation + layout | High | | Core of the rebuild |
+| 4.1b | — Keyword simulator (pure JS) | Medium | | No AI needed, pure activation algorithm |
+| 4.1c | — Node editor panel | Medium | | Inline lorebook editing from graph |
+| 4.1d | — Mobile compatibility | Medium | | Touch events, bottom-sheet panels |
+| 4.1e | — AI graph tools | Low | | `ccs_read_lore_graph`, `ccs_suggest_lore_connections` |
+| 4.2 | Avatar Generation Hook | Medium | 🔥🔥🔥 | Needs ST API research first |
+| 4.3 | Chat Log Analysis | Medium | 🔥🔥🔥 | Slider UI + context builder |
+| 4.4 | World / Campaign Mode | Very High | 🔥🔥🔥🔥🔥 | Full new mode, session schema changes |
+| 4.4a | — World mode session/storage | High | | Most architectural work |
+| 4.4b | — World phase flow + prompts | Medium | | World-specific AI prompt layers |
+| 4.4c | — Campaign View card wall | Medium | | Visual UI for linked characters |
+| 4.4d | — Cross-world AI tools | Medium | | `ccs_find_lore_gaps`, `ccs_generate_character_from_lore`, `ccs_analyze_world_coherence` |
+| 4.4e | — Dual-lorebook graph view | Medium | | Extension of 4.1 |
+
+---
+
+## 🗒️ Open Design Questions (Resolve Before Implementing)
+
+1. **ST Avatar API surface:** Before implementing 4.2, audit exactly what ST exposes for image generation (which extensions, what function signatures, whether SD/DALL-E/ComfyUI are unified). This determines if 4.2 is a 1-day task or a 1-week task.
+
+Answer - Search in docs if not, then leave it be
+
+2. **Campaign View character loading:** When the user opens a character from Campaign View, the Studio needs to load that character's session AND switch to Studio mode. This involves loading a different character in ST (`ctx.selectCharacter()`?). Need to verify the ST API for programmatic character switching.📿
+
+3. **World lorebook binding in ST:** When building the world, should CCS automatically bind the world lorebook to each character via ST's character → lorebook binding? Or leave that to the user? (ST supports this via the API: `ctx.getCharacterCardFields()` + `ctx.saveCharacterCardFields()`.) The automatic approach is more seamless but could surprise the user.
+
+Answer - automatically bind
+
+4. **Lore graph performance ceiling:** What's the maximum number of nodes before we switch from physics to static layout automatically? Proposed: 80+ nodes → static cluster layout (physics optional via toggle). Needs testing.
+
+Answer - 60 nodes (or an option to disable unnecessary stuff to avoid lag)
+
+5. **Multi-lorebook graph layout:** When showing both world and character lorebooks simultaneously in World Mode graph view, how do we visually separate them? Proposed: world entries in the center/top half of the canvas, character entries in the bottom half, with gold cross-lorebook edges. Or should they be intermixed and distinguished only by the badge?
+
+Asnwer - yeah do it like that
+
+6. **Campaign View vs character selection in ST:** CCS shows the Campaign View with character avatars. Clicking a character needs to actually load that character in ST (not just show their CCS session). Do we call `ctx.selectCharacter(avatar_filename)`? If the character is in a different ST folder, does this work? Need to verify.
+
+Answer - verify and do it
+
+---
+
+## 🚫 Not in v5.0 (Future Consideration)
+
+- **Vector embedding integration** for lore graph (similarity-based connections, not keyword-based)
+- **STscript Automation ID visualization** in the lore graph (entries with automation IDs shown with a ⚡ badge)
+- **Timed effects visualization** in the lore simulator (sticky/cooldown/delay timed effects)
+- **Chat background generation** (separate from avatar generation)
+
+---

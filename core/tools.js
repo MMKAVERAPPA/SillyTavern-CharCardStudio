@@ -1,5 +1,5 @@
 /**
- * CharCardStudio v4.1.0 — Tool Implementations
+ * CharCardStudio v5.0.0 — Tool Implementations
  *
  * All 13 tools that the agent can call. Each tool receives parameters
  * and returns a result string that gets injected back into the conversation.
@@ -64,8 +64,10 @@ const TOOLS = {
   ccs_set_platform:      toolSetPlatform,
   ccs_write_brief:       toolWriteBrief,
   ccs_read_brief:        toolReadBrief,
-  ccs_optimize_tokens:   toolOptimizeTokens,
-  ccs_semantic_search:   toolSemanticSearch,
+  ccs_optimize_tokens:        toolOptimizeTokens,
+  ccs_semantic_search:        toolSemanticSearch,
+  ccs_read_lore_graph:        toolReadLoreGraph,
+  ccs_suggest_lore_connections: toolSuggestLoreConnections,
 };
 
 /**
@@ -1110,4 +1112,138 @@ async function toolSemanticSearch(params) {
   }
 
   return { result: lines.join('\n') };
+}
+
+// ─── Tool 19: Read Lore Graph ─────────────────────────────────────────────────
+
+/**
+ * Return the current lorebook's graph topology as a readable summary.
+ * Used by the AI to reason about connectivity before suggesting improvements.
+ */
+async function toolReadLoreGraph() {
+  try {
+    const { getLoreGraphData } = await import('../ui/lore-graph-v2.js');
+    const entries = await getLorebookEntries(false);
+    if (!entries || entries.length === 0) {
+      return { result: 'No lorebook entries found. Select a lorebook first.' };
+    }
+    const graphData = getLoreGraphData(entries);
+    const summary = [
+      `Lore Graph Topology (${graphData.stats.totalEntries} entries, ${graphData.edges.length} edges):`,
+      ``,
+      `Stats:`,
+      `  Total entries: ${graphData.stats.totalEntries}`,
+      `  Total edges (activation links): ${graphData.edges.length}`,
+      `  Orphaned entries (no connections): ${graphData.stats.orphanedCount}`,
+      `  Circular chains detected: ${graphData.stats.circularChainCount}`,
+      `  Total token weight: ~${graphData.stats.totalTokens}t`,
+      `  Most connected entry: ${graphData.stats.mostConnected ? `"${graphData.stats.mostConnected.name}" (${graphData.stats.mostConnected.edgeCount} edges)` : 'N/A'}`,
+      ``,
+      `Orphaned entries:`,
+      ...(graphData.orphaned.length > 0
+        ? graphData.orphaned.map(uid => {
+          const e = graphData.entries.find(en => en.uid === uid);
+          return `  - "${e?.name || uid}" [${e?.category || '?'}] (~${e?.tokens || 0}t) — no keyword connections`;
+        })
+        : ['  None']),
+      ``,
+      `Circular chains:`,
+      ...(graphData.circularChains.length > 0
+        ? graphData.circularChains.map((chain, i) => `  ${i + 1}. ${chain.join(' → ')}`)
+        : ['  None']),
+      ``,
+      `Entry list (name | category | keys | tokens | in/out edges):`,
+      ...graphData.entries.map(e => {
+        const outgoing = graphData.edges.filter(ed => ed.from === e.uid).length;
+        const incoming = graphData.edges.filter(ed => ed.to === e.uid).length;
+        const flags = [
+          e.constant ? 'CONSTANT' : null,
+          !e.enabled ? 'DISABLED' : null,
+          (e.flags?.probability ?? 100) < 100 ? `${e.flags.probability}%` : null,
+        ].filter(Boolean);
+        return `  [${e.category}] "${e.name}" | keys: ${e.keys.join(', ') || 'none'} | ~${e.tokens}t | in:${incoming} out:${outgoing}${flags.length ? ' | ' + flags.join(', ') : ''}`;
+      }),
+    ];
+    return { result: summary.join('\n') };
+  } catch (e) {
+    return { result: `Error reading lore graph: ${e.message}` };
+  }
+}
+
+// ─── Tool 20: Suggest Lore Connections ──────────────────────────────────────────
+
+/**
+ * Pure-JS analysis of lorebook connectivity. Returns concrete suggestions.
+ */
+async function toolSuggestLoreConnections() {
+  try {
+    const { getLoreGraphData } = await import('../ui/lore-graph-v2.js');
+    const entries = await getLorebookEntries(false);
+    if (!entries || entries.length === 0) {
+      return { result: 'No lorebook entries found. Select a lorebook first.' };
+    }
+    const graphData = getLoreGraphData(entries);
+    const suggestions = [];
+
+    // 1. Orphaned entries
+    for (const uid of graphData.orphaned) {
+      const orphan = graphData.entries.find(e => e.uid === uid);
+      if (!orphan) continue;
+      if (orphan.keys.length === 0) {
+        suggestions.push(`⚠ Entry "${orphan.name}" [${orphan.category}] has NO keywords. It will never activate. Add at least one trigger keyword.`);
+      } else {
+        const potentialLinkers = entries.filter(e => {
+          if (e.uid === uid) return false;
+          const content = (e.content || '').toLowerCase();
+          return orphan.keys.some(k => content.includes(k.toLowerCase()));
+        });
+        if (potentialLinkers.length > 0) {
+          suggestions.push(`🔗 Entry "${orphan.name}" appears referenced in "${potentialLinkers[0].name || 'another entry'}" but has no inbound edges. Check that the keyword spelling matches.`);
+        } else {
+          suggestions.push(`🏝 Entry "${orphan.name}" [${orphan.category}] is isolated (keys: ${orphan.keys.join(', ')}). Add its keywords to a related hub entry to pull it into the activation network.`);
+        }
+      }
+    }
+
+    // 2. Circular chains
+    for (const chain of graphData.circularChains) {
+      suggestions.push(`🔄 Circular activation chain detected: ${chain.join(' → ')}. Consider enabling "Prevent further recursion" on the last entry to avoid runaway activation.`);
+    }
+
+    // 3. Heavy entries (>250t)
+    const heavyEntries = graphData.entries.filter(e => e.tokens > 250 && e.enabled);
+    for (const e of heavyEntries) {
+      suggestions.push(`🏋 Entry "${e.name}" [${e.category}] is heavy (~${e.tokens}t). If constant, this costs tokens on every message. Consider splitting it or making it conditional.`);
+    }
+
+    // 4. No keys and not constant
+    const noKeyEntries = graphData.entries.filter(e => e.keys.length === 0 && !e.constant && e.enabled);
+    for (const e of noKeyEntries) {
+      suggestions.push(`❓ Entry "${e.name}" [${e.category}] is not constant and has no keywords — it will never activate. Add trigger keywords or make it constant.`);
+    }
+
+    // 5. Hub nodes with prevent-further-recursion (would block many chains)
+    const outgoingCounts = {};
+    for (const edge of graphData.edges) {
+      outgoingCounts[edge.from] = (outgoingCounts[edge.from] || 0) + 1;
+    }
+    const blockingHubs = graphData.entries.filter(e => (outgoingCounts[e.uid] || 0) >= 4 && e.flags?.preventFurtherRecursion);
+    for (const e of blockingHubs) {
+      suggestions.push(`⛔ Entry "${e.name}" has ${outgoingCounts[e.uid]} outgoing connections but "Prevent further recursion" is on — it blocks all cascade activations from it. Is this intentional?`);
+    }
+
+    if (suggestions.length === 0) {
+      return { result: 'The lorebook graph looks well-connected! No major structural issues found.\n\nAll entries have keywords, no orphans, and no circular chains.' };
+    }
+
+    return { result: [
+      `Lore Connection Analysis — ${suggestions.length} suggestion${suggestions.length !== 1 ? 's' : ''}:`,
+      '',
+      ...suggestions.map((s, i) => `${i + 1}. ${s}`),
+      '',
+      'Tip: Open the Lore Graph overlay (🗺️ button in the Lore tab) to see these connections visualized interactively.',
+    ].join('\n') };
+  } catch (e) {
+    return { result: `Error analyzing lore connections: ${e.message}` };
+  }
 }

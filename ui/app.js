@@ -1,5 +1,5 @@
 /**
- * CharCardStudio v4.2.1 — ui/app.js
+ * CharCardStudio v5.0.0 — ui/app.js
  * App shell: popup lifecycle, tab switching, session integration, mobile detection
  */
 
@@ -10,7 +10,7 @@ import {
 } from '../core/session.js';
 import { acquireLock, releaseLock, isLocked, onLockConflict } from '../core/multi-tab.js';
 import { calculateProgress, getSubProgress, addWorldPillar, removeWorldPillar } from '../core/pillars.js';
-import { getLorebookEntries, getLorebookTokenBudget, detectRecursion, listWorldInfoBooks, createWorldInfoBook } from '../core/lorebook.js';
+import { getLorebookEntries, getLorebookTokenBudget, detectRecursion, listWorldInfoBooks, createWorldInfoBook, updateLorebookEntry, deleteLorebookEntry } from '../core/lorebook.js';
 import { calculateStarRating, renderStarHtml } from '../core/validators.js';
 import { cancelAllGenerations, isGenerating } from '../core/silent-generation.js';
 import { countTokensSync, countTokensForFields } from '../core/token-utils.js';
@@ -22,7 +22,7 @@ import { getFieldHistory, buildFieldDiffHtml } from '../core/field-history.js';
 import { sendMessage, triggerAIReview } from './chat.js';
 import { openPromptInspector } from './prompt-inspector.js';
 import { runCoherenceAudit } from '../core/coherence-audit.js';
-import { renderLoreGraph, destroyLoreGraph } from './lore-graph.js';
+import { openLoreGraphOverlay, getLoreGraphData } from './lore-graph-v2.js';
 import { renderRadarChart, matrixToPromptString } from './personality-radar.js';
 
 // ─── State ───────────────────────────────────────────────────────────────────
@@ -34,7 +34,6 @@ let _activeMobileTab = 'chat';
 let _defaultWelcomeHtml = null;
 let _themeSyncObserver = null;  // MutationObserver for live theme sync
 let _isWideMode = false;        // Priority 3.4: Split-screen workspace state
-let _loreViewMode = 'list';     // Priority 3.1: 'list' | 'graph' per lore-tab session
 const MOBILE_BREAKPOINT = 768;
 
 // ─── DOM Helpers ─────────────────────────────────────────────────────────────
@@ -1309,47 +1308,18 @@ async function _renderLoreTab() {
 
     let html = '';
 
-    // Book info bar with "Change" button + view toggle
+    // ── Book info bar with Change + new fullscreen Graph Overlay button ──────
     html += `<div class="ccs-lb-info-bar">
         <span class="ccs-lb-info-name"><i class="fa-solid fa-book"></i> ${escapeHtml(bookName)}</span>
         <div class="ccs-lb-info-actions">
-            <button class="ccs-lb-view-btn ${_loreViewMode === 'list' ? 'active' : ''}" id="ccs_lb_list_btn" title="List View">
-                <i class="fa-solid fa-list"></i>
-            </button>
-            <button class="ccs-lb-view-btn ${_loreViewMode === 'graph' ? 'active' : ''}" id="ccs_lb_graph_btn" title="Graph View">
-                <i class="fa-solid fa-diagram-project"></i>
+            <button class="ccs-lb-graph-overlay-btn" id="ccs_lb_graph_overlay_btn" title="Open interactive Lore Graph">
+                <i class="fa-solid fa-diagram-project"></i> Lore Graph
             </button>
             <button class="ccs-lb-change-btn" id="ccs_lb_change_btn" title="Switch lorebook">
                 <i class="fa-solid fa-arrows-rotate"></i> Change
             </button>
         </div>
     </div>`;
-
-    // ── Graph View ────────────────────────────────────────────────────────
-    if (_loreViewMode === 'graph') {
-        html += `<div id="ccs_lore_graph_container" class="ccs-lore-graph-container"></div>`;
-        loreEl.innerHTML = html;
-
-        // Wire buttons before async graph render
-        _wireLoreViewBtns(loreEl, entries);
-
-        const graphContainer = loreEl.querySelector('#ccs_lore_graph_container');
-        if (graphContainer && entries.length > 0) {
-            // Use a small delay so the container has a real clientWidth
-            setTimeout(() => {
-                renderLoreGraph(graphContainer, entries, (clickedEntry) => {
-                    showToast(`Entry: ${clickedEntry.name || 'Unnamed'}`, 'info', 2000);
-                });
-            }, 50);
-        } else if (graphContainer) {
-            graphContainer.innerHTML = '<div class="ccs-graph-empty">No lorebook entries to display.</div>';
-        }
-        return;
-    }
-
-    // Destroy any stale graph when switching to list
-    const staleGraphEl = loreEl.querySelector('#ccs_lore_graph_container');
-    if (staleGraphEl) destroyLoreGraph(staleGraphEl);
 
     // ── List View ─────────────────────────────────────────────────────────
     // Token budget
@@ -1461,7 +1431,7 @@ async function _renderLoreTab() {
 }
 
 /**
- * Wire the List/Graph view toggle buttons into the lore tab.
+ * Wire the Change lorebook + Graph overlay button into the lore tab.
  * @param {HTMLElement} loreEl
  * @param {Array} entries
  */
@@ -1470,17 +1440,32 @@ function _wireLoreViewBtns(loreEl, entries) {
         updateSession({ lorebookName: null });
         _renderLoreTab();
     });
-    loreEl.querySelector('#ccs_lb_list_btn')?.addEventListener('click', () => {
-        if (_loreViewMode !== 'list') {
-            _loreViewMode = 'list';
-            _renderLoreTab();
+
+    // Open the new fullscreen graph overlay
+    loreEl.querySelector('#ccs_lb_graph_overlay_btn')?.addEventListener('click', async () => {
+        const session = getSession();
+        const currentEntries = entries.length > 0 ? entries : await getLorebookEntries(session.lorebookName, false);
+        if (!currentEntries || currentEntries.length === 0) {
+            showToast('No lorebook entries to display in graph.', 'warning', 2500);
+            return;
         }
-    });
-    loreEl.querySelector('#ccs_lb_graph_btn')?.addEventListener('click', () => {
-        if (_loreViewMode !== 'graph') {
-            _loreViewMode = 'graph';
-            _renderLoreTab();
-        }
+        openLoreGraphOverlay(currentEntries, {
+            onEntryEdit: async (uid, changes) => {
+                // Propagate edits back to ST lorebook
+                try {
+                    await updateLorebookEntry(uid, changes);
+                } catch (e) {
+                    console.warn('[CCS] Could not propagate graph edit to lorebook:', e.message);
+                }
+            },
+            onEntryDelete: async (uid) => {
+                try {
+                    await deleteLorebookEntry(uid);
+                } catch (e) {
+                    console.warn('[CCS] Could not delete entry from lorebook:', e.message);
+                }
+            },
+        });
     });
 }
 

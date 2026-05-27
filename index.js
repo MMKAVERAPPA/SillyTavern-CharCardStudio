@@ -1,5 +1,5 @@
 /**
- * CharCardStudio v4.0.0 — index.js
+ * CharCardStudio v5.0.0 — index.js
  * Entry point. Loaded by SillyTavern as type="module".
  *
  * Responsibilities:
@@ -55,7 +55,7 @@ function getRequestHeaders() {
 // ─── Initialization ───────────────────────────────────────────────────────────
 
 async function init() {
-    console.log('[CCS] Initializing Character Card Studio v4.2.1...');
+    console.log('[CCS] Initializing Character Card Studio v5.0.0...');
 
     // 1. Initialize session manager (localforage)
     initSessionManager();

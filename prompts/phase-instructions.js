@@ -1,5 +1,5 @@
 /**
- * CharCardStudio v4.1.0 — Phase Instructions & Tool Definitions
+ * CharCardStudio v5.0.0 — Phase Instructions & Tool Definitions
  *
  * Layer 3: Per-phase behavioral prompts (fully expanded from v6 preset)
  * Layer 4: Tool definition block for JSON-block calling
@@ -195,7 +195,18 @@ RECURSION GUIDE:
 
 AFTER CREATING ENTRIES:
   Review for: orphaned entries (no likely triggers in conversation), keyword collisions (too-generic keys), recursion loops.
-  Suggest using ccs_read_lore_entries to verify the structure looks correct.`,
+  Use ccs_read_lore_graph to get a full topology summary (in/out edges per entry, orphaned nodes, circular chains).
+  Use ccs_suggest_lore_connections to get concrete structural improvement suggestions automatically.
+  Suggest these to the user proactively if you see potential connectivity issues.
+
+TOOLS AVAILABLE IN THIS PHASE:
+  - ccs_create_lore_entry: create a new entry (staged for approval)
+  - ccs_read_lore_entries: read existing entries
+  - ccs_update_lore_entry: edit an entry (staged)
+  - ccs_delete_lore_entry: remove an entry
+  - ccs_read_lore_graph: get topology summary (orphans, edges, circular chains)
+  - ccs_suggest_lore_connections: get prioritized improvement suggestions
+  - ccs_semantic_search: find entries matching a concept`,
 
   audit: `
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -357,6 +368,19 @@ TOOLS:
       query: string — natural language or keyword to search for
       max_results: number (optional) — max matches to return (default: 10)
     Use to: find contradictions, compile facts about a topic, check if something is mentioned.
+
+18. ccs_read_lore_graph — Read the current lorebook's connection topology as a structured summary
+    Parameters: none
+    Returns: all entries, their keywords, token counts, in/out edges, orphaned nodes, and circular chains.
+    Use when: the user asks "what's connected to what?", "are there any orphaned entries?", "how is the lorebook structured?", or before suggesting improvements.
+    Use in: Lore phase only (requires a lorebook to be selected).
+
+19. ccs_suggest_lore_connections — Analyze the lorebook graph and return actionable improvement suggestions
+    Parameters: none
+    Returns: a prioritized list of structural issues — orphaned entries, circular chains, keyless entries, heavy constant entries, and blocking hubs.
+    Use when: the user asks to "improve the lorebook", "check for problems", or "optimize lore connectivity".
+    Never run this before ccs_read_lore_graph — always read first, then suggest if needed.
+    Use in: Lore phase only.
 `;
 
 
