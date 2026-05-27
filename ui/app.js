@@ -1,5 +1,5 @@
 /**
- * CharCardStudio v4.0.0 — ui/app.js
+ * CharCardStudio v4.2.1 — ui/app.js
  * App shell: popup lifecycle, tab switching, session integration, mobile detection
  */
 
@@ -726,7 +726,9 @@ function _showAuditModal(report) {
         </div>
     </div>`;
 
-    document.body.appendChild(overlay);
+    // Inject inside #ccs_window (same stacking context fix as settings modal)
+    const _auditContainer = el('ccs_window') || document.body;
+    _auditContainer.appendChild(overlay);
 
     overlay.querySelector('#ccs_audit_close').addEventListener('click', () => overlay.remove());
     overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
@@ -814,6 +816,19 @@ function _renderCardTab() {
         alternateGreetings: 'Alt. Greetings',
     };
 
+    // Inline Context Tooltips (housekeeping) — hover over a field label to see its purpose.
+    const FIELD_TIPS = {
+        description:        'Most important field. AI sees it constantly. Five paragraphs: Core Concept, Appearance, Personality, Voice & Mannerisms, Relationship to {{user}}. Target 400–900 tokens.',
+        personality:        'Brief supplementary traits (2–5 sentences). Anything deeper belongs in Description. Optional — leave empty if Description is thorough.',
+        scenario:           'Permanent world context: setting, time period, important lore. NOT for the opening scene location — that belongs in First Message only.',
+        firstMessage:       'The heart of the card. Written from {{char}} perspective ONLY. Never describe {{user}}\u2019s actions. Use the Flipped Scenario Technique. End open-endedly.',
+        mesExamples:        'Show HOW {{char}} talks, not just what. Cover 2+ emotional situations. Include one exchange about appearance. Use <START> / {{user}}: / {{char}}: format.',
+        system:             'DO NOT auto-generate. Belongs to the user\u2019s roleplay setup in ST settings, not the card. Only write if user explicitly requests it. Keep under 100 tokens.',
+        creatorNotes:       'Visible only to the card creator. Use for internal notes, trigger warnings, usage tips, or version info. Not sent to the AI in normal roleplay.',
+        charDepthPrompt:    'Character Note (Depth 4, System role). For ST: PList goes here. For JanitorAI: PList goes at the bottom of Scenario instead — NOT here.',
+        alternateGreetings: 'Each greeting = a completely different opening scenario. First greeting is the universal default. Additional greetings expand replay value dramatically.',
+    };
+
     let totalTokens = 0;
 
     const rows = Object.entries(FIELD_LABELS).map(([key, label]) => {
@@ -841,11 +856,13 @@ function _renderCardTab() {
 
         const history = getFieldHistory(session, ccsKey);
         const hasHistory = history && history.length > 0;
+        const tip = FIELD_TIPS[key] || '';
+        const tipAttr = tip ? ` title="${tip.replace(/"/g, '&quot;')}"` : '';
 
         return `
             <div class="ccs-field-row ${hasContent ? 'ccs-field-row--filled' : 'ccs-field-row--empty'} ${wasManuallyEdited ? 'ccs-field-row--edited' : ''}" data-field="${key}" data-ccs-field="${ccsKey}">
                 <div class="ccs-field-header">
-                    <span class="ccs-field-label">${label}</span>
+                    <span class="ccs-field-label"${tipAttr}>${label}${tip ? ' <i class="fa-regular fa-circle-question ccs-field-tip-icon" aria-hidden="true"></i>' : ''}</span>
                     ${wasManuallyEdited ? '<span class="ccs-badge ccs-badge--warning" title="Externally edited">✏️</span>' : ''}
                     <span class="ccs-field-tokens">${hasContent ? `~${tokens}t` : 'empty'}</span>
                     
@@ -888,12 +905,18 @@ function _renderCardTab() {
     }).join('');
 
     // ─── Token Budget Visualizer ────────────────────────────────────────────
-    // Build a rough segmented budget bar from sync estimates
+    // Build a rough segmented budget bar from sync estimates.
+    // Thresholds: green < 2000t, amber < 3000t, red >= 3000t (per Plan spec).
+    const BUDGET_CAP = 4000;   // bar is "full" at 4000t (cards can go up to 4k)
+    const WARN_AMBER = 2000;   // orange warning threshold
+    const WARN_RED   = 3000;   // red danger threshold
+
     const SEGMENT_FIELDS = [
-        { label: 'Desc+Persona', keys: ['description', 'personality'], color: 'var(--ccs-accent)' },
-        { label: 'Scenario+FM', keys: ['scenario', 'first_mes'], color: '#5c8dd6' },
-        { label: 'Examples+Sys', keys: ['mes_example', 'system_prompt'], color: '#56a56a' },
-        { label: 'Notes+Greets', keys: ['creator_notes', 'character_note', 'alternate_greetings'], color: '#b07d2e' },
+        { label: 'Desc+Persona',  keys: ['description', 'personality'],                                color: 'var(--ccs-accent)' },
+        { label: 'Scenario+FM',   keys: ['scenario', 'first_mes'],                                     color: '#5c8dd6' },
+        { label: 'Examples+Sys',  keys: ['mes_example', 'system_prompt'],                              color: '#56a56a' },
+        { label: 'Notes+Greets',  keys: ['creator_notes', 'character_note', 'alternate_greetings'],    color: '#b07d2e' },
+        { label: 'Lorebook',      keys: ['_lorebook'],                                                  color: '#8b6cca', async: true },
     ];
 
     // Map the FIELD_LABELS key → CCS field name for token counting
@@ -910,14 +933,18 @@ function _renderCardTab() {
         const val = Array.isArray(fields[key]) ? fields[key].join('\n---\n') : (fields[key] || '');
         ccsTokenMap[keyToCcs[key] || key] = countTokensSync(val);
     });
+    // Lorebook starts at 0 — async upgrade fills it in
+    ccsTokenMap['_lorebook'] = 0;
+
+    const _calcBudgetColor = (total) =>
+        total < WARN_AMBER ? 'var(--ccs-success)' : total < WARN_RED ? 'var(--ccs-warning)' : 'var(--ccs-error)';
 
     const segmentTotals = SEGMENT_FIELDS.map(seg => ({
         ...seg,
         tokens: seg.keys.reduce((sum, k) => sum + (ccsTokenMap[k] || 0), 0),
     }));
     const budgetTotal = segmentTotals.reduce((sum, s) => sum + s.tokens, 0);
-    const BUDGET_CAP = 3000; // tokens where bar is "full"
-    const budgetColor = budgetTotal < 1500 ? 'var(--ccs-success)' : budgetTotal < 2500 ? 'var(--ccs-warning)' : 'var(--ccs-error)';
+    const budgetColor = _calcBudgetColor(budgetTotal);
 
     const budgetBarHtml = `
         <div class="ccs-token-budget-bar-wrap">
@@ -928,7 +955,7 @@ function _renderCardTab() {
             <div class="ccs-token-budget-bar">
                 ${segmentTotals.map(seg => {
                     const pct = Math.min(100, (seg.tokens / BUDGET_CAP) * 100);
-                    return pct > 0 ? `<div class="ccs-token-budget-segment" style="width:${pct}%; background:${seg.color};" title="${seg.label}: ~${seg.tokens}t"></div>` : '';
+                    return pct > 0 ? `<div class="ccs-token-budget-segment" style="width:${pct}%; background:${seg.color};" title="${seg.label}: ~${seg.tokens}t"></div>` : '<div class="ccs-token-budget-segment" style="width:0%;" data-placeholder></div>';
                 }).join('')}
             </div>
             <div class="ccs-token-budget-legend">
@@ -941,17 +968,35 @@ function _renderCardTab() {
     fieldsEl.innerHTML = budgetBarHtml + rows || '<p class="ccs-empty-state">No fields found.</p>';
     if (tokensEl) tokensEl.textContent = `~${totalTokens}t`;
 
-    // Async upgrade: replace estimates with real token counts
+    // Async upgrade: replace estimates with real token counts + fetch lorebook budget
     const fieldContents = {};
     Object.entries(FIELD_LABELS).forEach(([key]) => {
         const val = Array.isArray(fields[key]) ? fields[key].join('\n---\n') : (fields[key] || '');
         if (val.trim()) fieldContents[key] = val;
     });
+
+    // Helper: refresh the budget bar visuals using a complete CCS token map
+    const _refreshBudgetBar = (updatedCcsMap) => {
+        const budgetTotalEl = fieldsEl.querySelector('.ccs-token-budget-total');
+        if (!budgetTotalEl) return;
+        const realTotal = SEGMENT_FIELDS.reduce((sum, seg) =>
+            sum + seg.keys.reduce((s, k) => s + (updatedCcsMap[k] || 0), 0), 0);
+        budgetTotalEl.textContent = `${realTotal}t`;
+        budgetTotalEl.style.color = _calcBudgetColor(realTotal);
+        const allSegEls  = fieldsEl.querySelectorAll('.ccs-token-budget-segment');
+        const allKeyEls  = fieldsEl.querySelectorAll('.ccs-token-budget-key');
+        SEGMENT_FIELDS.forEach((seg, i) => {
+            const t    = seg.keys.reduce((s, k) => s + (updatedCcsMap[k] || 0), 0);
+            const pct  = Math.min(100, (t / BUDGET_CAP) * 100);
+            if (allSegEls[i]) { allSegEls[i].style.width = `${pct}%`; allSegEls[i].title = `${seg.label}: ${t}t`; }
+            if (allKeyEls[i]) allKeyEls[i].textContent = `${seg.label}: ${t}t`;
+        });
+    };
+
     if (Object.keys(fieldContents).length > 0) {
         countTokensForFields(fieldContents).then(counts => {
             let newTotal = 0;
-            // Build updated CCS token map for budget bar refresh
-            const updatedCcsMap = {};
+            const updatedCcsMap = { ...ccsTokenMap }; // carry forward lorebook=0 until async fills it
             for (const [key, count] of Object.entries(counts)) {
                 const row = fieldsEl.querySelector(`[data-field="${key}"]`);
                 const tokenSpan = row?.querySelector('.ccs-field-tokens');
@@ -960,34 +1005,27 @@ function _renderCardTab() {
                 const ccsKey = keyToCcs[key] || key;
                 updatedCcsMap[ccsKey] = count;
             }
-            // Add zero-content fields back as 0
             if (tokensEl) tokensEl.textContent = `${newTotal}t`;
+            _refreshBudgetBar(updatedCcsMap);
 
-            // Refresh budget bar total label with real counts
-            const budgetTotalEl = fieldsEl.querySelector('.ccs-token-budget-total');
-            if (budgetTotalEl) {
-                const realTotal = SEGMENT_FIELDS.reduce((sum, seg) =>
-                    sum + seg.keys.reduce((s, k) => s + (updatedCcsMap[k] || 0), 0), 0);
-                const realColor = realTotal < 1500 ? 'var(--ccs-success)' : realTotal < 2500 ? 'var(--ccs-warning)' : 'var(--ccs-error)';
-                budgetTotalEl.textContent = `${realTotal}t`;
-                budgetTotalEl.style.color = realColor;
-                // Update segments
-                SEGMENT_FIELDS.forEach((seg, i) => {
-                    const segEl = fieldsEl.querySelectorAll('.ccs-token-budget-segment')[i];
-                    if (segEl) {
-                        const t = seg.keys.reduce((s, k) => s + (updatedCcsMap[k] || 0), 0);
-                        const pct = Math.min(100, (t / BUDGET_CAP) * 100);
-                        segEl.style.width = `${pct}%`;
-                        segEl.title = `${seg.label}: ${t}t`;
-                    }
-                    const keyEl = fieldsEl.querySelectorAll('.ccs-token-budget-key')[i];
-                    if (keyEl) {
-                        const t = seg.keys.reduce((s, k) => s + (updatedCcsMap[k] || 0), 0);
-                        keyEl.textContent = `${seg.label}: ${t}t`;
-                    }
-                });
-            }
+            // Fetch lorebook token budget asynchronously and update the Lorebook segment
+            getLorebookTokenBudget().then(budget => {
+                const loreTok = budget?.estimatedUsage || 0;
+                if (loreTok > 0) {
+                    updatedCcsMap['_lorebook'] = loreTok;
+                    _refreshBudgetBar(updatedCcsMap);
+                }
+            }).catch(() => { /* lorebook budget is best-effort */ });
         }).catch(() => { /* token upgrade is best-effort */ });
+    } else {
+        // No card fields — still try to show lorebook tokens
+        getLorebookTokenBudget().then(budget => {
+            const loreTok = budget?.estimatedUsage || 0;
+            if (loreTok > 0) {
+                const updatedCcsMap = { ...ccsTokenMap, '_lorebook': loreTok };
+                _refreshBudgetBar(updatedCcsMap);
+            }
+        }).catch(() => { /* lorebook budget is best-effort */ });
     }
 
     // Bind event handlers (once)
@@ -1516,12 +1554,15 @@ function _showInlineToolbar(selectionRect) {
     const toolbar = document.getElementById('ccs_inline_toolbar');
     if (!toolbar) return;
 
-    // Position just above the selection
-    const top = selectionRect.top + window.scrollY - toolbar.offsetHeight - 8;
-    const left = Math.max(4, selectionRect.left + window.scrollX + selectionRect.width / 2 - 100);
+    // On mobile the toolbar is CSS-docked above the tab bar — no JS positioning needed
+    if (!_isMobile) {
+        // Position just above the selection
+        const top = selectionRect.top + window.scrollY - toolbar.offsetHeight - 8;
+        const left = Math.max(4, selectionRect.left + window.scrollX + selectionRect.width / 2 - 100);
+        toolbar.style.top = `${top}px`;
+        toolbar.style.left = `${left}px`;
+    }
 
-    toolbar.style.top = `${top}px`;
-    toolbar.style.left = `${left}px`;
     toolbar.classList.remove('ccs-hidden');
     toolbar.classList.add('ccs-inline-toolbar--visible');
 }

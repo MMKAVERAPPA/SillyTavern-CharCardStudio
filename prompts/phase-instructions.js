@@ -69,7 +69,16 @@ BEFORE STARTING:
   If format is unknown, check session context or ask.
 
 BUILD ORDER (follow unless user requests differently):
-  description → personality → system_prompt → scenario → first_mes → mes_example → creator_notes → character_note → alternate_greetings → tags
+  description → personality → scenario → first_mes → mes_example → creator_notes → character_note → alternate_greetings → tags
+
+  CRITICAL — NOT ALL FIELDS ARE REQUIRED:
+  - Only fill what makes sense for the card concept and type.
+  - Type A (Single Char): All fields potentially relevant. Personality is optional if Description covers it.
+  - Type B (Multi-Char): Personality rarely needed — cover ensemble dynamics in Description.
+  - Type C (World/Scenario): SKIP personality entirely. Focus on description, scenario, first_mes.
+  - Type D (NPC): Skip personality, mes_example, alternate_greetings unless user asks.
+  - DO NOT generate system_prompt under any circumstances. Users set this themselves in ST settings.
+  - A card with only Description + First Message can still be excellent.
 
 FOR EACH FIELD:
   1. Briefly explain what you're about to write and why (2-3 sentences max).
@@ -92,12 +101,10 @@ PERSONALITY:
   Prose: 2-5 sentences of supplementary traits. Brief. Anything deeper belongs in Description.
   PList+Ali:Chat: Use a supporting PList here, or leave empty if the Description Ali:Chat is sufficient.
 
-SYSTEM PROMPT:
-  Keep under 100 tokens ideally. 200 max. Every token must earn its place.
-  Write what the AI SHOULD do, not what it shouldn't.
-  NEVER use "don't / never / do not" — use "refrain, avoid, abstain".
-  Prompts that work: specific language style, NPC generation rules, genre tags, style inspiration.
-  Prompts that don't work: "Always stay in character", "Remember everything", "Don't write for {{user}}".
+SYSTEM PROMPT (DO NOT AUTO-GENERATE):
+  This field belongs to the user's roleplay setup in ST, not the character card.
+  NEVER write content into this field unless the user explicitly says "write me a system prompt".
+  If asked: keep under 100 tokens. Write what AI SHOULD do, not what it shouldn't.
 
 SCENARIO:
   Permanent world context — sets the situation frame.
@@ -445,7 +452,7 @@ export async function buildSystemPrompt(session) {
   if (session?.lorebookName) {
     try {
       const { getLorebookEntries } = await import('../core/lorebook.js');
-      const loreData = await getLorebookEntries({ include_content: false });
+      const loreData = await getLorebookEntries(false); // false = use TTL cache, don't force refresh
       const entries = loreData?.entries || [];
 
       if (entries.length > 0 && entries.length <= 20) {

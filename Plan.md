@@ -527,6 +527,6 @@ These are small improvements that can be done anytime:
 
 
 
-## EXTRA THOUGHTS
+## EXTRA THOUGHTS - Do not implement them yet, i will say when to do so
 1. The system instructions should not be incluced to be generated
 2. The ai must know that not all fields are required to be filled, especially the persoanlity field is not required for world type cards

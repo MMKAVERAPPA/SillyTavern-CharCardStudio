@@ -1106,6 +1106,23 @@ html {
   color: var(--ccs-warning);
 }
 
+/* Inline Context Tooltip icon (housekeeping) */
+.ccs-field-tip-icon {
+  font-size: 10px;
+  opacity: 0.3;
+  cursor: help;
+  margin-left: 2px;
+  transition: opacity 0.15s;
+  vertical-align: middle;
+}
+.ccs-field-row:hover .ccs-field-tip-icon {
+  opacity: 0.6;
+}
+.ccs-field-label[title]:hover .ccs-field-tip-icon {
+  opacity: 0.9;
+  color: var(--ccs-accent);
+}
+
 /* ═══════════════════════════════════════════════════════════════════════════
    8. LOREBOOK ENTRIES (Lore Tab)
    ═══════════════════════════════════════════════════════════════════════════ */
@@ -1951,6 +1968,99 @@ html {
   .ccs-toast {
     min-width: unset;
     max-width: none;
+  }
+
+  /* ─── Settings Modal: bottom-sheet on mobile ───────────────────────────── */
+  /* The overlay is appended to #ccs_window (position:fixed fullscreen), so  */
+  /* position:absolute here fills that container perfectly.                  */
+  .ccs-settings-overlay {
+    position: absolute !important;
+    top: 0 !important;
+    left: 0 !important;
+    right: 0 !important;
+    bottom: 0 !important;
+    align-items: flex-end !important;
+    justify-content: center !important;
+    padding: 0 !important;
+  }
+
+  .ccs-settings-modal {
+    width: 100% !important;
+    max-width: 100% !important;
+    max-height: 92dvh !important;
+    border-radius: 20px 20px 0 0 !important;
+    animation: ccs-slide-up-sheet 0.28s cubic-bezier(0.34, 1.0, 0.64, 1) !important;
+    padding-bottom: env(safe-area-inset-bottom, 0px) !important;
+  }
+
+  @keyframes ccs-slide-up-sheet {
+    from { transform: translateY(60%); opacity: 0.5; }
+    to   { transform: translateY(0);   opacity: 1; }
+  }
+
+  /* Compact settings tab bar on small screens: hide text, keep icons */
+  .ccs-settings-tabs {
+    justify-content: space-around;
+  }
+  .ccs-settings-tab-btn span {
+    display: none;
+  }
+  .ccs-settings-tab-btn {
+    flex: 1;
+    padding: 12px 6px;
+    font-size: 14px;
+  }
+
+  /* Settings body: touch-friendly scrolling */
+  .ccs-settings-body {
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior: contain;
+  }
+
+  /* ─── Inspector / Audit Modal: bottom-sheet on mobile ─────────────────── */
+  .ccs-inspector-overlay {
+    position: absolute !important;
+    top: 0 !important;
+    left: 0 !important;
+    right: 0 !important;
+    bottom: 0 !important;
+    align-items: flex-end !important;
+    padding: 0 !important;
+  }
+
+  .ccs-inspector-modal {
+    width: 100% !important;
+    max-height: 92dvh !important;
+    border-radius: 20px 20px 0 0 !important;
+    animation: ccs-slide-up-sheet 0.28s cubic-bezier(0.34, 1.0, 0.64, 1) !important;
+    padding-bottom: env(safe-area-inset-bottom, 0px) !important;
+  }
+
+  /* ─── Inline Ask AI toolbar: dock above mobile tab bar ────────────────── */
+  .ccs-inline-toolbar {
+    position: fixed !important;
+    left: 12px !important;
+    right: 12px !important;
+    bottom: calc(var(--ccs-mobile-tabs-h) + 8px) !important;
+    top: auto !important;
+    transform: none !important;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 4px;
+    padding: 8px;
+  }
+}
+
+/* Custom instruction popup: dock above the docked toolbar on mobile */
+@media (max-width: 768px) {
+  .ccs-inline-custom-popup {
+    position: fixed !important;
+    left: 12px !important;
+    right: 12px !important;
+    bottom: calc(var(--ccs-mobile-tabs-h) + 60px) !important;
+    top: auto !important;
+    min-width: unset !important;
+    width: auto !important;
   }
 }
 

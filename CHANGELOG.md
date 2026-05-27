@@ -6,6 +6,22 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [4.2.1] — 2026-05-27
+
+### Fixed
+- **Token Budget Visualizer thresholds** — Color transitions now correctly reflect the Plan spec: green → amber at 2,000t, amber → red at 3,000t (was incorrectly set to 1,500/2,500). Bar cap extended to 4,000t to match actual card sizes.
+- **Token Budget Visualizer — Lorebook segment type bug** — `getLorebookTokenBudget()` returns `{estimatedUsage, constantTokens, ...}` but the previous fix was treating the returned object as a raw number. Now correctly extracts `.estimatedUsage` before use.
+- **Lorebook context injection force-refresh bug** — `buildSystemPrompt` was calling `getLorebookEntries({ include_content: false })` (an options object), but the function signature is `getLorebookEntries(forceRefresh?: boolean)`. The truthy object caused the cache to bypass on every single AI turn. Fixed to `getLorebookEntries(false)`.
+- **Settings modal off-screen on mobile** — The settings modal was injected into `document.body`, where SillyTavern's body transforms can cause `position:fixed` elements to clip. Now injected into `#ccs_window` and uses `position:absolute` on mobile, presenting as a bottom-sheet that slides up from below the viewport edge.
+- **Prompt Inspector modal off-screen on mobile** — Same fix as settings modal: injected into `#ccs_window`, bottom-sheet layout on mobile.
+- **Coherence Audit modal off-screen on mobile** — Same fix applied.
+- **Inline Ask AI toolbar positioning on mobile** — Toolbar was using JS pixel-positioning relative to text selection. On mobile it now CSS-docks above the bottom tab bar instead (no JS positioning conflicts). Custom instruction popup also docks above the toolbar on mobile.
+
+### Added
+- **Inline Context Tooltips** — Card field labels in the Card Tab now show a ❓ icon that reveals a best-practice tooltip on hover. All 9 card fields covered.
+
+---
+
 ## [4.2.0] — 2026-05-22
 
 Major update focused on prompt enrichment, UI/UX polish, and advanced agentic lore management (Priority 1 & 2 Roadmap).

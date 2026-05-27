@@ -101,14 +101,13 @@ EXAMPLE MESSAGES — Temporary tokens, pushed out of context eventually.
 
 CHARACTER NOTE / AUTHOR'S NOTE — Injected at depth (recommended: depth 4, frequency 1).
   For PList+Ali:Chat: THE PLIST GOES HERE. Most important placement rule.
+  This is how you instruct the AI how to roleplay the card. Use this, not System Prompt.
+
+SYSTEM PROMPT — DO NOT auto-generate this field. Users set their own system prompt in ST settings.
+  This field is managed by the user's roleplay setup, not the character card. Leave it empty.
 
 ALTERNATE GREETINGS — Multiple starting scenarios, first swipe = universal.
   Dramatically increase replay value and popularity.
-
-SYSTEM PROMPT — Instructions to the AI about how to behave.
-  Every token must earn its place. Write what AI SHOULD do, not what it shouldn't.
-  Keep under 100 tokens if possible. 200 max.
-  NEVER use "don't / never / do not" — use "refrain, avoid, abstain" if negatives are unavoidable.
 
 CREATOR NOTES — Not sent to the AI. Human-readable design notes for the card author.
   Explain the card's design intent, usage tips, content warnings.

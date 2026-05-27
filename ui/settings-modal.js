@@ -1,5 +1,5 @@
 /**
- * CharCardStudio v4.0.0 — ui/settings-modal.js
+ * CharCardStudio v4.2.1 — ui/settings-modal.js
  * Settings modal: open/close, tab switching, export/import sessions, clear data.
  */
 
@@ -85,7 +85,11 @@ async function _injectTemplate() {
     }
 
     if (html) {
-        document.body.insertAdjacentHTML('beforeend', html);
+        // Inject inside #ccs_window so position:fixed children are scoped to the CCS
+        // stacking context — this fixes the modal being clipped off-screen on mobile
+        // when ST's body has transforms or overflow:hidden applied.
+        const container = el('ccs_window') || document.body;
+        container.insertAdjacentHTML('beforeend', html);
     }
 }
 

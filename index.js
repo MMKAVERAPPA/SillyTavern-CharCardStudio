@@ -55,7 +55,7 @@ function getRequestHeaders() {
 // ─── Initialization ───────────────────────────────────────────────────────────
 
 async function init() {
-    console.log('[CCS] Initializing Character Card Studio v4.0.0...');
+    console.log('[CCS] Initializing Character Card Studio v4.2.1...');
 
     // 1. Initialize session manager (localforage)
     initSessionManager();
