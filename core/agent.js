@@ -14,6 +14,9 @@ import { parseToolCalls, stripToolCallBlocks } from './tools-fallback.js';
 import { executeToolCall } from './tools.js';
 import { buildSystemPrompt, TOOL_REMINDER } from '../prompts/phase-instructions.js';
 
+const DEBUG = false;
+const log = (...args) => DEBUG && console.log(...args);
+
 const MAX_ITERATIONS = 8;
 const MAX_HISTORY_MESSAGES = 30;
 const TOOL_RESULT_TRIM_THRESHOLD = 200;
@@ -26,7 +29,7 @@ const TOOL_RESULT_TRIM_THRESHOLD = 200;
  */
 export function initAgent(setOnSendCallback) {
   setOnSendCallback(handleUserMessage);
-  console.log('[CCS] Agent initialized — onSend callback registered.');
+  log('[CCS] Agent initialized — onSend callback registered.');
 }
 
 /**
@@ -38,8 +41,8 @@ export function initAgent(setOnSendCallback) {
 export async function handleUserMessage(text, callbacks) {
   const { appendAssistantMessage, renderDraft, setTyping } = callbacks;
   
-  console.log('[CCS] handleUserMessage called:', text.substring(0, 80));
-  console.log('[CCS] Callbacks received:', {
+  log('[CCS] handleUserMessage called:', text.substring(0, 80));
+  log('[CCS] Callbacks received:', {
     hasAppendMsg: typeof appendAssistantMessage === 'function',
     hasRenderDraft: typeof renderDraft === 'function',
     hasSetTyping: typeof setTyping === 'function',
@@ -63,7 +66,7 @@ export async function handleUserMessage(text, callbacks) {
     });
   } catch (err) {
     if (err.name === 'AbortError' || err.message?.includes('abort') || err.message?.includes('cancel')) {
-      console.log('[CCS] Generation cancelled by user.');
+      log('[CCS] Generation cancelled by user.');
       appendAssistantMessage('*Generation cancelled.*');
     } else {
       console.error('[CCS] Agent error:', err);
@@ -71,7 +74,7 @@ export async function handleUserMessage(text, callbacks) {
     }
   } finally {
     setTyping(false);
-    console.log('[CCS] Agent turn complete.');
+    log('[CCS] Agent turn complete.');
   }
 }
 
@@ -82,12 +85,12 @@ async function _agentLoop(userText, session, signal, callbacks) {
 
   // Build system prompt
   const systemPrompt = await buildSystemPrompt(session);
-  console.log('[CCS] System prompt built:', systemPrompt.length, 'chars');
+  log('[CCS] System prompt built:', systemPrompt.length, 'chars');
 
   // Assemble message history for the LLM
   // Note: The user message is already in session.messages (added by chat.js before calling us)
   const messages = _buildMessageArray(systemPrompt, session);
-  console.log('[CCS] Message array built:', messages.length, 'messages');
+  log('[CCS] Message array built:', messages.length, 'messages');
 
   let lastReasoning = '';
   let finalResponseText = '';
@@ -95,7 +98,7 @@ async function _agentLoop(userText, session, signal, callbacks) {
   for (let iteration = 0; iteration < MAX_ITERATIONS; iteration++) {
     if (signal.aborted) throw new DOMException('Aborted', 'AbortError');
 
-    console.log(`[CCS] === Iteration ${iteration + 1}/${MAX_ITERATIONS} ===`);
+    log(`[CCS] === Iteration ${iteration + 1}/${MAX_ITERATIONS} ===`);
 
     // Update typing label with iteration info
     if (iteration > 0) {
@@ -110,10 +113,10 @@ async function _agentLoop(userText, session, signal, callbacks) {
 
     // Check abort after LLM returns
     if (signal.aborted) {
-      console.log(`[CCS] Generation aborted by user after LLM call at iteration ${iteration + 1}`);
+      log(`[CCS] Generation aborted by user after LLM call at iteration ${iteration + 1}`);
       break;
     }
-    console.log('[CCS] LLM response received:', {
+    log('[CCS] LLM response received:', {
       textLength: response.text?.length || 0,
       hasReasoning: !!response.reasoning,
       textPreview: (response.text || '').substring(0, 120),
@@ -144,7 +147,7 @@ async function _agentLoop(userText, session, signal, callbacks) {
 
     // Parse for tool calls
     const { toolCalls, prose } = parseToolCalls(responseText);
-    console.log('[CCS] Parse result:', {
+    log('[CCS] Parse result:', {
       toolCallCount: toolCalls.length,
       tools: toolCalls.map(t => t.name),
       proseLength: prose.length,
@@ -152,7 +155,7 @@ async function _agentLoop(userText, session, signal, callbacks) {
 
     if (toolCalls.length === 0) {
       // No tool calls — this is the final prose response
-      console.log('[CCS] No tool calls — final prose response.');
+      log('[CCS] No tool calls — final prose response.');
       finalResponseText = responseText;
       break;
     }
@@ -162,29 +165,29 @@ async function _agentLoop(userText, session, signal, callbacks) {
 
     const toolResultParts = [];
     for (const call of toolCalls) {
-      console.log(`[CCS] Executing tool: ${call.name}`, JSON.stringify(call.parameters).substring(0, 200));
+      log(`[CCS] Executing tool: ${call.name}`, JSON.stringify(call.parameters).substring(0, 200));
       const { result, draft } = await executeToolCall(call);
-      console.log(`[CCS] Tool ${call.name} result:`, result.substring(0, 150));
+      log(`[CCS] Tool ${call.name} result:`, result.substring(0, 150));
 
       toolResultParts.push(`[Tool Result for ${call.name}]:\n${result}`);
 
       // Check abort after each tool execution
       if (signal.aborted) {
-        console.log(`[CCS] Generation aborted by user during tool execution at iteration ${iteration + 1}`);
+        log(`[CCS] Generation aborted by user during tool execution at iteration ${iteration + 1}`);
         break;
       }
 
       // If this produced a draft, notify the UI
       if (draft) {
-        console.log(`[CCS] 🎯 Draft produced! id=${draft.id} field=${draft.field} tokens=${draft.tokenCount}`);
+        log(`[CCS] 🎯 Draft produced! id=${draft.id} field=${draft.field} tokens=${draft.tokenCount}`);
         try {
           renderDraft(draft);
-          console.log('[CCS] renderDraft callback called successfully.');
+          log('[CCS] renderDraft callback called successfully.');
         } catch (renderErr) {
           console.error('[CCS] renderDraft FAILED:', renderErr);
         }
       } else {
-        console.log(`[CCS] Tool ${call.name} returned no draft.`);
+        log(`[CCS] Tool ${call.name} returned no draft.`);
       }
     }
 
@@ -206,7 +209,7 @@ async function _agentLoop(userText, session, signal, callbacks) {
 
   // Clean final response
   const cleanResponse = stripToolCallBlocks(finalResponseText).trim();
-  console.log('[CCS] Final response:', cleanResponse.length, 'chars, reasoning:', !!lastReasoning);
+  log('[CCS] Final response:', cleanResponse.length, 'chars, reasoning:', !!lastReasoning);
 
   if (cleanResponse) {
     const meta = {};
@@ -219,10 +222,10 @@ async function _agentLoop(userText, session, signal, callbacks) {
       meta,
     };
     addMessage(assistantMsg);
-    console.log('[CCS] Message added to session:', assistantMsg.id || '(auto-id)');
+    log('[CCS] Message added to session:', assistantMsg.id || '(auto-id)');
     
     appendAssistantMessage(cleanResponse, meta);
-    console.log('[CCS] appendAssistantMessage callback called.');
+    log('[CCS] appendAssistantMessage callback called.');
   } else {
     console.warn('[CCS] No final response to display (cleanResponse empty).');
   }
@@ -316,7 +319,7 @@ async function _autoSummarize(history, keepRecent) {
         autoSummary: summary.trim(),
         autoSummaryCount: history.length - keepRecent
       });
-      console.log('[CCS] Incremental auto-summary saved:', summary.substring(0, 100));
+      log('[CCS] Incremental auto-summary saved:', summary.substring(0, 100));
     }
   } catch (err) {
     console.warn('[CCS] Auto-summarize error:', err.message);
@@ -373,7 +376,7 @@ function _trimToolHistory(messages) {
   });
 
   if (totalCharsRemoved > 0) {
-    console.log(`[CCS] Trimmed tool history: ${messages.length} messages, removed ~${totalCharsRemoved} chars from ${toolResultIndices.length - 1} old tool result(s)`);
+    log(`[CCS] Trimmed tool history: ${messages.length} messages, removed ~${totalCharsRemoved} chars from ${toolResultIndices.length - 1} old tool result(s)`);
   }
 
   return trimmed;
@@ -393,7 +396,7 @@ function _trimToolHistory(messages) {
  * embed reasoning in the content field).
  */
 async function _callLLM(messages, signal) {
-  console.log('[CCS] Calling LLM with', messages.length, 'messages');
+  log('[CCS] Calling LLM with', messages.length, 'messages');
   
   let text = await generateText(messages, {
     name: 'ccs-agent',
@@ -407,7 +410,7 @@ async function _callLLM(messages, signal) {
   if (thinkMatch) {
     reasoning = thinkMatch[1].trim();
     text = text.replace(/<think>[\s\S]*?<\/think>/, '').trim();
-    console.log('[CCS] Extracted <think> reasoning:', reasoning.length, 'chars');
+    log('[CCS] Extracted <think> reasoning:', reasoning.length, 'chars');
   }
 
   return { text, reasoning };

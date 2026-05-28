@@ -715,12 +715,13 @@ export function swapModeHistory(oldMode, newMode) {
     }
 
     // Save current messages to old mode's history
-    if (oldMode && currentSession.messages?.length > 0) {
-        currentSession.modeHistories[oldMode] = [...currentSession.messages];
+    if (oldMode && currentSession.messages) {
+        currentSession.modeHistories[oldMode] = currentSession.messages;
     }
 
-    // Load new mode's history into messages
-    currentSession.messages = [...(currentSession.modeHistories[newMode] || [])];
+    // Load new mode's history into messages, and clear it from modeHistories to prevent duplicate storage
+    currentSession.messages = currentSession.modeHistories[newMode] || [];
+    delete currentSession.modeHistories[newMode];
 
     // Update mode
     currentSession.mode = newMode;

@@ -11,6 +11,16 @@
 
 import { getSession, loadMemory, saveMemory, generateId } from './session.js';
 
+let _memoryCache = {
+  global: null,
+  characters: {}
+};
+
+export function clearMemoryCache() {
+  _memoryCache.global = null;
+  _memoryCache.characters = {};
+}
+
 // ─── Public API ─────────────────────────────────────────────────────────────
 
 /**
@@ -36,18 +46,21 @@ export async function addMemoryRule(type, content, source = 'user') {
     memory.globalRules = memory.globalRules || [];
     memory.globalRules.push(entry);
     await saveMemory(memory); // saves to 'memory_global'
+    _memoryCache.global = memory;
     console.log('[CCS] Global memory rule added:', content.substring(0, 50));
   } else if (type === 'session_rule') {
     const memory = await loadMemory(session.characterAvatar); // per-character
     memory.sessionRules = memory.sessionRules || [];
     memory.sessionRules.push(entry);
     await saveMemory(memory, session.characterAvatar);
+    _memoryCache.characters[session.characterAvatar] = memory;
     console.log('[CCS] Per-character memory rule added:', content.substring(0, 50));
   } else if (type === 'learning') {
     const memory = await loadMemory(session.characterAvatar);
     memory.learnings = memory.learnings || [];
     memory.learnings.push(entry);
     await saveMemory(memory, session.characterAvatar);
+    _memoryCache.characters[session.characterAvatar] = memory;
     console.log('[CCS] Learning added:', content.substring(0, 50));
   }
 
@@ -82,6 +95,11 @@ export async function removeMemoryRule(type, contentOrId) {
   const removed = list.splice(idx, 1)[0];
   memory[listKey] = list;
   await saveMemory(memory, avatar);
+  if (isGlobal) {
+    _memoryCache.global = memory;
+  } else {
+    _memoryCache.characters[avatar] = memory;
+  }
   console.log(`[CCS] Memory rule removed (${type}):`, removed.content.substring(0, 50));
   return true;
 }
@@ -95,8 +113,18 @@ export async function removeMemoryRule(type, contentOrId) {
 export async function buildMemoryBlock(session) {
   if (!session) return '';
 
-  const globalMemory = await loadMemory(); // global
-  const charMemory = await loadMemory(session.characterAvatar); // per-character
+  let globalMemory = _memoryCache.global;
+  if (!globalMemory) {
+    globalMemory = await loadMemory(); // global
+    _memoryCache.global = globalMemory;
+  }
+  
+  let charMemory = _memoryCache.characters[session.characterAvatar];
+  if (!charMemory && session.characterAvatar) {
+    charMemory = await loadMemory(session.characterAvatar); // per-character
+    _memoryCache.characters[session.characterAvatar] = charMemory;
+  }
+  charMemory = charMemory || {};
 
   const parts = [];
 

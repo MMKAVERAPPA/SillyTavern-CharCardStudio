@@ -252,18 +252,28 @@ export function calculateStarRating(session, cardFields) {
   } else {
     // All fields present
     baseScore = 4;
+  }
 
+  // Pre-calculate validation results for all relevant fields
+  const format = session?.cardFormat || 'prose';
+  const validationResults = {};
+  for (const [stKey, ccsKey] of [
+    ['description', 'description'], ['firstMessage', 'first_mes'],
+    ['personality', 'personality'], ['system', 'system_prompt'],
+  ]) {
+    const val = cardFields[stKey];
+    if (val) {
+      validationResults[ccsKey] = validateField(ccsKey, String(val), format);
+    }
+  }
+
+  if (baseScore === 4) {
     // Check for quality (no placeholder, no validation issues)
-    const format = session?.cardFormat || 'prose';
     let hasIssues = false;
-    for (const [stKey, ccsKey] of [
-      ['description', 'description'], ['firstMessage', 'first_mes'],
-      ['personality', 'personality'], ['system', 'system_prompt'],
-    ]) {
-      const val = cardFields[stKey];
-      if (val) {
-        const result = validateField(ccsKey, String(val), format);
-        if (!result.valid) hasIssues = true;
+    for (const res of Object.values(validationResults)) {
+      if (!res.valid) {
+        hasIssues = true;
+        break;
       }
     }
     if (!hasIssues) baseScore = 5;
@@ -295,15 +305,11 @@ export function calculateStarRating(session, cardFields) {
   }
 
   // -1.0 per validation failure in core fields
-  const format = session?.cardFormat || 'prose';
   let coreFailures = 0;
-  for (const [stKey, ccsKey] of [['description', 'description'], ['firstMessage', 'first_mes'], ['personality', 'personality']]) {
-    const val = cardFields[stKey];
-    if (val) {
-      const result = validateField(ccsKey, String(val), format);
-      if (!result.valid) {
-        coreFailures++;
-      }
+  for (const ccsKey of ['description', 'first_mes', 'personality']) {
+    const res = validationResults[ccsKey];
+    if (res && !res.valid) {
+      coreFailures++;
     }
   }
   if (coreFailures > 0) {

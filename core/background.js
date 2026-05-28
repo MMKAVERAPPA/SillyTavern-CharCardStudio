@@ -19,7 +19,7 @@ import { validateField } from './validators.js';
 const _queue = [];
 let _isProcessing = false;
 let _abortController = null;
-let _debounceTimer = null;
+const _debounceTimers = new Map();
 
 /** Cache: fieldContentHash → check result (avoid re-checking unchanged content) */
 const _checkCache = new Map();
@@ -53,32 +53,26 @@ Return ONLY valid JSON:
 
 // ─── Public API ─────────────────────────────────────────────────────────────
 
-/**
- * Enqueue a background check with debounce.
- * @param {'conflict'|'token'|'validation'} type
- * @param {string} fieldName - The field that was just written/applied
- */
 export function enqueueCheck(type, fieldName) {
-  // Clear any pending debounce for the same field+type
-  if (_debounceTimer) {
-    clearTimeout(_debounceTimer);
+  const key = `${type}:${fieldName}`;
+  
+  if (_debounceTimers.has(key)) {
+    clearTimeout(_debounceTimers.get(key));
   }
 
-  _debounceTimer = setTimeout(() => {
-    _debounceTimer = null;
+  _debounceTimers.set(key, setTimeout(() => {
+    _debounceTimers.delete(key);
     _addToQueue(type, fieldName);
-  }, DEBOUNCE_MS);
+  }, DEBOUNCE_MS));
 }
 
-/**
- * Cancel all pending and running background checks.
- */
 export function cancelAllChecks() {
   _queue.length = 0;
-  if (_debounceTimer) {
-    clearTimeout(_debounceTimer);
-    _debounceTimer = null;
+  for (const timer of _debounceTimers.values()) {
+    clearTimeout(timer);
   }
+  _debounceTimers.clear();
+  
   if (_abortController) {
     _abortController.abort();
     _abortController = null;
