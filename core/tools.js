@@ -68,6 +68,7 @@ const TOOLS = {
   ccs_semantic_search:        toolSemanticSearch,
   ccs_read_lore_graph:        toolReadLoreGraph,
   ccs_suggest_lore_connections: toolSuggestLoreConnections,
+  ccs_generate_avatar_prompt:   toolGenerateAvatarPrompt,
 };
 
 /**
@@ -1246,4 +1247,124 @@ async function toolSuggestLoreConnections() {
   } catch (e) {
     return { result: `Error analyzing lore connections: ${e.message}` };
   }
+}
+
+// ─── Tool 19: Generate Avatar Prompt ────────────────────────────────────────
+
+/**
+ * Reads the current card's description, personality, and concept brief,
+ * then constructs an optimised image-generation prompt (positive + negative)
+ * and stages it in the chat as an interactive avatar-prompt card.
+ *
+ * The user can then edit the prompt or click "Generate Avatar" to trigger ST's
+ * `/sd` slash command. No image is generated automatically.
+ *
+ * @param {{ style?: string, emphasis?: string, extra_tags?: string[] }} params
+ */
+async function toolGenerateAvatarPrompt(params) {
+  const {
+    style = 'cinematic',
+    emphasis = 'bust',
+    extra_tags = [],
+  } = params;
+
+  const session = getSession();
+  if (!session) return { result: 'Error: No active session.' };
+
+  // ── 1. Gather character data ──────────────────────────────────────────────
+  const description   = session.cardFields?.description || '';
+  const personality   = session.cardFields?.personality || '';
+  const brief         = session.conceptBrief || '';
+  const charName      = session.characterName || 'the character';
+
+  // ── 2. Build framing tags from style / emphasis ───────────────────────────
+  const STYLE_TAGS = {
+    cinematic:  'cinematic portrait, dramatic lighting, film grain, shallow depth of field, professional photography',
+    anime:      'anime style, cel shaded, clean lineart, vibrant colors, studio quality',
+    painterly:  'oil painting, detailed brushwork, classical art style, rich textures, gallery quality',
+    realistic:  'photorealistic, ultra detailed, hyperrealistic, 8k resolution, RAW photo',
+  };
+  const EMPHASIS_TAGS = {
+    face:      'close-up portrait, face focus, detailed eyes',
+    bust:      'bust shot, upper body, detailed face',
+    full_body: 'full body, standing, detailed outfit and background',
+  };
+
+  const styleTags    = STYLE_TAGS[style]    || STYLE_TAGS.cinematic;
+  const emphasisTags = EMPHASIS_TAGS[emphasis] || EMPHASIS_TAGS.bust;
+
+  // ── 3. Extract visual traits from the description text ────────────────────
+  // Pull out common visual descriptors using simple heuristics.
+  // The AI will have written these in the description — we just extract them.
+  const visualText = [description, personality, brief].join(' ').substring(0, 2000);
+
+  // Common appearance keywords to look for (extend as needed)
+  const TRAIT_PATTERNS = [
+    /(?:has?|with)\s+([\w\-]+(?:\s+[\w]+)?\s+(?:hair|eyes?|skin|complexion|build|height|body|figure|ears?|tail|horns?|wings?|fur))/gi,
+    /([\w\-]+\s+(?:hair|eyes?|skin))/gi,
+    /(?:is|appears?|looks?)\s+([\w\-]+(?:\s+[\w]+)?)/gi,
+    /wearing\s+([^,\.]+)/gi,
+    /dressed\s+in\s+([^,\.]+)/gi,
+  ];
+
+  const traits = new Set();
+  for (const pattern of TRAIT_PATTERNS) {
+    let m;
+    pattern.lastIndex = 0;
+    while ((m = pattern.exec(visualText)) !== null) {
+      const trait = m[1].trim().toLowerCase().replace(/\s+/g, ' ');
+      if (trait.length >= 3 && trait.length <= 40) traits.add(trait);
+      if (traits.size >= 12) break;
+    }
+  }
+
+  const extractedTraits = [...traits].slice(0, 10).join(', ');
+
+  // ── 4. Assemble positive prompt ───────────────────────────────────────────
+  const positiveParts = [
+    extractedTraits,
+    styleTags,
+    emphasisTags,
+    'highly detailed',
+    'masterpiece',
+    ...(extra_tags || []),
+  ].filter(Boolean);
+
+  const positivePrompt = positiveParts.join(', ');
+
+  // ── 5. Standard negative prompt ───────────────────────────────────────────
+  const negativePrompt = [
+    'deformed', 'bad anatomy', 'extra limbs', 'missing limbs',
+    'blurry', 'low quality', 'lowres', 'watermark', 'signature',
+    'text', 'error', 'cropped', 'out of frame', 'ugly', 'bad hands',
+    'extra fingers', 'mutation', 'mutated',
+  ].join(', ');
+
+  // ── 6. Stage the avatar prompt card in the chat ───────────────────────────
+  const avatarPrompt = { positivePrompt, negativePrompt, style, emphasis, charName };
+
+  try {
+    const { renderAvatarPromptCard } = await import('../ui/chat.js');
+    renderAvatarPromptCard(avatarPrompt);
+  } catch (e) {
+    console.error('[CCS] Failed to render avatar prompt card:', e);
+    // Fallback: return the prompts as text
+    return {
+      result: [
+        `🖼️ **Avatar Prompt Ready for ${charName}**`,
+        '',
+        `**Style:** ${style} | **Emphasis:** ${emphasis}`,
+        '',
+        `**Positive:** ${positivePrompt}`,
+        '',
+        `**Negative:** ${negativePrompt}`,
+        '',
+        '_Open the Lore Graph → Avatar tab, or paste the positive prompt into ST\'s /sd command to generate._',
+      ].join('\n'),
+    };
+  }
+
+  return {
+    result: `Avatar prompt card rendered in the chat for **${charName}**. The user can now edit the prompts or click "Generate Avatar" to create the image.`,
+  };
 }

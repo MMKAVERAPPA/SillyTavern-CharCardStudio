@@ -437,6 +437,11 @@ export function saveSession(force = false) {
     }, SAVE_DEBOUNCE_MS);
 }
 
+// Bug 12: cap stored messages to avoid unbounded session growth.
+// modeHistories duplicates messages[] per mode — cap those too.
+const MAX_STORED_MESSAGES = 200;
+const MAX_MODE_HISTORY = 100;
+
 /**
  * Internal: persist current session to localforage immediately.
  * @returns {Promise<void>}
@@ -446,7 +451,29 @@ async function _saveNow() {
 
     try {
         const key = sessionKey(currentSession.characterAvatar);
-        await store.setItem(key, JSON.parse(JSON.stringify(currentSession)));
+
+        // Bug 12: trim messages and modeHistories before cloning to prevent
+        // unbounded JSON size growth (blocks main thread on every save).
+        const toSave = JSON.parse(JSON.stringify({
+            ...currentSession,
+            // Keep only the most recent N messages in the active window
+            messages: currentSession.messages.length > MAX_STORED_MESSAGES
+                ? currentSession.messages.slice(-MAX_STORED_MESSAGES)
+                : currentSession.messages,
+            // Cap each mode's history independently
+            modeHistories: currentSession.modeHistories
+                ? Object.fromEntries(
+                    Object.entries(currentSession.modeHistories).map(([mode, msgs]) => [
+                        mode,
+                        Array.isArray(msgs) && msgs.length > MAX_MODE_HISTORY
+                            ? msgs.slice(-MAX_MODE_HISTORY)
+                            : msgs,
+                    ])
+                )
+                : currentSession.modeHistories,
+        }));
+
+        await store.setItem(key, toSave);
         // console.debug('[CCS] Session saved:', key);
     } catch (err) {
         console.error('[CCS] Failed to save session:', err);

@@ -304,6 +304,7 @@ html {
 /* Messages Container */
 .ccs-messages {
   flex: 1;
+  min-height: 0;
   overflow-y: auto;
   overflow-x: hidden;
   padding: 16px;
@@ -1971,10 +1972,9 @@ html {
   }
 
   /* ─── Settings Modal: bottom-sheet on mobile ───────────────────────────── */
-  /* The overlay is appended to #ccs_window (position:fixed fullscreen), so  */
-  /* position:absolute here fills that container perfectly.                  */
+  /* The base .ccs-settings-overlay is already position:absolute (scoped to   */
+  /* #ccs_window). On mobile, anchor to the bottom and go full-width.         */
   .ccs-settings-overlay {
-    position: absolute !important;
     top: 0 !important;
     left: 0 !important;
     right: 0 !important;
@@ -1987,7 +1987,11 @@ html {
   .ccs-settings-modal {
     width: 100% !important;
     max-width: 100% !important;
-    max-height: 100% !important;
+    /* 90dvh accounts for mobile browser chrome (address bar, navigation bar). */
+    /* Without an explicit height, the flex column has no reference to scroll  */
+    /* against, causing the modal content to overflow above the screen.        */
+    max-height: 90dvh !important;
+    height: 90dvh !important;
     border-radius: 20px 20px 0 0 !important;
     animation: ccs-slide-up-sheet 0.28s cubic-bezier(0.34, 1.0, 0.64, 1) !important;
     padding-bottom: env(safe-area-inset-bottom, 0px) !important;
@@ -2185,7 +2189,11 @@ html {
    ═══════════════════════════════════════════════════════════════════════════ */
 
 .ccs-settings-overlay {
-  position: fixed;
+  /* Always use position:absolute inside #ccs_window (which is position:fixed).
+   * Using position:fixed here would cause the overlay to escape the CCS stacking
+   * context on mobile when ST's body has a CSS transform applied — the modal
+   * would render at wrong coordinates and be impossible to close or scroll. */
+  position: absolute;
   top: 0;
   left: 0;
   right: 0;
@@ -2276,6 +2284,7 @@ html {
 
 .ccs-settings-body {
   flex: 1;
+  min-height: 0;
   overflow-y: auto;
   padding: 0;
 }
@@ -3077,6 +3086,7 @@ html {
 
 .ccs-inspector-body {
   flex: 1;
+  min-height: 0;
   overflow-y: auto;
   overscroll-behavior: contain;
 }
@@ -4444,6 +4454,7 @@ html {
   padding: 12px;
   overflow-y: auto;
   flex: 1;
+  min-height: 0;
 }
 
 .ccs-editor-field {
@@ -4696,3 +4707,216 @@ html {
   }
 }
 
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   🖼️  Avatar Prompt Card (Priority 4.2)
+   ───────────────────────────────────────────────────────────────────────────── */
+
+.ccs-avatar-card {
+  padding: 0 !important;
+  border-radius: var(--ccs-radius-lg) !important;
+  overflow: hidden !important;
+  box-shadow: var(--ccs-shadow), 0 0 30px rgba(124, 92, 191, 0.15) !important;
+}
+
+.ccs-avatar-prompt-card {
+  background: linear-gradient(135deg, var(--ccs-bg-secondary) 0%, var(--ccs-bg-primary) 100%);
+  border: 1px solid var(--ccs-border-strong);
+  border-radius: var(--ccs-radius-lg);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+/* Header */
+.ccs-avatar-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 18px 12px;
+  background: linear-gradient(90deg, rgba(124, 92, 191, 0.2), rgba(84, 209, 224, 0.08));
+  border-bottom: 1px solid var(--ccs-border);
+}
+
+.ccs-avatar-icon {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, var(--ccs-accent), var(--ccs-accent-hover));
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: white;
+  font-size: 13px;
+  flex-shrink: 0;
+  box-shadow: 0 2px 8px rgba(124, 92, 191, 0.4);
+}
+
+.ccs-avatar-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--ccs-text-primary);
+  flex: 1;
+}
+
+.ccs-avatar-meta {
+  font-size: 11px;
+  color: var(--ccs-text-muted);
+  font-style: italic;
+  max-width: 120px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Style/emphasis tags row */
+.ccs-avatar-tags {
+  display: flex;
+  gap: 8px;
+  padding: 10px 18px 0;
+  flex-wrap: wrap;
+}
+
+.ccs-avatar-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 10px;
+  border-radius: 20px;
+  background: rgba(124, 92, 191, 0.12);
+  border: 1px solid rgba(124, 92, 191, 0.25);
+  color: var(--ccs-accent-hover);
+  font-size: 11px;
+  font-weight: 500;
+}
+
+/* Prompt sections */
+.ccs-avatar-section {
+  padding: 12px 18px 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.ccs-avatar-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--ccs-text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.ccs-avatar-label i {
+  font-size: 10px;
+  color: var(--ccs-accent);
+}
+
+.ccs-avatar-textarea {
+  width: 100%;
+  padding: 10px 12px;
+  background: var(--ccs-bg-input, rgba(0, 0, 0, 0.2));
+  border: 1px solid var(--ccs-border);
+  border-radius: var(--ccs-radius);
+  color: var(--ccs-text-primary);
+  font-size: 12px;
+  font-family: var(--ccs-font-mono, 'Courier New', monospace);
+  line-height: 1.5;
+  resize: vertical;
+  transition: border-color var(--ccs-transition);
+  box-sizing: border-box;
+}
+
+.ccs-avatar-textarea:focus {
+  outline: none;
+  border-color: var(--ccs-accent);
+  box-shadow: 0 0 0 2px rgba(124, 92, 191, 0.15);
+}
+
+/* Style/emphasis selectors */
+.ccs-avatar-style-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 18px 0;
+  flex-wrap: wrap;
+}
+
+.ccs-avatar-select {
+  flex: 1;
+  min-width: 100px;
+  padding: 6px 10px;
+  background: var(--ccs-bg-input, rgba(0, 0, 0, 0.2));
+  border: 1px solid var(--ccs-border);
+  border-radius: var(--ccs-radius);
+  color: var(--ccs-text-primary);
+  font-size: 12px;
+  cursor: pointer;
+  transition: border-color var(--ccs-transition);
+}
+
+.ccs-avatar-select:focus {
+  outline: none;
+  border-color: var(--ccs-accent);
+}
+
+/* Action buttons row */
+.ccs-avatar-actions {
+  display: flex;
+  gap: 8px;
+  padding: 14px 18px;
+  flex-wrap: wrap;
+}
+
+/* Status bar */
+.ccs-avatar-status {
+  padding: 10px 18px;
+  font-size: 12px;
+  color: var(--ccs-text-secondary);
+  background: rgba(0, 0, 0, 0.15);
+  border-top: 1px solid var(--ccs-border);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  animation: ccs-fade-in 0.2s ease;
+}
+
+.ccs-avatar-status i {
+  color: var(--ccs-accent);
+}
+
+/* Mobile tweaks */
+@media (max-width: 768px) {
+  .ccs-avatar-header {
+    padding: 12px 14px 10px;
+  }
+
+  .ccs-avatar-tags,
+  .ccs-avatar-section,
+  .ccs-avatar-style-row,
+  .ccs-avatar-actions {
+    padding-left: 14px;
+    padding-right: 14px;
+  }
+
+  .ccs-avatar-style-row {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .ccs-avatar-select {
+    width: 100%;
+  }
+
+  .ccs-avatar-actions {
+    flex-direction: column;
+  }
+
+  .ccs-avatar-actions .ccs-btn {
+    width: 100%;
+    justify-content: center;
+  }
+}

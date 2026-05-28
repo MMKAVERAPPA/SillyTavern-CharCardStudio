@@ -36,6 +36,22 @@ let _themeSyncObserver = null;  // MutationObserver for live theme sync
 let _isWideMode = false;        // Priority 3.4: Split-screen workspace state
 const MOBILE_BREAKPOINT = 768;
 
+// Performance: debounce the session-change re-render to collapse rapid-fire
+// addMessage/updateMessage calls during AI generation into a single repaint.
+let _renderDebounce = null;
+const RENDER_DEBOUNCE_MS = 150;
+
+// Bug 8: track last lorebook name to avoid re-fetching on every session event.
+// Only re-render the lore tab when the lorebook selection actually changes.
+let _lastLorebookName = null;
+
+// Bug 13: re-entrant guard to prevent onChange → updateSession → re-render loops.
+let _isRendering = false;
+
+// Bug 8: in-memory cache of the last lorebook fetch result.
+// Avoids hitting the ST REST API on every session-change notification.
+let _loreCache = null; // { entries: [], tokenBudget: null, bookName: string }
+
 // ─── DOM Helpers ─────────────────────────────────────────────────────────────
 
 function el(id) {
@@ -70,6 +86,10 @@ export async function openStudio() {
     // Load (or create) session for this character
     if (avatar) {
         await loadSession(avatar, name);
+
+        // Reset per-character caches so a new character doesn't show stale lore data
+        _loreCache = null;
+        _lastLorebookName = null;
 
         // Multi-tab lock
         const locked = acquireLock(avatar);
@@ -283,6 +303,8 @@ async function _renderRightPanel() {
 let _pillarListenerBound = false;
 
 function _renderConceptTab() {
+    if (_isRendering) return; // Bug 13: prevent re-entrant render loop
+    _isRendering = true;
     const session = getSession();
     const listEl = el('ccs_pillar_list');
     const countEl = el('ccs_pillar_count');
@@ -644,6 +666,7 @@ function _renderConceptTab() {
         });
         _pillarListenerBound = true;
     }
+    _isRendering = false; // Bug 13: allow next render
 }
 
 function _renderPillarItem(p, icons, isWorld = false) {
@@ -790,6 +813,8 @@ function _renderFieldHistory(row, ccsKey) {
 }
 
 function _renderCardTab() {
+    if (_isRendering) return; // Bug 13: prevent re-entrant render loop
+    _isRendering = true;
     const session = getSession();
     const fieldsEl = el('ccs_card_fields');
     const tokensEl = el('ccs_card_tokens');
@@ -1228,6 +1253,7 @@ function _renderCardTab() {
 
         _cardListenerBound = true;
     }
+    _isRendering = false; // Bug 13: allow next render
 }
 
 
@@ -1428,6 +1454,70 @@ async function _renderLoreTab() {
 
     loreEl.innerHTML = html;
     _wireLoreViewBtns(loreEl, entries);
+
+    // Bug 8: cache the fetched result so debounced re-renders can skip the API
+    _loreCache = { entries, tokenBudget, bookName };
+}
+
+/**
+ * Re-render the lore tab UI using the last cached fetch result.
+ * Called by the debounced session-change listener when the lorebook name hasn't
+ * changed — avoids hitting the ST API on every addMessage / updateSession call.
+ */
+function _renderLoreTabFromCache() {
+    const loreEl = el('ccs_lore_entries');
+    const countEl = el('ccs_lore_count');
+    if (!loreEl) return;
+
+    // If no cache yet (first render, or lorebook just changed), do a full render
+    if (!_loreCache) {
+        _renderLoreTab();
+        return;
+    }
+
+    const { entries, tokenBudget, bookName } = _loreCache;
+    const session = getSession();
+    const loreDrafts = session?.loreDrafts || [];
+    const pendingDrafts = loreDrafts.filter(d => d.status === 'pending');
+
+    // Update count label (drafts may have changed)
+    if (countEl) {
+        let statsText = `${entries.length} entries`;
+        if (tokenBudget) statsText += ` · ~${tokenBudget.estimatedUsage}t`;
+        if (pendingDrafts.length) statsText += ` (${pendingDrafts.length} staged)`;
+        countEl.textContent = statsText;
+    }
+
+    // If staged drafts changed, re-render just the staged section without a full fetch
+    const stagedSection = loreEl.querySelector('.ccs-lore-staged-section');
+    if (pendingDrafts.length === 0 && stagedSection) {
+        stagedSection.remove();
+    } else if (pendingDrafts.length > 0) {
+        // Only full re-render staged section; existing entries DOM stays untouched
+        const stagedHtml = `<div class="ccs-lore-staged-section">
+            <h5 class="ccs-lore-section-title">⏳ Staged (${pendingDrafts.length})</h5>
+            ${pendingDrafts.map(d => `
+                <div class="ccs-lore-entry ccs-lore-entry--staged">
+                    <div class="ccs-lore-entry-header">
+                        <span class="ccs-lore-entry-name">${escapeHtml(d.name || 'Unnamed')}</span>
+                        <span class="ccs-badge ccs-badge--warning">${d.type || 'create'}</span>
+                        ${d.tokenCount ? `<span class="ccs-lore-entry-tokens">~${d.tokenCount}t</span>` : ''}
+                    </div>
+                    ${d.keys?.length ? `<div class="ccs-lore-entry-keys">Keys: ${d.keys.map(k => escapeHtml(k)).join(', ')}</div>` : ''}
+                    ${d.content ? `<div class="ccs-lore-entry-preview">${escapeHtml(d.content.substring(0, 120))}${d.content.length > 120 ? '…' : ''}</div>` : ''}
+                </div>
+            `).join('')}
+        </div>`;
+        if (stagedSection) {
+            stagedSection.outerHTML = stagedHtml;
+        } else {
+            // Insert before existing-section
+            const existingSection = loreEl.querySelector('.ccs-lore-existing-section');
+            if (existingSection) {
+                existingSection.insertAdjacentHTML('beforebegin', stagedHtml);
+            }
+        }
+    }
 }
 
 /**
@@ -1443,12 +1533,19 @@ function _wireLoreViewBtns(loreEl, entries) {
 
     // Open the new fullscreen graph overlay
     loreEl.querySelector('#ccs_lb_graph_overlay_btn')?.addEventListener('click', async () => {
-        const session = getSession();
-        const currentEntries = entries.length > 0 ? entries : await getLorebookEntries(session.lorebookName, false);
+        // `entries` is the flat array already fetched by _renderLoreTab.
+        // If somehow empty (stale render), re-fetch using the correct 1-arg signature:
+        //   getLorebookEntries(forceRefresh) — it reads lorebookName internally.
+        let currentEntries = entries;
+        if (!currentEntries || currentEntries.length === 0) {
+            const loreData = await getLorebookEntries(false); // forceRefresh = false
+            currentEntries = loreData.entries || [];
+        }
         if (!currentEntries || currentEntries.length === 0) {
             showToast('No lorebook entries to display in graph.', 'warning', 2500);
             return;
         }
+
         openLoreGraphOverlay(currentEntries, {
             onEntryEdit: async (uid, changes) => {
                 // Propagate edits back to ST lorebook
@@ -1970,14 +2067,31 @@ export function bindAppEvents() {
     });
 
     // Session changes → re-render right panel
-    onSessionChange(() => {
+    // Bug 10 fix: debounced + active-tab-only renders to prevent 24 full repaints per AI turn.
+    // Bug 8 fix: lore tab only re-fetches when the lorebook name changes.
+    onSessionChange((session) => {
         if (!_isOpen) return;
-        _updateProgress();
-        _renderConceptTab();
-        _renderCardTab();
-        _renderLoreTab();
-        _syncScratchpad();
-        syncContextBar();
+        clearTimeout(_renderDebounce);
+        _renderDebounce = setTimeout(() => {
+            if (_isRendering) return; // Bug 13: prevent re-entrant render loops
+            _updateProgress();
+            _syncScratchpad();
+            syncContextBar();
+            // Only re-render the currently visible tab
+            if (_activeTab === 'concept') _renderConceptTab();
+            else if (_activeTab === 'card') _renderCardTab();
+            else if (_activeTab === 'lore') {
+                // Bug 8: only hit the ST lorebook API when the selection changes
+                const currentBook = session?.lorebookName ?? null;
+                if (currentBook !== _lastLorebookName) {
+                    _lastLorebookName = currentBook;
+                    _renderLoreTab();
+                } else {
+                    // Just re-render the UI with cached data (no API call)
+                    _renderLoreTabFromCache();
+                }
+            }
+        }, RENDER_DEBOUNCE_MS);
     });
 
     // Context bar pills (format + phase switching)

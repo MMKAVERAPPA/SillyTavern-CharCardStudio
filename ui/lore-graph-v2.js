@@ -485,11 +485,19 @@ class LoreGraphV2 {
             this.nodes = [...worldNodes, ...this.nodes];
         }
 
+        // Bug 15: Build O(1) UID lookup map (replaces O(n) array.find per edge per frame)
+        this._rebuildNodeMap();
+
         // If too many nodes, disable physics by default
         if (this.nodes.length > PHYSICS_THRESHOLD) {
             this.physicsEnabled = false;
             this._applyStaticCategoryLayout();
         }
+    }
+
+    /** Rebuild the O(1) uid→node map. Call after _initNodes or any node add/delete. */
+    _rebuildNodeMap() {
+        this._nodeMap = new Map(this.nodes.map(n => [n.uid, n]));
     }
 
     _initEdges() {
@@ -498,6 +506,8 @@ class LoreGraphV2 {
             : this.entries;
 
         this.edges = _buildEdgesFromEntries(allEntries, this.nodes, this.worldEntries ? true : false);
+        // Bug 3: invalidate the circular-chain cache whenever edges are rebuilt
+        this._invalidateCircularCache();
     }
 
     _applyStaticCategoryLayout() {
@@ -527,7 +537,11 @@ class LoreGraphV2 {
     // ─── Resize ───────────────────────────────────────────────────────────────
 
     _resize() {
+        // Bug 5 guard: ResizeObserver can fire asynchronously after destroy()
+        // removes the canvas from the DOM — parentElement will be null.
         const parent = this.canvas.parentElement;
+        if (!parent) return;
+
         const W = parent.clientWidth;
         const H = parent.clientHeight;
         this.dpr = window.devicePixelRatio || 1;
@@ -545,15 +559,38 @@ class LoreGraphV2 {
 
     start() {
         this.simRunning = true;
+        this._dirty = true; // Bug 11: dirty flag — only redraw when needed
+        this._glowPhase = 0; // pulsing glow phase counter (avoids Date.now() in hot path)
         const loop = () => {
             if (!this.simRunning) return;
-            if (this.physicsEnabled) this._physicsTick();
-            this._render();
-            this._renderMinimap();
+
+            let needsRedraw = this._dirty;
+
+            if (this.physicsEnabled) {
+                this._physicsTick(); // auto-disables physics when energy settles
+                needsRedraw = true;
+            }
+
+            // Advance glow phase for constant-entry pulse (always animates if any constants exist)
+            const hasConstants = this.nodes.some(n => n.entry.constant);
+            if (hasConstants) {
+                this._glowPhase += 0.004;
+                needsRedraw = true;
+            }
+
+            if (needsRedraw) {
+                this._render();
+                this._renderMinimap();
+                this._dirty = false;
+            }
+
             this.animId = requestAnimationFrame(loop);
         };
         this.animId = requestAnimationFrame(loop);
     }
+
+    /** Mark the canvas dirty so it will be redrawn next frame. */
+    _markDirty() { this._dirty = true; }
 
     destroy() {
         this.simRunning = false;
@@ -623,6 +660,7 @@ class LoreGraphV2 {
 
         // Integrate + damp + clamp
         const PAD = 20;
+        let totalKE = 0;
         for (const node of nodes) {
             if (node.pinned || (this.dragNode && this.dragNode.uid === node.uid)) continue;
             node.vx *= DAMPING;
@@ -631,6 +669,12 @@ class LoreGraphV2 {
             node.y += node.vy;
             node.x = Math.max(PAD + NODE_W / 2, Math.min(W - PAD - NODE_W / 2, node.x));
             node.y = Math.max(PAD + NODE_H / 2, Math.min(H - PAD - NODE_H / 2, node.y));
+            totalKE += node.vx * node.vx + node.vy * node.vy;
+        }
+
+        // Bug 11: auto-stop physics when kinetic energy settles
+        if (totalKE < 0.08) {
+            this.physicsEnabled = false;
         }
     }
 
@@ -827,10 +871,10 @@ class LoreGraphV2 {
         ctx.strokeStyle = isSelected ? '#7c5cbf' : baseColor;
         ctx.lineWidth = (isSelected ? 2.5 : 1.5) / this.scale;
 
-        // Constant: pulsing glow ring
+        // Constant: pulsing glow ring (uses pre-computed _glowPhase, not Date.now())
         if (node.entry.constant) {
             ctx.shadowColor = baseColor;
-            ctx.shadowBlur = (8 + 4 * Math.sin(Date.now() * 0.004)) / this.scale;
+            ctx.shadowBlur = (8 + 4 * Math.sin(this._glowPhase || 0)) / this.scale;
         }
 
         _roundRect(ctx, x, y, nw, nh, NODE_R / this.scale);
@@ -965,8 +1009,9 @@ class LoreGraphV2 {
 
     // ─── Helpers ─────────────────────────────────────────────────────────────
 
+    // Bug 15: O(1) uid→node lookup via Map (replaces O(n) array.find per edge per frame)
     _nodeByUid(uid) {
-        return this.nodes.find(n => n.uid === uid) || null;
+        return this._nodeMap?.get(uid) || null;
     }
 
     _nodeWidth(node) {
@@ -1024,8 +1069,9 @@ class LoreGraphV2 {
         const maxX = Math.max(...xs) + NODE_W;
         const minY = Math.min(...ys) - NODE_H;
         const maxY = Math.max(...ys) + NODE_H;
-        const worldW = maxX - minX;
-        const worldH = maxY - minY;
+        // Bug 4 guard: avoid divide-by-zero when all nodes overlap (returns Infinity scale)
+        const worldW = (maxX - minX) || 1;
+        const worldH = (maxY - minY) || 1;
         const scaleX = (this.W - PAD * 2) / worldW;
         const scaleY = (this.H - PAD * 2) / worldH;
         this.scale = Math.min(scaleX, scaleY, 1.5);
@@ -1041,6 +1087,7 @@ class LoreGraphV2 {
         this.vpX = cx - (cx - this.vpX) * (this.scale / oldScale);
         this.vpY = cy - (cy - this.vpY) * (this.scale / oldScale);
         this._updateZoomLabel();
+        this._markDirty();
     }
 
     _snapToGrid(node) {
@@ -1056,7 +1103,8 @@ class LoreGraphV2 {
 
     _updateStats() {
         const orphaned = _findOrphaned(this.nodes, this.edges);
-        const circles = _detectCircularChains(this.entries, this.edges);
+        // Bug 3: use cached result; cache is invalidated by _initEdges()
+        const circles = this._getCircularChains();
         const totalTokens = this.nodes.reduce((s, n) => s + n.tokens, 0);
 
         const setTxt = (id, txt) => {
@@ -1067,6 +1115,23 @@ class LoreGraphV2 {
         setTxt('ccs_graph_stat_edges', `${this.edges.length} edges`);
         setTxt('ccs_graph_stat_orphaned', `⚠️ ${orphaned.length} orphaned`);
         setTxt('ccs_graph_stat_tokens', `~${totalTokens}t total`);
+    }
+
+    /**
+     * Return cached circular chains. The cache is invalidated whenever edges change
+     * (i.e. after _initEdges() or a node-save). This avoids re-running the expensive
+     * DFS on every stats update and every search keystroke.
+     */
+    _getCircularChains() {
+        if (!this._circularChainCache) {
+            this._circularChainCache = _detectCircularChains(this.entries, this.edges);
+        }
+        return this._circularChainCache;
+    }
+
+    /** Invalidate the circular chain cache. Call after edges change. */
+    _invalidateCircularCache() {
+        this._circularChainCache = null;
     }
 
     // ─── Toolbar Wiring ───────────────────────────────────────────────────────
@@ -1158,6 +1223,7 @@ class LoreGraphV2 {
         if (input) input.value = '';
         this.overlayEl.querySelectorAll('.ccs-graph-filter-chip--active')
             .forEach(c => c.classList.remove('ccs-graph-filter-chip--active'));
+        this._markDirty();
     }
 
     _applySearchFilter() {
@@ -1171,7 +1237,8 @@ class LoreGraphV2 {
         }
 
         const orphanedUids = new Set(_findOrphaned(this.nodes, this.edges).map(n => n.uid));
-        const circularUids = new Set(_detectCircularChains(this.entries, this.edges).flat());
+        // Bug 3 fix: use cached circular chains instead of re-running DFS on every keystroke
+        const circularUids = new Set(this._getCircularChains().flat());
 
         const matched = new Set();
         for (const node of this.nodes) {
@@ -1197,6 +1264,7 @@ class LoreGraphV2 {
         this.matchedUids = matched;
         const res = this.overlayEl.querySelector('#ccs_graph_search_result');
         if (res) res.textContent = `${matched.size} entr${matched.size === 1 ? 'y' : 'ies'} matched`;
+        this._markDirty();
     }
 
     // ─── Simulator Wiring ─────────────────────────────────────────────────────
@@ -1255,7 +1323,7 @@ class LoreGraphV2 {
         allPasses.pass1 = pass1;
 
         if (!recursionEnabled) {
-            const circularChains = _detectCircularChains(entries, this.edges);
+            const circularChains = this._getCircularChains();
             return { passes: allPasses, activated, usedTokens, tokenBudget, circularChains };
         }
 
@@ -1297,7 +1365,7 @@ class LoreGraphV2 {
             passNum++;
         }
 
-        const circularChains = _detectCircularChains(entries, this.edges);
+        const circularChains = this._getCircularChains();
 
         // Sync to graph highlighting
         this.simActivated = {};
@@ -1445,6 +1513,7 @@ ${!readOnly ? `
                 // Rebuild edges to reflect key changes
                 this._initEdges();
                 this._updateStats();
+                this._markDirty();
                 panel.classList.add('ccs-hidden');
             });
 
@@ -1454,7 +1523,9 @@ ${!readOnly ? `
                 // Remove from local state
                 this.nodes = this.nodes.filter(n => n.uid !== node.uid);
                 this.edges = this.edges.filter(ed => ed.sourceUid !== node.uid && ed.targetUid !== node.uid);
+                this._rebuildNodeMap(); // keep O(1) map in sync
                 this._updateStats();
+                this._markDirty();
                 panel.classList.add('ccs-hidden');
             });
         }
@@ -1562,14 +1633,17 @@ ${!readOnly ? `
             this.dragNode.vx = 0;
             this.dragNode.vy = 0;
             this.isDragging = true;
+            this._markDirty();
         } else if (this.isLassoing) {
             const rect = this.canvas.getBoundingClientRect();
             const world = this._screenToWorld(e.clientX - rect.left, e.clientY - rect.top);
             this.lassoX2 = world.x;
             this.lassoY2 = world.y;
+            this._markDirty();
         } else if (this.isPanning) {
             this.vpX = e.clientX - this.panStartX;
             this.vpY = e.clientY - this.panStartY;
+            this._markDirty();
         }
     }
 
@@ -1592,9 +1666,11 @@ ${!readOnly ? `
             }
             this.dragNode = null;
             this.isDragging = false;
+            this._markDirty();
         } else if (this.isLassoing) {
             this._applyLassoSelection();
             this.isLassoing = false;
+            this._markDirty();
         } else if (this.isPanning) {
             this.isPanning = false;
         } else {
@@ -1603,6 +1679,7 @@ ${!readOnly ? `
                 this.selectedUids.clear();
                 this.focusedUid = null;
                 this.matchedUids = null;
+                this._markDirty();
             }
         }
     }
@@ -1717,6 +1794,7 @@ ${!readOnly ? `
             this.touchMidX = midX;
             this.touchMidY = midY;
             this._updateZoomLabel();
+            this._markDirty();
             return;
         }
 
@@ -1733,9 +1811,11 @@ ${!readOnly ? `
             this.dragNode.vy = 0;
             this.isDragging = true;
             clearTimeout(this.longPressTimer);
+            this._markDirty();
         } else if (this.isPanning) {
             this.vpX = touch.clientX - this.panStartX;
             this.vpY = touch.clientY - this.panStartY;
+            this._markDirty();
         }
     }
 
@@ -1795,7 +1875,9 @@ ${!readOnly ? `
                         if (this.onEntryDelete) this.onEntryDelete(node.entry.uid);
                         this.nodes = this.nodes.filter(n => n.uid !== node.uid);
                         this.edges = this.edges.filter(ed => ed.sourceUid !== node.uid && ed.targetUid !== node.uid);
+                        this._rebuildNodeMap(); // keep O(1) map in sync
                         this._updateStats();
+                        this._markDirty();
                         break;
                 }
             });
@@ -1906,6 +1988,13 @@ function _findOrphaned(nodes, edges) {
     return nodes.filter(n => !connected.has(n.uid));
 }
 
+/**
+ * Detect circular activation chains in the lorebook edge graph.
+ *
+ * Bug 2 fix: replaced recursive DFS (exponential stack growth on dense graphs)
+ * with an iterative stack-based DFS. This eliminates JS call-stack overflows
+ * on lorebooks with 80+ entries and dense keyword connections.
+ */
 function _detectCircularChains(entries, edges) {
     const chains = [];
     const uidToEntry = new Map(entries.map(e => [e.uid, e]));
@@ -1915,28 +2004,35 @@ function _detectCircularChains(entries, edges) {
         edgeMap.get(edge.sourceUid).push(edge.targetUid);
     }
 
-    function dfs(uid, visited, path) {
-        if (visited.has(uid)) {
-            const cycleStart = path.indexOf(uid);
-            if (cycleStart !== -1) {
-                const chain = path.slice(cycleStart).map(u => {
-                    const e = uidToEntry.get(u);
-                    return e?.name || u;
-                });
-                chains.push(chain);
+    const allUids = [...new Set(edges.flatMap(e => [e.sourceUid, e.targetUid]))];
+
+    for (const startUid of allUids) {
+        // Iterative DFS — each stack frame carries its own visited set and path
+        const stack = [{ uid: startUid, visited: new Set(), path: [] }];
+        while (stack.length > 0) {
+            const { uid, visited, path } = stack.pop();
+            if (visited.has(uid)) {
+                // Found a back-edge: reconstruct the cycle
+                const cycleStart = path.indexOf(uid);
+                if (cycleStart !== -1) {
+                    const chain = path.slice(cycleStart).map(u => {
+                        const e = uidToEntry.get(u);
+                        return e?.name || u;
+                    });
+                    chains.push(chain);
+                }
+                continue;
             }
-            return;
-        }
-        visited.add(uid);
-        path.push(uid);
-        for (const next of (edgeMap.get(uid) || [])) {
-            dfs(next, new Set(visited), [...path]);
+            const newVisited = new Set(visited);
+            newVisited.add(uid);
+            const newPath = [...path, uid];
+            for (const next of (edgeMap.get(uid) || [])) {
+                stack.push({ uid: next, visited: newVisited, path: newPath });
+            }
         }
     }
 
-    const allUids = [...new Set(edges.flatMap(e => [e.sourceUid, e.targetUid]))];
-    for (const uid of allUids) dfs(uid, new Set(), []);
-    // Deduplicate chains
+    // Deduplicate chains by sorted-key fingerprint
     const seen = new Set();
     return chains.filter(c => {
         const key = [...c].sort().join('|');

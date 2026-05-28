@@ -37,6 +37,13 @@ const AXIS_COLOR = 'rgba(255,255,255,0.15)';
 // ─── Radar Entry Point ────────────────────────────────────────────────────────
 
 /**
+ * Module-level AbortController for radar drag listeners.
+ * Aborted and replaced on each renderRadarChart call to cleanly remove
+ * all previous document-level listeners (Bug 9 fix).
+ */
+let _radarDragAC = null;
+
+/**
  * Render an interactive personality radar chart.
  *
  * @param {HTMLElement} containerEl  - Where to render the SVG
@@ -51,6 +58,13 @@ export function renderRadarChart(containerEl, matrix, onChange) {
             ? Math.max(0, Math.min(100, matrix[axis.key]))
             : 50;
     }
+
+    // Bug 9 fix: Abort any previous drag listeners before re-rendering.
+    // Without this, every session-change call to renderRadarChart stacks
+    // 4 more persistent document listeners, eventually adding hundreds.
+    if (_radarDragAC) _radarDragAC.abort();
+    _radarDragAC = new AbortController();
+    const abortSignal = _radarDragAC.signal;
 
     const svg = _createSvg(CHART_SIZE, CHART_SIZE);
     containerEl.innerHTML = '';
@@ -138,7 +152,7 @@ export function renderRadarChart(containerEl, matrix, onChange) {
         title.textContent = `${axis.label}: ${values[axis.key]}`;
         handle.appendChild(title);
 
-        _makeDraggable(handle, svg, i, values, axis.key, () => {
+        _makeDraggable(handle, svg, i, values, axis.key, abortSignal, () => {
             // Update polygon and handles after drag
             _updateChart(valuePoly, handles, values);
             // Notify consumer
@@ -174,7 +188,7 @@ function _updateChart(valuePoly, handles, values) {
 
 // ─── Drag Logic ───────────────────────────────────────────────────────────────
 
-function _makeDraggable(handle, svg, axisIndex, values, key, onUpdate) {
+function _makeDraggable(handle, svg, axisIndex, values, key, abortSignal, onUpdate) {
     let dragging = false;
     const svgPt = svg.createSVGPoint();
 
@@ -221,10 +235,10 @@ function _makeDraggable(handle, svg, axisIndex, values, key, onUpdate) {
 
     handle.addEventListener('mousedown', startDrag);
     handle.addEventListener('touchstart', startDrag, { passive: false });
-    document.addEventListener('mousemove', drag);
-    document.addEventListener('touchmove', drag, { passive: false });
-    document.addEventListener('mouseup', endDrag);
-    document.addEventListener('touchend', endDrag);
+    document.addEventListener('mousemove', drag, { signal: abortSignal });
+    document.addEventListener('touchmove', drag, { passive: false, signal: abortSignal });
+    document.addEventListener('mouseup', endDrag, { signal: abortSignal });
+    document.addEventListener('touchend', endDrag, { signal: abortSignal });
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────

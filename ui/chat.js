@@ -1,5 +1,5 @@
 /**
- * CharCardStudio v4.0.0 — ui/chat.js
+ * CharCardStudio v5.0.0 — ui/chat.js
  * Chat panel: message rendering, input handling, send, cancel, chips
  */
 
@@ -881,6 +881,13 @@ export function bindChatEvents() {
                 return;
             }
 
+            // Avatar prompt card actions
+            const avatarBtn = e.target.closest('[data-avatar-action]');
+            if (avatarBtn) {
+                await _handleAvatarAction(avatarBtn.dataset.avatarAction, avatarBtn);
+                return;
+            }
+
             // Message action buttons
             const actionBtn = e.target.closest('.ccs-msg-action');
             if (actionBtn) {
@@ -979,4 +986,213 @@ function escapeHtml(str) {
 function escapeAttr(str) {
     if (!str) return '';
     return str.replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
+// ─── Avatar Prompt Card ───────────────────────────────────────────────────────
+
+/** @type {object|null} Current staged avatar prompt (editable) */
+let _pendingAvatarPrompt = null;
+
+/**
+ * Render a 🖼️ Avatar Prompt card in the CCS chat.
+ * Called by the ccs_generate_avatar_prompt tool.
+ *
+ * @param {{ positivePrompt: string, negativePrompt: string, style: string, emphasis: string, charName: string }} avatarPrompt
+ */
+export function renderAvatarPromptCard(avatarPrompt) {
+    _pendingAvatarPrompt = { ...avatarPrompt };
+
+    const container = el('ccs_messages');
+    if (!container) return;
+
+    // Hide welcome screen
+    const welcome = el('ccs_welcome');
+    if (welcome) welcome.style.display = 'none';
+
+    // Remove any existing avatar prompt card (one at a time)
+    container.querySelectorAll('.ccs-avatar-card').forEach(c => c.remove());
+
+    const styleLabel = { cinematic: 'Cinematic', anime: 'Anime', painterly: 'Painterly', realistic: 'Realistic' };
+    const emphasisLabel = { face: 'Close-up Face', bust: 'Bust Shot', full_body: 'Full Body' };
+
+    const div = document.createElement('div');
+    div.className = 'ccs-message ccs-avatar-card';
+    div.innerHTML = `
+        <div class="ccs-avatar-prompt-card">
+            <div class="ccs-avatar-header">
+                <span class="ccs-avatar-icon"><i class="fa-solid fa-image"></i></span>
+                <span class="ccs-avatar-title">🖼️ Avatar Prompt Ready</span>
+                <span class="ccs-avatar-meta">${escapeHtml(avatarPrompt.charName)}</span>
+            </div>
+
+            <div class="ccs-avatar-tags">
+                <span class="ccs-avatar-tag"><i class="fa-solid fa-palette"></i> ${escapeHtml(styleLabel[avatarPrompt.style] || avatarPrompt.style)}</span>
+                <span class="ccs-avatar-tag"><i class="fa-solid fa-crop"></i> ${escapeHtml(emphasisLabel[avatarPrompt.emphasis] || avatarPrompt.emphasis)}</span>
+            </div>
+
+            <div class="ccs-avatar-section">
+                <label class="ccs-avatar-label"><i class="fa-solid fa-plus-circle"></i> Positive</label>
+                <textarea class="ccs-avatar-textarea" id="ccs_avatar_positive" rows="4">${escapeHtml(avatarPrompt.positivePrompt)}</textarea>
+            </div>
+
+            <div class="ccs-avatar-section">
+                <label class="ccs-avatar-label"><i class="fa-solid fa-minus-circle"></i> Negative</label>
+                <textarea class="ccs-avatar-textarea" id="ccs_avatar_negative" rows="2">${escapeHtml(avatarPrompt.negativePrompt)}</textarea>
+            </div>
+
+            <div class="ccs-avatar-style-row">
+                <label class="ccs-avatar-label">Style</label>
+                <select class="ccs-avatar-select" id="ccs_avatar_style">
+                    <option value="cinematic" ${avatarPrompt.style === 'cinematic' ? 'selected' : ''}>Cinematic</option>
+                    <option value="anime"     ${avatarPrompt.style === 'anime'     ? 'selected' : ''}>Anime</option>
+                    <option value="painterly" ${avatarPrompt.style === 'painterly' ? 'selected' : ''}>Painterly</option>
+                    <option value="realistic" ${avatarPrompt.style === 'realistic' ? 'selected' : ''}>Realistic</option>
+                </select>
+                <label class="ccs-avatar-label">Emphasis</label>
+                <select class="ccs-avatar-select" id="ccs_avatar_emphasis">
+                    <option value="face"      ${avatarPrompt.emphasis === 'face'      ? 'selected' : ''}>Close-up Face</option>
+                    <option value="bust"      ${avatarPrompt.emphasis === 'bust'      ? 'selected' : ''}>Bust Shot</option>
+                    <option value="full_body" ${avatarPrompt.emphasis === 'full_body' ? 'selected' : ''}>Full Body</option>
+                </select>
+            </div>
+
+            <div class="ccs-avatar-actions">
+                <button class="ccs-btn ccs-btn--accent ccs-btn--sm" data-avatar-action="generate">
+                    <i class="fa-solid fa-bolt"></i> Generate Avatar
+                </button>
+                <button class="ccs-btn ccs-btn--sm" data-avatar-action="regen-prompt">
+                    <i class="fa-solid fa-rotate-right"></i> Re-prompt AI
+                </button>
+                <button class="ccs-btn ccs-btn--sm" data-avatar-action="dismiss">
+                    <i class="fa-solid fa-xmark"></i> Dismiss
+                </button>
+            </div>
+
+            <div class="ccs-avatar-status" id="ccs_avatar_status" style="display:none;"></div>
+        </div>
+    `;
+
+    container.appendChild(div);
+    _scrollToBottom();
+}
+
+/**
+ * Handle avatar card button actions.
+ * @param {string} action
+ * @param {HTMLElement} btn
+ */
+async function _handleAvatarAction(action, btn) {
+    const card = btn.closest('.ccs-avatar-card');
+    if (!card) return;
+
+    switch (action) {
+        case 'generate': {
+            await _submitAvatarGeneration(card);
+            break;
+        }
+        case 'regen-prompt': {
+            // Ask the AI to regenerate the prompt with current values as context
+            const pos = card.querySelector('#ccs_avatar_positive')?.value || '';
+            const neg = card.querySelector('#ccs_avatar_negative')?.value || '';
+            card.remove();
+            await sendMessage(`Please regenerate the avatar prompt. Current positive: "${pos.substring(0, 100)}". I want a different approach or style.`);
+            break;
+        }
+        case 'dismiss': {
+            card.remove();
+            _pendingAvatarPrompt = null;
+            showToast('Avatar prompt dismissed.', 'info', 2000);
+            break;
+        }
+    }
+}
+
+/**
+ * Execute the avatar generation by submitting to ST's /sd slash command.
+ * ST's Image Generation extension registers /sd and /imagine as slash commands.
+ * We send the prompt via the ST input box using the programmatic API.
+ *
+ * @param {HTMLElement} card - The avatar card DOM element
+ */
+async function _submitAvatarGeneration(card) {
+    const posEl = card.querySelector('#ccs_avatar_positive');
+    const negEl = card.querySelector('#ccs_avatar_negative');
+    const statusEl = card.querySelector('#ccs_avatar_status');
+
+    const positive = posEl?.value?.trim() || (_pendingAvatarPrompt?.positivePrompt ?? '');
+    const negative = negEl?.value?.trim() || (_pendingAvatarPrompt?.negativePrompt ?? '');
+
+    if (!positive) {
+        showToast('Positive prompt is empty — please fill it in first.', 'warning');
+        return;
+    }
+
+    // Disable all buttons while generating
+    card.querySelectorAll('[data-avatar-action]').forEach(b => b.disabled = true);
+
+    if (statusEl) {
+        statusEl.style.display = 'flex';
+        statusEl.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Sending to ST image generator…';
+    }
+
+    try {
+        // Check if ST's Image Generation extension is active by looking for its slash command
+        // We run /sd quiet=true <positive_prompt> | <negative_prompt handling is done via negative= arg>
+        // The /sd command signature: /sd [negative="..."] <positive prompt>
+        const ctx = SillyTavern?.getContext?.();
+        if (!ctx) throw new Error('SillyTavern context not available.');
+
+        // Build the /sd command string
+        // Using quiet=true so the image goes to the character gallery but NOT posted in chat (optional)
+        // We DON'T use quiet=true so the user can see the generated image in the ST chat
+        const negativeArg = negative ? ` negative="${negative.replace(/"/g, '\'')}" ` : ' ';
+        const sdCommand = `/sd${negativeArg}${positive}`;
+
+        // Execute via ST's executeSlashCommandsOnChatInput if available, else inject into input box
+        if (typeof ctx.executeSlashCommandsOnChatInput === 'function') {
+            await ctx.executeSlashCommandsOnChatInput(sdCommand);
+        } else {
+            // Fallback: inject into ST's #send_textarea and trigger send
+            const stInput = document.querySelector('#send_textarea');
+            const stSendBtn = document.querySelector('#send_but');
+            if (stInput && stSendBtn) {
+                // Save current input value
+                const savedValue = stInput.value;
+                stInput.value = sdCommand;
+                // Dispatch events so ST detects the change
+                stInput.dispatchEvent(new Event('input', { bubbles: true }));
+                stSendBtn.click();
+                // Restore after a tick
+                setTimeout(() => { stInput.value = savedValue; }, 200);
+            } else {
+                throw new Error('Image Generation extension not found. Enable the Image Generation extension in ST first.');
+            }
+        }
+
+        if (statusEl) {
+            statusEl.innerHTML = '<i class="fa-solid fa-check"></i> Generation sent to ST! Check the ST chat for your image.';
+        }
+        showToast('Avatar generation sent! Check the main ST chat for your image.', 'success', 5000);
+
+        // Auto-dismiss card after 3 seconds
+        setTimeout(() => {
+            card.remove();
+            _pendingAvatarPrompt = null;
+        }, 3000);
+
+    } catch (err) {
+        console.error('[CCS] Avatar generation failed:', err);
+
+        if (statusEl) {
+            statusEl.innerHTML = `<i class="fa-solid fa-triangle-exclamation"></i> ${escapeHtml(err.message)}`;
+        }
+        // Re-enable buttons
+        card.querySelectorAll('[data-avatar-action]').forEach(b => b.disabled = false);
+
+        if (err.message.includes('not found') || err.message.includes('not available')) {
+            showToast('Image Generation not configured. Enable it in ST Extensions first.', 'error', 8000);
+        } else {
+            showToast(`Generation error: ${err.message}`, 'error');
+        }
+    }
 }

@@ -381,7 +381,19 @@ TOOLS:
     Use when: the user asks to "improve the lorebook", "check for problems", or "optimize lore connectivity".
     Never run this before ccs_read_lore_graph — always read first, then suggest if needed.
     Use in: Lore phase only.
+
+20. ccs_generate_avatar_prompt — Generate an optimized image-generation prompt for the character's avatar
+    Parameters:
+      - style (optional): "cinematic" | "anime" | "painterly" | "realistic" (default: "cinematic")
+      - emphasis (optional): "face" | "bust" | "full_body" (default: "bust")
+      - extra_tags (optional): array of extra SD tags to append, e.g. ["dark fantasy", "dramatic lighting"]
+    Returns: renders an interactive avatar prompt card in the chat. The user can edit the positive/negative prompts and click "Generate Avatar" to trigger ST's image generation pipeline.
+    Use when: the user asks to "generate an avatar", "create a portrait", "make an image", or "draw [character name]".
+    How: CCS reads the character's description and concept brief to extract visual traits, then builds the positive prompt from those traits plus the chosen style. The user always reviews before generation — nothing is generated automatically.
+    IMPORTANT: Only call this AFTER the character has a description written. If the description is empty, write it first with ccs_write_field.
+    Use in: Studio phase only (requires card fields to be populated).
 `;
+
 
 
 // ─── Per-Turn Reminder ──────────────────────────────────────────────────────
