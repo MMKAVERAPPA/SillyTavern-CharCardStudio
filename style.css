@@ -4130,8 +4130,18 @@ html {
   overflow: hidden;
 }
 
+/* ── Canvas area (fills remaining space below toolbar+stats) ── */
+.ccs-graph-canvas-area {
+  position: relative;  /* positioning context for canvas + overlays */
+  flex: 1 1 0;         /* fill all space below the toolbar and stats bar */
+  min-height: 0;       /* required for flex children to shrink */
+  overflow: hidden;
+}
+
 /* ── Toolbar ── */
 .ccs-graph-toolbar {
+  position: relative; /* Fix 1: establish stacking context so z-index works */
+  z-index: 10;        /* Fix 1: float above the canvas (canvas z-index:0) */
   display: flex;
   align-items: center;
   gap: 2px;
@@ -4208,6 +4218,8 @@ html {
 
 /* ── Stats bar ── */
 .ccs-graph-stats {
+  position: relative; /* Fix 1: above canvas */
+  z-index: 10;
   display: flex;
   align-items: center;
   gap: 10px;
@@ -4583,13 +4595,17 @@ html {
 /* ── Canvas ── */
 .ccs-graph-canvas {
   position: absolute;
-  inset: 0;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
   width: 100%;
   height: 100%;
   display: block;
   cursor: grab;
   touch-action: none;
   user-select: none;
+  z-index: 1; /* Fix 1: sits above background but below toolbar (z-index:10) */
 }
 .ccs-graph-canvas:active {
   cursor: grabbing;

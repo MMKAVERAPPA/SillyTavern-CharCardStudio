@@ -28,7 +28,9 @@ const GRID_SIZE = 40;      // Grid snap cell size
 const MINIMAP_W = 130;
 const MINIMAP_H = 85;
 const MINIMAP_PAD = 12;
-const PHYSICS_THRESHOLD = 60;   // nodes: switch to static layout above this
+const PHYSICS_THRESHOLD = 50;   // nodes: disable physics by default above this
+// For very large graphs, skip O(N²) repulsion — only spring + gravity
+const LARGE_GRAPH_THRESHOLD = 80;
 const DAMPING = 0.78;
 const REPULSION = 18000;
 const SPRING_K = 0.04;
@@ -230,6 +232,7 @@ function _buildOverlayHTML() {
         </button>
     </div>
 
+
     <!-- Stats bar -->
     <div class="ccs-graph-stats" id="ccs_graph_stats">
         <span id="ccs_graph_stat_entries">…</span>
@@ -241,110 +244,223 @@ function _buildOverlayHTML() {
         <span id="ccs_graph_stat_tokens">…</span>
     </div>
 
-    <!-- Search panel (hidden by default) -->
-    <div class="ccs-graph-panel ccs-graph-search-panel ccs-hidden" id="ccs_graph_search_panel">
-        <div class="ccs-graph-panel-header">
-            <i class="fa-solid fa-magnifying-glass"></i> Search & Filter
-            <button class="ccs-graph-panel-close" id="ccs_graph_search_close"><i class="fa-solid fa-xmark"></i></button>
+    <!-- Main canvas + all absolute overlays inside the canvas area -->
+    <div class="ccs-graph-canvas-area" id="ccs_graph_canvas_area">
+        <!-- Floating panels (search, simulator) -->
+        <div class="ccs-graph-panel ccs-graph-search-panel ccs-hidden" id="ccs_graph_search_panel">
+            <div class="ccs-graph-panel-header">
+                <i class="fa-solid fa-magnifying-glass"></i> Search &amp; Filter
+                <button class="ccs-graph-panel-close" id="ccs_graph_search_close"><i class="fa-solid fa-xmark"></i></button>
+            </div>
+            <input type="text" class="ccs-graph-search-input" id="ccs_graph_search_input"
+                   placeholder="Entry name, key, or content…" autocomplete="off" />
+            <div class="ccs-graph-filter-chips" id="ccs_graph_filter_chips">
+                <button class="ccs-graph-filter-chip" data-filter="constant">🔵 Constant only</button>
+                <button class="ccs-graph-filter-chip" data-filter="orphaned">⚠️ Orphaned</button>
+                <button class="ccs-graph-filter-chip" data-filter="circular">🔄 Circular loops</button>
+                <button class="ccs-graph-filter-chip" data-filter="heavy">🏗️ Heavy (&gt;300t)</button>
+                <button class="ccs-graph-filter-chip" data-filter="disabled">🚫 Disabled</button>
+                <button class="ccs-graph-filter-chip" data-filter="probabilistic">🎲 Probabilistic</button>
+            </div>
+            <div class="ccs-graph-search-result" id="ccs_graph_search_result"></div>
         </div>
-        <input type="text" class="ccs-graph-search-input" id="ccs_graph_search_input"
-               placeholder="Entry name, key, or content…" autocomplete="off" />
-        <div class="ccs-graph-filter-chips" id="ccs_graph_filter_chips">
-            <button class="ccs-graph-filter-chip" data-filter="constant">🔵 Constant only</button>
-            <button class="ccs-graph-filter-chip" data-filter="orphaned">⚠️ Orphaned</button>
-            <button class="ccs-graph-filter-chip" data-filter="circular">🔄 Circular loops</button>
-            <button class="ccs-graph-filter-chip" data-filter="heavy">🏋️ Heavy (&gt;300t)</button>
-            <button class="ccs-graph-filter-chip" data-filter="disabled">🚫 Disabled</button>
-            <button class="ccs-graph-filter-chip" data-filter="probabilistic">🎲 Probabilistic</button>
+
+        <!-- Simulator panel (hidden by default) -->
+        <div class="ccs-graph-panel ccs-graph-sim-panel ccs-hidden" id="ccs_graph_sim_panel">
+            <div class="ccs-graph-panel-header">
+                <i class="fa-solid fa-bolt"></i> Activation Simulator
+                <button class="ccs-graph-panel-close" id="ccs_graph_sim_close"><i class="fa-solid fa-xmark"></i></button>
+            </div>
+            <textarea class="ccs-graph-sim-input" id="ccs_graph_sim_input"
+                      placeholder="Type a test message to simulate keyword activation…" rows="3"></textarea>
+            <div class="ccs-graph-sim-options">
+                <label class="ccs-graph-sim-label">
+                    Scan depth:
+                    <select class="ccs-graph-sim-select" id="ccs_graph_sim_depth">
+                        <option value="1">1 msg</option>
+                        <option value="2">2 msgs</option>
+                        <option value="3" selected>3 msgs</option>
+                        <option value="5">5 msgs</option>
+                        <option value="10">10 msgs</option>
+                    </select>
+                </label>
+                <label class="ccs-graph-sim-label">
+                    Recursion:
+                    <select class="ccs-graph-sim-select" id="ccs_graph_sim_recursion">
+                        <option value="on" selected>ON</option>
+                        <option value="off">OFF</option>
+                    </select>
+                </label>
+                <label class="ccs-graph-sim-label">
+                    Budget:
+                    <select class="ccs-graph-sim-select" id="ccs_graph_sim_budget">
+                        <option value="1000">1000t</option>
+                        <option value="2000" selected>2000t</option>
+                        <option value="4000">4000t</option>
+                        <option value="999999">Unlimited</option>
+                    </select>
+                </label>
+            </div>
+            <button class="ccs-btn ccs-btn--accent" id="ccs_graph_sim_run" style="width:100%;margin-top:6px;">
+                <i class="fa-solid fa-play"></i> Simulate
+            </button>
+            <div class="ccs-graph-sim-result" id="ccs_graph_sim_result"></div>
         </div>
-        <div class="ccs-graph-search-result" id="ccs_graph_search_result"></div>
-    </div>
 
-    <!-- Simulator panel (hidden by default) -->
-    <div class="ccs-graph-panel ccs-graph-sim-panel ccs-hidden" id="ccs_graph_sim_panel">
-        <div class="ccs-graph-panel-header">
-            <i class="fa-solid fa-bolt"></i> Activation Simulator
-            <button class="ccs-graph-panel-close" id="ccs_graph_sim_close"><i class="fa-solid fa-xmark"></i></button>
+        <!-- Node editor panel (hidden by default) -->
+        <div class="ccs-graph-editor-panel ccs-hidden" id="ccs_graph_editor_panel">
+            <div class="ccs-graph-panel-header">
+                <i class="fa-solid fa-pen"></i> <span id="ccs_graph_editor_title">Edit Entry</span>
+                <button class="ccs-graph-panel-close" id="ccs_graph_editor_close"><i class="fa-solid fa-xmark"></i></button>
+            </div>
+            <div class="ccs-graph-editor-body" id="ccs_graph_editor_body">
+                <!-- Populated dynamically when a node is double-clicked -->
+            </div>
         </div>
-        <textarea class="ccs-graph-sim-input" id="ccs_graph_sim_input"
-                  placeholder="Type a test message to simulate keyword activation…" rows="3"></textarea>
-        <div class="ccs-graph-sim-options">
-            <label class="ccs-graph-sim-label">
-                Scan depth:
-                <select class="ccs-graph-sim-select" id="ccs_graph_sim_depth">
-                    <option value="1">1 msg</option>
-                    <option value="2">2 msgs</option>
-                    <option value="3" selected>3 msgs</option>
-                    <option value="5">5 msgs</option>
-                    <option value="10">10 msgs</option>
-                </select>
-            </label>
-            <label class="ccs-graph-sim-label">
-                Recursion:
-                <select class="ccs-graph-sim-select" id="ccs_graph_sim_recursion">
-                    <option value="on" selected>ON</option>
-                    <option value="off">OFF</option>
-                </select>
-            </label>
-            <label class="ccs-graph-sim-label">
-                Budget:
-                <select class="ccs-graph-sim-select" id="ccs_graph_sim_budget">
-                    <option value="1000">1000t</option>
-                    <option value="2000" selected>2000t</option>
-                    <option value="4000">4000t</option>
-                    <option value="999999">Unlimited</option>
-                </select>
-            </label>
+
+        <!-- Context menu -->
+        <div class="ccs-graph-ctx-menu ccs-hidden" id="ccs_graph_ctx_menu">
+            <button class="ccs-graph-ctx-item" data-action="view"><i class="fa-solid fa-eye"></i> View Entry</button>
+            <button class="ccs-graph-ctx-item" data-action="edit"><i class="fa-solid fa-pen"></i> Edit Entry</button>
+            <div class="ccs-graph-ctx-sep"></div>
+            <button class="ccs-graph-ctx-item" data-action="focus"><i class="fa-solid fa-crosshairs"></i> Focus Connections</button>
+            <button class="ccs-graph-ctx-item" data-action="pin"><i class="fa-solid fa-thumbtack"></i> Pin / Unpin</button>
+            <div class="ccs-graph-ctx-sep"></div>
+            <button class="ccs-graph-ctx-item" data-action="toggle"><i class="fa-solid fa-toggle-on"></i> Enable / Disable</button>
+            <button class="ccs-graph-ctx-item ccs-graph-ctx-item--danger" data-action="delete">
+                <i class="fa-solid fa-trash"></i> Delete Entry
+            </button>
         </div>
-        <button class="ccs-btn ccs-btn--accent" id="ccs_graph_sim_run" style="width:100%;margin-top:6px;">
-            <i class="fa-solid fa-play"></i> Simulate
-        </button>
-        <div class="ccs-graph-sim-result" id="ccs_graph_sim_result"></div>
-    </div>
 
-    <!-- Node editor panel (hidden by default) -->
-    <div class="ccs-graph-editor-panel ccs-hidden" id="ccs_graph_editor_panel">
-        <div class="ccs-graph-panel-header">
-            <i class="fa-solid fa-pen"></i> <span id="ccs_graph_editor_title">Edit Entry</span>
-            <button class="ccs-graph-panel-close" id="ccs_graph_editor_close"><i class="fa-solid fa-xmark"></i></button>
+        <!-- Main canvas -->
+        <canvas id="ccs_graph_canvas" class="ccs-graph-canvas"></canvas>
+
+        <!-- Minimap -->
+        <canvas id="ccs_graph_minimap" class="ccs-graph-minimap"></canvas>
+
+        <!-- Legend -->
+        <div class="ccs-graph-legend" id="ccs_graph_legend">
+            <div class="ccs-graph-legend-item"><span class="ccs-graph-legend-edge ccs-graph-legend-solid" style="background:#aaa"></span> Direct</div>
+            <div class="ccs-graph-legend-item"><span class="ccs-graph-legend-edge ccs-graph-legend-dashed" style="background:#888"></span> Conditional</div>
+            <div class="ccs-graph-legend-item"><span class="ccs-graph-legend-edge ccs-graph-legend-solid" style="background:#f97316"></span> Constant</div>
+            <div class="ccs-graph-legend-item"><span class="ccs-graph-legend-edge ccs-graph-legend-solid" style="background:#ef4444"></span> Stops recursion</div>
+            <div class="ccs-graph-legend-item"><span class="ccs-graph-legend-edge ccs-graph-legend-dashed" style="background:#eab308"></span> Probabilistic</div>
+            <div class="ccs-graph-legend-item"><span class="ccs-graph-legend-edge ccs-graph-legend-dashed" style="background:#a855f7"></span> Inclusion group</div>
         </div>
-        <div class="ccs-graph-editor-body" id="ccs_graph_editor_body">
-            <!-- Populated dynamically when a node is double-clicked -->
-        </div>
-    </div>
-
-    <!-- Context menu -->
-    <div class="ccs-graph-ctx-menu ccs-hidden" id="ccs_graph_ctx_menu">
-        <button class="ccs-graph-ctx-item" data-action="view"><i class="fa-solid fa-eye"></i> View Entry</button>
-        <button class="ccs-graph-ctx-item" data-action="edit"><i class="fa-solid fa-pen"></i> Edit Entry</button>
-        <div class="ccs-graph-ctx-sep"></div>
-        <button class="ccs-graph-ctx-item" data-action="focus"><i class="fa-solid fa-crosshairs"></i> Focus Connections</button>
-        <button class="ccs-graph-ctx-item" data-action="pin"><i class="fa-solid fa-thumbtack"></i> Pin / Unpin</button>
-        <div class="ccs-graph-ctx-sep"></div>
-        <button class="ccs-graph-ctx-item" data-action="toggle"><i class="fa-solid fa-toggle-on"></i> Enable / Disable</button>
-        <button class="ccs-graph-ctx-item ccs-graph-ctx-item--danger" data-action="delete">
-            <i class="fa-solid fa-trash"></i> Delete Entry
-        </button>
-    </div>
-
-    <!-- Main canvas -->
-    <canvas id="ccs_graph_canvas" class="ccs-graph-canvas"></canvas>
-
-    <!-- Minimap -->
-    <canvas id="ccs_graph_minimap" class="ccs-graph-minimap"></canvas>
-
-    <!-- Legend -->
-    <div class="ccs-graph-legend" id="ccs_graph_legend">
-        <div class="ccs-graph-legend-item"><span class="ccs-graph-legend-edge ccs-graph-legend-solid" style="background:#aaa"></span> Direct</div>
-        <div class="ccs-graph-legend-item"><span class="ccs-graph-legend-edge ccs-graph-legend-dashed" style="background:#888"></span> Conditional</div>
-        <div class="ccs-graph-legend-item"><span class="ccs-graph-legend-edge ccs-graph-legend-solid" style="background:#f97316"></span> Constant</div>
-        <div class="ccs-graph-legend-item"><span class="ccs-graph-legend-edge ccs-graph-legend-solid" style="background:#ef4444"></span> Stops recursion</div>
-        <div class="ccs-graph-legend-item"><span class="ccs-graph-legend-edge ccs-graph-legend-dashed" style="background:#eab308"></span> Probabilistic</div>
-        <div class="ccs-graph-legend-item"><span class="ccs-graph-legend-edge ccs-graph-legend-dashed" style="background:#a855f7"></span> Inclusion group</div>
     </div>
 </div>
 `;
 }
+
+
+    <div class="ccs-graph-stats" id="    <!-- Main canvas + all absolute overlays inside the canvas area -->
+    <div class="ccs-graph-canvas-area" id="ccs_graph_canvas_area">
+        <!-- Floating panels (search, simulator) -->
+        <div class="ccs-graph-panel ccs-graph-search-panel ccs-hidden" id="ccs_graph_search_panel">
+            <div class="ccs-graph-panel-header">
+                <i class="fa-solid fa-magnifying-glass"></i> Search &amp; Filter
+                <button class="ccs-graph-panel-close" id="ccs_graph_search_close"><i class="fa-solid fa-xmark"></i></button>
+            </div>
+            <input type="text" class="ccs-graph-search-input" id="ccs_graph_search_input"
+                   placeholder="Entry name, key, or content…" autocomplete="off" />
+            <div class="ccs-graph-filter-chips" id="ccs_graph_filter_chips">
+                <button class="ccs-graph-filter-chip" data-filter="constant">🔵 Constant only</button>
+                <button class="ccs-graph-filter-chip" data-filter="orphaned">⚠️ Orphaned</button>
+                <button class="ccs-graph-filter-chip" data-filter="circular">🔄 Circular loops</button>
+                <button class="ccs-graph-filter-chip" data-filter="heavy">🏗️ Heavy (&gt;300t)</button>
+                <button class="ccs-graph-filter-chip" data-filter="disabled">🚫 Disabled</button>
+                <button class="ccs-graph-filter-chip" data-filter="probabilistic">🎲 Probabilistic</button>
+            </div>
+            <div class="ccs-graph-search-result" id="ccs_graph_search_result"></div>
+        </div>
+
+        <!-- Simulator panel (hidden by default) -->
+        <div class="ccs-graph-panel ccs-graph-sim-panel ccs-hidden" id="ccs_graph_sim_panel">
+            <div class="ccs-graph-panel-header">
+                <i class="fa-solid fa-bolt"></i> Activation Simulator
+                <button class="ccs-graph-panel-close" id="ccs_graph_sim_close"><i class="fa-solid fa-xmark"></i></button>
+            </div>
+            <textarea class="ccs-graph-sim-input" id="ccs_graph_sim_input"
+                      placeholder="Type a test message to simulate keyword activation…" rows="3"></textarea>
+            <div class="ccs-graph-sim-options">
+                <label class="ccs-graph-sim-label">
+                    Scan depth:
+                    <select class="ccs-graph-sim-select" id="ccs_graph_sim_depth">
+                        <option value="1">1 msg</option>
+                        <option value="2">2 msgs</option>
+                        <option value="3" selected>3 msgs</option>
+                        <option value="5">5 msgs</option>
+                        <option value="10">10 msgs</option>
+                    </select>
+                </label>
+                <label class="ccs-graph-sim-label">
+                    Recursion:
+                    <select class="ccs-graph-sim-select" id="ccs_graph_sim_recursion">
+                        <option value="on" selected>ON</option>
+                        <option value="off">OFF</option>
+                    </select>
+                </label>
+                <label class="ccs-graph-sim-label">
+                    Budget:
+                    <select class="ccs-graph-sim-select" id="ccs_graph_sim_budget">
+                        <option value="1000">1000t</option>
+                        <option value="2000" selected>2000t</option>
+                        <option value="4000">4000t</option>
+                        <option value="999999">Unlimited</option>
+                    </select>
+                </label>
+            </div>
+            <button class="ccs-btn ccs-btn--accent" id="ccs_graph_sim_run" style="width:100%;margin-top:6px;">
+                <i class="fa-solid fa-play"></i> Simulate
+            </button>
+            <div class="ccs-graph-sim-result" id="ccs_graph_sim_result"></div>
+        </div>
+
+        <!-- Node editor panel (hidden by default) -->
+        <div class="ccs-graph-editor-panel ccs-hidden" id="ccs_graph_editor_panel">
+            <div class="ccs-graph-panel-header">
+                <i class="fa-solid fa-pen"></i> <span id="ccs_graph_editor_title">Edit Entry</span>
+                <button class="ccs-graph-panel-close" id="ccs_graph_editor_close"><i class="fa-solid fa-xmark"></i></button>
+            </div>
+            <div class="ccs-graph-editor-body" id="ccs_graph_editor_body">
+                <!-- Populated dynamically when a node is double-clicked -->
+            </div>
+        </div>
+
+        <!-- Context menu -->
+        <div class="ccs-graph-ctx-menu ccs-hidden" id="ccs_graph_ctx_menu">
+            <button class="ccs-graph-ctx-item" data-action="view"><i class="fa-solid fa-eye"></i> View Entry</button>
+            <button class="ccs-graph-ctx-item" data-action="edit"><i class="fa-solid fa-pen"></i> Edit Entry</button>
+            <div class="ccs-graph-ctx-sep"></div>
+            <button class="ccs-graph-ctx-item" data-action="focus"><i class="fa-solid fa-crosshairs"></i> Focus Connections</button>
+            <button class="ccs-graph-ctx-item" data-action="pin"><i class="fa-solid fa-thumbtack"></i> Pin / Unpin</button>
+            <div class="ccs-graph-ctx-sep"></div>
+            <button class="ccs-graph-ctx-item" data-action="toggle"><i class="fa-solid fa-toggle-on"></i> Enable / Disable</button>
+            <button class="ccs-graph-ctx-item ccs-graph-ctx-item--danger" data-action="delete">
+                <i class="fa-solid fa-trash"></i> Delete Entry
+            </button>
+        </div>
+
+        <!-- Main canvas -->
+        <canvas id="ccs_graph_canvas" class="ccs-graph-canvas"></canvas>
+
+        <!-- Minimap -->
+        <canvas id="ccs_graph_minimap" class="ccs-graph-minimap"></canvas>
+
+        <!-- Legend -->
+        <div class="ccs-graph-legend" id="ccs_graph_legend">
+            <div class="ccs-graph-legend-item"><span class="ccs-graph-legend-edge ccs-graph-legend-solid" style="background:#aaa"></span> Direct</div>
+            <div class="ccs-graph-legend-item"><span class="ccs-graph-legend-edge ccs-graph-legend-dashed" style="background:#888"></span> Conditional</div>
+            <div class="ccs-graph-legend-item"><span class="ccs-graph-legend-edge ccs-graph-legend-solid" style="background:#f97316"></span> Constant</div>
+            <div class="ccs-graph-legend-item"><span class="ccs-graph-legend-edge ccs-graph-legend-solid" style="background:#ef4444"></span> Stops recursion</div>
+            <div class="ccs-graph-legend-item"><span class="ccs-graph-legend-edge ccs-graph-legend-dashed" style="background:#eab308"></span> Probabilistic</div>
+            <div class="ccs-graph-legend-item"><span class="ccs-graph-legend-edge ccs-graph-legend-dashed" style="background:#a855f7"></span> Inclusion group</div>
+        </div>
+    </div>
+</div>
+`;
+}
+
 
 // ─── LoreGraphV2 Class ───────────────────────────────────────────────────────
 
@@ -488,10 +604,21 @@ class LoreGraphV2 {
         // Bug 15: Build O(1) UID lookup map (replaces O(n) array.find per edge per frame)
         this._rebuildNodeMap();
 
+        // Cache max token value for _nodeWidth() to avoid O(N) recalc per draw call
+        this._rebuildMaxTokens();
+
         // If too many nodes, disable physics by default
         if (this.nodes.length > PHYSICS_THRESHOLD) {
             this.physicsEnabled = false;
             this._applyStaticCategoryLayout();
+        }
+    }
+
+    /** Cache max token value so _nodeWidth avoids per-draw array allocation. */
+    _rebuildMaxTokens() {
+        this._maxTokens = 1;
+        for (const n of this.nodes) {
+            if (n.tokens > this._maxTokens) this._maxTokens = n.tokens;
         }
     }
 
@@ -551,6 +678,16 @@ class LoreGraphV2 {
         this.canvas.width = Math.round(W * this.dpr);
         this.canvas.height = Math.round(H * this.dpr);
 
+        // Fix 2 — Minimap trails: set minimap canvas width/height attributes.
+        // Without this, the canvas logical size defaults to 300x150 (browser default).
+        // clearRect(0,0,130,85) only clears the top-left corner, leaving path
+        // artifacts as permanent trails every time the viewport is panned.
+        const mmDpr = this.dpr;
+        this.minimapCanvas.width = Math.round(MINIMAP_W * mmDpr);
+        this.minimapCanvas.height = Math.round(MINIMAP_H * mmDpr);
+        this.minimapCanvas.style.width = MINIMAP_W + 'px';
+        this.minimapCanvas.style.height = MINIMAP_H + 'px';
+
         this.W = W;
         this.H = H;
     }
@@ -607,23 +744,53 @@ class LoreGraphV2 {
         const W = this.W;
         const H = this.H;
 
-        // Repulsion (all pairs)
-        for (let i = 0; i < n; i++) {
-            const a = nodes[i];
-            for (let j = i + 1; j < n; j++) {
-                const b = nodes[j];
-                let dx = b.x - a.x;
-                let dy = b.y - a.y;
-                let dist = Math.sqrt(dx * dx + dy * dy) || 1;
-                const minDist = (NODE_W + NODE_H) * 0.7;
-                if (dist < minDist) dist = minDist;
-                const force = REPULSION / (dist * dist);
-                const fx = (dx / dist) * force;
-                const fy = (dy / dist) * force;
-                a.vx -= fx;
-                a.vy -= fy;
-                b.vx += fx;
-                b.vy += fy;
+        // Fix 3: For large graphs (>LARGE_GRAPH_THRESHOLD nodes), skip the O(N²)
+        // repulsion calculation entirely. At 100 nodes that's 4950 pair comparisons
+        // per 16ms frame = ~300k float ops/sec, which causes GPU/CPU thrashing and
+        // OOM pressure from the JIT heat. Use spring + gravity only (O(E+N)).
+        const skipRepulsion = n > LARGE_GRAPH_THRESHOLD;
+
+        if (!skipRepulsion) {
+            // Repulsion (all pairs) — O(N²)
+            for (let i = 0; i < n; i++) {
+                const a = nodes[i];
+                for (let j = i + 1; j < n; j++) {
+                    const b = nodes[j];
+                    let dx = b.x - a.x;
+                    let dy = b.y - a.y;
+                    let dist = Math.sqrt(dx * dx + dy * dy) || 1;
+                    const minDist = (NODE_W + NODE_H) * 0.7;
+                    if (dist < minDist) dist = minDist;
+                    const force = REPULSION / (dist * dist);
+                    const fx = (dx / dist) * force;
+                    const fy = (dy / dist) * force;
+                    a.vx -= fx;
+                    a.vy -= fy;
+                    b.vx += fx;
+                    b.vy += fy;
+                }
+            }
+        } else {
+            // Simplified repulsion for large graphs: only repel nodes that are
+            // very close (colliding), O(N) best-case with spatial hint.
+            const COLLISION_R = (NODE_W + NODE_H) * 0.6;
+            for (let i = 0; i < n; i++) {
+                const a = nodes[i];
+                for (let j = i + 1; j < n; j++) {
+                    const b = nodes[j];
+                    const dx = b.x - a.x;
+                    const dy = b.y - a.y;
+                    const dist2 = dx * dx + dy * dy;
+                    if (dist2 > COLLISION_R * COLLISION_R) continue; // skip distant pairs
+                    const dist = Math.sqrt(dist2) || 1;
+                    const force = REPULSION * 0.3 / (dist * dist);
+                    const fx = (dx / dist) * force;
+                    const fy = (dy / dist) * force;
+                    a.vx -= fx;
+                    a.vy -= fy;
+                    b.vx += fx;
+                    b.vy += fy;
+                }
             }
         }
 
@@ -961,6 +1128,11 @@ class LoreGraphV2 {
         const mc = this.minimapCtx;
         const mw = MINIMAP_W;
         const mh = MINIMAP_H;
+        const mmDpr = this.dpr;
+
+        // Fix 2: scale context to account for the device pixel ratio set in _resize()
+        mc.save();
+        mc.scale(mmDpr, mmDpr);
         mc.clearRect(0, 0, mw, mh);
 
         // Background
@@ -970,7 +1142,7 @@ class LoreGraphV2 {
         mc.lineWidth = 1;
         mc.strokeRect(0, 0, mw, mh);
 
-        if (!this.nodes.length) return;
+        if (!this.nodes.length) { mc.restore(); return; }
 
         // World bounds
         const xs = this.nodes.map(n => n.x);
@@ -1005,6 +1177,8 @@ class LoreGraphV2 {
         mc.strokeStyle = 'rgba(124,92,191,0.7)';
         mc.lineWidth = 1;
         mc.strokeRect(toMx(vpLeft), toMy(vpTop), (vpRight - vpLeft) * ms, (vpBottom - vpTop) * ms);
+
+        mc.restore();
     }
 
     // ─── Helpers ─────────────────────────────────────────────────────────────
@@ -1016,7 +1190,9 @@ class LoreGraphV2 {
 
     _nodeWidth(node) {
         if (!this.tokenSizeMode) return NODE_W;
-        const maxTokens = Math.max(...this.nodes.map(n => n.tokens), 1);
+        // Fix 3: use cached _maxTokens instead of O(N) Math.max(…spread) on every draw call.
+        // At 100 nodes × 60fps that's 6000 full-array allocations per second.
+        const maxTokens = this._maxTokens || 1;
         const ratio = node.tokens / maxTokens;
         return NODE_W * (0.6 + ratio * 0.8);
     }
@@ -1106,13 +1282,16 @@ class LoreGraphV2 {
         // Bug 3: use cached result; cache is invalidated by _initEdges()
         const circles = this._getCircularChains();
         const totalTokens = this.nodes.reduce((s, n) => s + n.tokens, 0);
+        const edgeCapped = this.edges.length >= 400; // matches MAX_EDGES in _buildEdgesFromEntries
 
         const setTxt = (id, txt) => {
             const el = this.overlayEl.querySelector('#' + id);
             if (el) el.textContent = txt;
         };
         setTxt('ccs_graph_stat_entries', `${this.nodes.length} entries`);
-        setTxt('ccs_graph_stat_edges', `${this.edges.length} edges`);
+        setTxt('ccs_graph_stat_edges', edgeCapped
+            ? `${this.edges.length} edges (capped — dense graph)`
+            : `${this.edges.length} edges`);
         setTxt('ccs_graph_stat_orphaned', `⚠️ ${orphaned.length} orphaned`);
         setTxt('ccs_graph_stat_tokens', `~${totalTokens}t total`);
     }
@@ -1510,8 +1689,10 @@ ${!readOnly ? `
                 Object.assign(node.entry, changes);
                 node.name = changes.name;
                 node.category = changes.category;
+                node.tokens = changes.tokens ?? node.tokens;
                 // Rebuild edges to reflect key changes
                 this._initEdges();
+                this._rebuildMaxTokens(); // token counts may have changed
                 this._updateStats();
                 this._markDirty();
                 panel.classList.add('ccs-hidden');
@@ -1524,6 +1705,7 @@ ${!readOnly ? `
                 this.nodes = this.nodes.filter(n => n.uid !== node.uid);
                 this.edges = this.edges.filter(ed => ed.sourceUid !== node.uid && ed.targetUid !== node.uid);
                 this._rebuildNodeMap(); // keep O(1) map in sync
+                this._rebuildMaxTokens(); // max may have changed
                 this._updateStats();
                 this._markDirty();
                 panel.classList.add('ccs-hidden');
@@ -1876,6 +2058,7 @@ ${!readOnly ? `
                         this.nodes = this.nodes.filter(n => n.uid !== node.uid);
                         this.edges = this.edges.filter(ed => ed.sourceUid !== node.uid && ed.targetUid !== node.uid);
                         this._rebuildNodeMap(); // keep O(1) map in sync
+                        this._rebuildMaxTokens(); // max may have changed
                         this._updateStats();
                         this._markDirty();
                         break;
@@ -1926,6 +2109,9 @@ function _buildEdges(entries) {
 function _buildEdgesFromEntries(entries, nodes, isMultiBook) {
     const edges = [];
     const uidToNode = new Map(nodes.map(n => [n.uid, n]));
+    // Fix 3: cap total edges to prevent OOM. A 100-entry lorebook can produce
+    // up to 9900 directed edges — each drawn as a bezier with arrowhead every frame.
+    const MAX_EDGES = 400;
 
     // Build inclusion group map
     const groupToEntries = new Map();
@@ -1937,16 +2123,23 @@ function _buildEdgesFromEntries(entries, nodes, isMultiBook) {
     }
 
     // Keyword activation edges (A's content contains B's key → A activates B)
+    // Fix 3: pre-compute lowercased, truncated content and filtered key arrays
+    // outside the inner loop to avoid repeated work for each (A,B) pair.
+    const CONTENT_SCAN_LEN = 800; // only scan first 800 chars of content
     for (const entryA of entries) {
-        const contentA = (entryA.content || '').toLowerCase();
+        if (edges.length >= MAX_EDGES) break;
+        // Truncate content to avoid scanning huge strings 100× per entry
+        const contentA = (entryA.content || '').slice(0, CONTENT_SCAN_LEN).toLowerCase();
         const uidA = entryA._world ? `world_${entryA.uid}` : entryA.uid;
 
         for (const entryB of entries) {
+            if (edges.length >= MAX_EDGES) break;
             if (entryA.uid === entryB.uid) continue;
             const uidB = entryB._world ? `world_${entryB.uid}` : entryB.uid;
+            // Fix 3: filter keys outside inner search (avoid recomputing per every B for same A)
             const keysB = (entryB.keys || []).filter(k => k.length > 2);
-            const matched = keysB.some(k => contentA.includes(k.toLowerCase()));
-            if (!matched) continue;
+            const matchedKey = keysB.find(k => contentA.includes(k.toLowerCase()));
+            if (!matchedKey) continue;
 
             // Determine edge type
             let type = 'DIRECT';
@@ -1959,15 +2152,17 @@ function _buildEdgesFromEntries(entries, nodes, isMultiBook) {
                 sourceUid: uidA,
                 targetUid: uidB,
                 type,
-                label: `Contains key: "${keysB.find(k => contentA.includes(k.toLowerCase()))}"`,
+                label: `Contains key: "${matchedKey}"`,
             });
         }
     }
 
     // Inclusion group edges (pairs within same group)
     for (const [, groupEntries] of groupToEntries) {
+        if (edges.length >= MAX_EDGES) break;
         for (let i = 0; i < groupEntries.length; i++) {
             for (let j = i + 1; j < groupEntries.length; j++) {
+                if (edges.length >= MAX_EDGES) break;
                 const uidA = groupEntries[i]._world ? `world_${groupEntries[i].uid}` : groupEntries[i].uid;
                 const uidB = groupEntries[j]._world ? `world_${groupEntries[j].uid}` : groupEntries[j].uid;
                 // Only add if both exist in nodes
