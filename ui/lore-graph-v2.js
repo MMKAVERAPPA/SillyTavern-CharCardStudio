@@ -28,7 +28,6 @@ const GRID_SIZE = 40;      // Grid snap cell size
 const MINIMAP_W = 130;
 const MINIMAP_H = 85;
 const MINIMAP_PAD = 12;
-const PHYSICS_THRESHOLD = 50;   // nodes: disable physics by default above this
 // For very large graphs, skip O(N²) repulsion — only spring + gravity
 const LARGE_GRAPH_THRESHOLD = 80;
 const DAMPING = 0.78;
@@ -68,7 +67,7 @@ const CATEGORY_ANCHORS = {
 
 // Edge types — drives color + dash pattern + arrow style
 const EDGE_TYPES = {
-    DIRECT:      { color: null,       dash: [],       label: 'Activates' },          // category color
+    DIRECT:      { color: 'rgba(210,160,60,0.75)', dash: [], label: 'Activates' },   // warm amber — visible at any zoom
     CONDITIONAL: { color: '#888',     dash: [6, 4],   label: 'Conditional' },
     CONSTANT:    { color: '#f97316',  dash: [],       label: 'Always active',  glow: true },
     STOP_RECUR:  { color: '#ef4444',  dash: [],       label: 'Stops recursion', stop: true },
@@ -353,115 +352,6 @@ function _buildOverlayHTML() {
 }
 
 
-    <div class="ccs-graph-stats" id="    <!-- Main canvas + all absolute overlays inside the canvas area -->
-    <div class="ccs-graph-canvas-area" id="ccs_graph_canvas_area">
-        <!-- Floating panels (search, simulator) -->
-        <div class="ccs-graph-panel ccs-graph-search-panel ccs-hidden" id="ccs_graph_search_panel">
-            <div class="ccs-graph-panel-header">
-                <i class="fa-solid fa-magnifying-glass"></i> Search &amp; Filter
-                <button class="ccs-graph-panel-close" id="ccs_graph_search_close"><i class="fa-solid fa-xmark"></i></button>
-            </div>
-            <input type="text" class="ccs-graph-search-input" id="ccs_graph_search_input"
-                   placeholder="Entry name, key, or content…" autocomplete="off" />
-            <div class="ccs-graph-filter-chips" id="ccs_graph_filter_chips">
-                <button class="ccs-graph-filter-chip" data-filter="constant">🔵 Constant only</button>
-                <button class="ccs-graph-filter-chip" data-filter="orphaned">⚠️ Orphaned</button>
-                <button class="ccs-graph-filter-chip" data-filter="circular">🔄 Circular loops</button>
-                <button class="ccs-graph-filter-chip" data-filter="heavy">🏗️ Heavy (&gt;300t)</button>
-                <button class="ccs-graph-filter-chip" data-filter="disabled">🚫 Disabled</button>
-                <button class="ccs-graph-filter-chip" data-filter="probabilistic">🎲 Probabilistic</button>
-            </div>
-            <div class="ccs-graph-search-result" id="ccs_graph_search_result"></div>
-        </div>
-
-        <!-- Simulator panel (hidden by default) -->
-        <div class="ccs-graph-panel ccs-graph-sim-panel ccs-hidden" id="ccs_graph_sim_panel">
-            <div class="ccs-graph-panel-header">
-                <i class="fa-solid fa-bolt"></i> Activation Simulator
-                <button class="ccs-graph-panel-close" id="ccs_graph_sim_close"><i class="fa-solid fa-xmark"></i></button>
-            </div>
-            <textarea class="ccs-graph-sim-input" id="ccs_graph_sim_input"
-                      placeholder="Type a test message to simulate keyword activation…" rows="3"></textarea>
-            <div class="ccs-graph-sim-options">
-                <label class="ccs-graph-sim-label">
-                    Scan depth:
-                    <select class="ccs-graph-sim-select" id="ccs_graph_sim_depth">
-                        <option value="1">1 msg</option>
-                        <option value="2">2 msgs</option>
-                        <option value="3" selected>3 msgs</option>
-                        <option value="5">5 msgs</option>
-                        <option value="10">10 msgs</option>
-                    </select>
-                </label>
-                <label class="ccs-graph-sim-label">
-                    Recursion:
-                    <select class="ccs-graph-sim-select" id="ccs_graph_sim_recursion">
-                        <option value="on" selected>ON</option>
-                        <option value="off">OFF</option>
-                    </select>
-                </label>
-                <label class="ccs-graph-sim-label">
-                    Budget:
-                    <select class="ccs-graph-sim-select" id="ccs_graph_sim_budget">
-                        <option value="1000">1000t</option>
-                        <option value="2000" selected>2000t</option>
-                        <option value="4000">4000t</option>
-                        <option value="999999">Unlimited</option>
-                    </select>
-                </label>
-            </div>
-            <button class="ccs-btn ccs-btn--accent" id="ccs_graph_sim_run" style="width:100%;margin-top:6px;">
-                <i class="fa-solid fa-play"></i> Simulate
-            </button>
-            <div class="ccs-graph-sim-result" id="ccs_graph_sim_result"></div>
-        </div>
-
-        <!-- Node editor panel (hidden by default) -->
-        <div class="ccs-graph-editor-panel ccs-hidden" id="ccs_graph_editor_panel">
-            <div class="ccs-graph-panel-header">
-                <i class="fa-solid fa-pen"></i> <span id="ccs_graph_editor_title">Edit Entry</span>
-                <button class="ccs-graph-panel-close" id="ccs_graph_editor_close"><i class="fa-solid fa-xmark"></i></button>
-            </div>
-            <div class="ccs-graph-editor-body" id="ccs_graph_editor_body">
-                <!-- Populated dynamically when a node is double-clicked -->
-            </div>
-        </div>
-
-        <!-- Context menu -->
-        <div class="ccs-graph-ctx-menu ccs-hidden" id="ccs_graph_ctx_menu">
-            <button class="ccs-graph-ctx-item" data-action="view"><i class="fa-solid fa-eye"></i> View Entry</button>
-            <button class="ccs-graph-ctx-item" data-action="edit"><i class="fa-solid fa-pen"></i> Edit Entry</button>
-            <div class="ccs-graph-ctx-sep"></div>
-            <button class="ccs-graph-ctx-item" data-action="focus"><i class="fa-solid fa-crosshairs"></i> Focus Connections</button>
-            <button class="ccs-graph-ctx-item" data-action="pin"><i class="fa-solid fa-thumbtack"></i> Pin / Unpin</button>
-            <div class="ccs-graph-ctx-sep"></div>
-            <button class="ccs-graph-ctx-item" data-action="toggle"><i class="fa-solid fa-toggle-on"></i> Enable / Disable</button>
-            <button class="ccs-graph-ctx-item ccs-graph-ctx-item--danger" data-action="delete">
-                <i class="fa-solid fa-trash"></i> Delete Entry
-            </button>
-        </div>
-
-        <!-- Main canvas -->
-        <canvas id="ccs_graph_canvas" class="ccs-graph-canvas"></canvas>
-
-        <!-- Minimap -->
-        <canvas id="ccs_graph_minimap" class="ccs-graph-minimap"></canvas>
-
-        <!-- Legend -->
-        <div class="ccs-graph-legend" id="ccs_graph_legend">
-            <div class="ccs-graph-legend-item"><span class="ccs-graph-legend-edge ccs-graph-legend-solid" style="background:#aaa"></span> Direct</div>
-            <div class="ccs-graph-legend-item"><span class="ccs-graph-legend-edge ccs-graph-legend-dashed" style="background:#888"></span> Conditional</div>
-            <div class="ccs-graph-legend-item"><span class="ccs-graph-legend-edge ccs-graph-legend-solid" style="background:#f97316"></span> Constant</div>
-            <div class="ccs-graph-legend-item"><span class="ccs-graph-legend-edge ccs-graph-legend-solid" style="background:#ef4444"></span> Stops recursion</div>
-            <div class="ccs-graph-legend-item"><span class="ccs-graph-legend-edge ccs-graph-legend-dashed" style="background:#eab308"></span> Probabilistic</div>
-            <div class="ccs-graph-legend-item"><span class="ccs-graph-legend-edge ccs-graph-legend-dashed" style="background:#a855f7"></span> Inclusion group</div>
-        </div>
-    </div>
-</div>
-`;
-}
-
-
 // ─── LoreGraphV2 Class ───────────────────────────────────────────────────────
 
 class LoreGraphV2 {
@@ -486,7 +376,9 @@ class LoreGraphV2 {
         // Feature toggles
         this.gridSnap = false;
         this.tokenSizeMode = false;
-        this.physicsEnabled = true;
+        this.physicsEnabled = false; // Memory opt: physics is opt-in, not default.
+                                      // Static category layout is the default —
+                                      // it organises nodes cleanly with zero CPU cost.
         this.simRunning = true;
 
         // Nodes, edges, selection
@@ -539,7 +431,8 @@ class LoreGraphV2 {
 
         this._initNodes();
         this._initEdges();
-        this._resize();
+        this._initialLayoutDone = false; // Bug 5: layout deferred to first _resize()
+        this._resize();                  // _resize() calls _applyStaticCategoryLayout() on first run
         this._wireToolbar();
         this._wireSearch();
         this._wireSimulator();
@@ -606,12 +499,7 @@ class LoreGraphV2 {
 
         // Cache max token value for _nodeWidth() to avoid O(N) recalc per draw call
         this._rebuildMaxTokens();
-
-        // If too many nodes, disable physics by default
-        if (this.nodes.length > PHYSICS_THRESHOLD) {
-            this.physicsEnabled = false;
-            this._applyStaticCategoryLayout();
-        }
+        // Bug 5: layout applied inside _resize() on first call, after W/H are set from DOM.
     }
 
     /** Cache max token value so _nodeWidth avoids per-draw array allocation. */
@@ -664,13 +552,12 @@ class LoreGraphV2 {
     // ─── Resize ───────────────────────────────────────────────────────────────
 
     _resize() {
-        // Bug 5 guard: ResizeObserver can fire asynchronously after destroy()
-        // removes the canvas from the DOM — parentElement will be null.
+        // Guard: ResizeObserver can fire after destroy() removes canvas from DOM.
         const parent = this.canvas.parentElement;
         if (!parent) return;
 
-        const W = parent.clientWidth;
-        const H = parent.clientHeight;
+        const W = parent.clientWidth || 800;
+        const H = parent.clientHeight || 600;
         this.dpr = window.devicePixelRatio || 1;
 
         this.canvas.style.width = W + 'px';
@@ -678,10 +565,7 @@ class LoreGraphV2 {
         this.canvas.width = Math.round(W * this.dpr);
         this.canvas.height = Math.round(H * this.dpr);
 
-        // Fix 2 — Minimap trails: set minimap canvas width/height attributes.
-        // Without this, the canvas logical size defaults to 300x150 (browser default).
-        // clearRect(0,0,130,85) only clears the top-left corner, leaving path
-        // artifacts as permanent trails every time the viewport is panned.
+        // Minimap: set logical size so clearRect covers the whole canvas (fixes trail bug).
         const mmDpr = this.dpr;
         this.minimapCanvas.width = Math.round(MINIMAP_W * mmDpr);
         this.minimapCanvas.height = Math.round(MINIMAP_H * mmDpr);
@@ -690,44 +574,62 @@ class LoreGraphV2 {
 
         this.W = W;
         this.H = H;
+
+        // Bug 5 fix: apply static layout here, after W/H are known from the real DOM size.
+        // _initNodes() calls this with a guard so it only runs once on first paint.
+        if (!this._initialLayoutDone && this.nodes?.length) {
+            this._initialLayoutDone = true;
+            this._applyStaticCategoryLayout();
+            this._markDirty();
+        }
     }
 
     // ─── Animation Loop ───────────────────────────────────────────────────────
 
     start() {
         this.simRunning = true;
-        this._dirty = true; // Bug 11: dirty flag — only redraw when needed
-        this._glowPhase = 0; // pulsing glow phase counter (avoids Date.now() in hot path)
-        const loop = () => {
+        this._dirty = true;
+        this._animRunning = false; // tracks whether the rAF loop is actively scheduled
+        this._scheduleFrame();
+    }
+
+    /**
+     * Schedule a single rAF frame if not already scheduled.
+     * The loop exits when nothing is dirty and physics is off — it does NOT
+     * continuously schedule itself. _markDirty() restarts it on demand.
+     * This means zero GPU activity when the graph is idle (just open, not interacting).
+     */
+    _scheduleFrame() {
+        if (this._animRunning || !this.simRunning) return;
+        this._animRunning = true;
+        this.animId = requestAnimationFrame(() => {
+            this._animRunning = false;
             if (!this.simRunning) return;
 
-            let needsRedraw = this._dirty;
-
             if (this.physicsEnabled) {
-                this._physicsTick(); // auto-disables physics when energy settles
-                needsRedraw = true;
+                this._physicsTick();
+                this._dirty = true;
             }
 
-            // Advance glow phase for constant-entry pulse (always animates if any constants exist)
-            const hasConstants = this.nodes.some(n => n.entry.constant);
-            if (hasConstants) {
-                this._glowPhase += 0.004;
-                needsRedraw = true;
-            }
-
-            if (needsRedraw) {
+            if (this._dirty) {
                 this._render();
                 this._renderMinimap();
                 this._dirty = false;
             }
 
-            this.animId = requestAnimationFrame(loop);
-        };
-        this.animId = requestAnimationFrame(loop);
+            // Only keep looping if physics is still running; otherwise go idle.
+            // Next user interaction will call _markDirty() which calls _scheduleFrame().
+            if (this.physicsEnabled) {
+                this._scheduleFrame();
+            }
+        });
     }
 
-    /** Mark the canvas dirty so it will be redrawn next frame. */
-    _markDirty() { this._dirty = true; }
+    /** Mark canvas dirty and restart the idle rAF loop if needed. */
+    _markDirty() {
+        this._dirty = true;
+        this._scheduleFrame(); // no-op if already running
+    }
 
     destroy() {
         this.simRunning = false;
@@ -839,7 +741,8 @@ class LoreGraphV2 {
             totalKE += node.vx * node.vx + node.vy * node.vy;
         }
 
-        // Bug 11: auto-stop physics when kinetic energy settles
+        // Memory opt: auto-stop physics once kinetic energy settles.
+        // physicsEnabled=false means the rAF loop also goes idle next tick.
         if (totalKE < 0.08) {
             this.physicsEnabled = false;
         }
@@ -920,19 +823,14 @@ class LoreGraphV2 {
         }
 
         const type = EDGE_TYPES[edge.type] || EDGE_TYPES.DIRECT;
-        const baseColor = type.color || CATEGORY_COLORS[s.category] || '#888';
+        const baseColor = type.color; // DIRECT edges now use warm amber (set in EDGE_TYPES)
         const alpha = this._getEdgeAlpha(s, t);
 
         ctx.save();
         ctx.globalAlpha = alpha;
 
-        if (type.glow) {
-            ctx.shadowColor = baseColor;
-            ctx.shadowBlur = 8 / this.scale;
-        }
-
         ctx.strokeStyle = baseColor;
-        ctx.lineWidth = (edge.type === 'CONSTANT' ? 2.5 : 1.5) / this.scale;
+        ctx.lineWidth = (edge.type === 'CONSTANT' ? 2.8 : 1.8) / this.scale; // Visual: slightly thicker for readability
         ctx.setLineDash(type.dash.map(d => d / this.scale));
 
         // Midpoint of each node
@@ -1000,8 +898,6 @@ class LoreGraphV2 {
             ctx.fill();
         }
 
-        ctx.shadowBlur = 0;
-        ctx.globalAlpha = 1;
         ctx.restore();
     }
 
@@ -1021,32 +917,28 @@ class LoreGraphV2 {
         ctx.save();
         ctx.globalAlpha = alpha;
 
-        // Drop shadow
-        if (!isFiltered) {
-            ctx.shadowColor = isSelected ? '#7c5cbf' : 'rgba(0,0,0,0.5)';
-            ctx.shadowBlur = isSelected ? 18 / this.scale : 6 / this.scale;
-            ctx.shadowOffsetY = 2 / this.scale;
-        }
+        // Memory opt: NO shadowBlur. canvas.shadowBlur forces the browser to allocate
+        // a separate offscreen compositing buffer per draw call and run a gaussian blur
+        // pass. For 100 nodes that was hundreds of shadow ops per frame.
+        // Selected nodes get a thick bright border instead (same visual signal, zero cost).
 
-        // Node background
-        ctx.fillStyle = isSimActive ? _simPassColor(isSimActive) : _hexWithAlpha(baseColor, 0.18);
+        // Node background — 0.22 opacity for better readability (was 0.18)
+        ctx.fillStyle = isSimActive ? _simPassColor(isSimActive) : _hexWithAlpha(baseColor, 0.22);
         _roundRect(ctx, x, y, nw, nh, NODE_R / this.scale);
         ctx.fill();
 
-        // Border
-        ctx.shadowBlur = 0;
-        ctx.strokeStyle = isSelected ? '#7c5cbf' : baseColor;
-        ctx.lineWidth = (isSelected ? 2.5 : 1.5) / this.scale;
-
-        // Constant: pulsing glow ring (uses pre-computed _glowPhase, not Date.now())
-        if (node.entry.constant) {
-            ctx.shadowColor = baseColor;
-            ctx.shadowBlur = (8 + 4 * Math.sin(this._glowPhase || 0)) / this.scale;
-        }
-
+        // Border — thick bright purple for selected, category color otherwise.
+        // Constant entries get a brighter, slightly thicker border (static, not pulsing).
+        const borderWidth = isSelected ? 2.5 : (node.entry.constant ? 2 : 1.5);
+        const borderColor = isSelected
+            ? '#a78bfa'
+            : (node.entry.constant ? baseColor : _hexWithAlpha(baseColor, 0.7));
+        ctx.strokeStyle = borderColor;
+        ctx.lineWidth = borderWidth / this.scale;
+        ctx.setLineDash(node.entry.constant ? [4, 2] : []);
         _roundRect(ctx, x, y, nw, nh, NODE_R / this.scale);
         ctx.stroke();
-        ctx.shadowBlur = 0;
+        ctx.setLineDash([]);
 
         // Category bar on left edge
         ctx.fillStyle = baseColor;
@@ -1144,13 +1036,16 @@ class LoreGraphV2 {
 
         if (!this.nodes.length) { mc.restore(); return; }
 
-        // World bounds
-        const xs = this.nodes.map(n => n.x);
-        const ys = this.nodes.map(n => n.y);
-        const minX = Math.min(...xs) - NODE_W;
-        const maxX = Math.max(...xs) + NODE_W;
-        const minY = Math.min(...ys) - NODE_H;
-        const maxY = Math.max(...ys) + NODE_H;
+        // Bug 2 fix: avoid Math.min(...spread) — allocates a full array copy per call.
+        // Use a simple loop instead (O(N) with zero allocations).
+        let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+        for (const n of this.nodes) {
+            if (n.x < minX) minX = n.x;
+            if (n.x > maxX) maxX = n.x;
+            if (n.y < minY) minY = n.y;
+            if (n.y > maxY) maxY = n.y;
+        }
+        minX -= NODE_W; maxX += NODE_W; minY -= NODE_H; maxY += NODE_H;
         const worldW = maxX - minX || 1;
         const worldH = maxY - minY || 1;
 
@@ -1239,12 +1134,14 @@ class LoreGraphV2 {
     _fitAll() {
         if (!this.nodes.length) return;
         const PAD = 40;
-        const xs = this.nodes.map(n => n.x);
-        const ys = this.nodes.map(n => n.y);
-        const minX = Math.min(...xs) - NODE_W;
-        const maxX = Math.max(...xs) + NODE_W;
-        const minY = Math.min(...ys) - NODE_H;
-        const maxY = Math.max(...ys) + NODE_H;
+        let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+        for (const n of this.nodes) {
+            if (n.x < minX) minX = n.x;
+            if (n.x > maxX) maxX = n.x;
+            if (n.y < minY) minY = n.y;
+            if (n.y > maxY) maxY = n.y;
+        }
+        minX -= NODE_W; maxX += NODE_W; minY -= NODE_H; maxY += NODE_H;
         // Bug 4 guard: avoid divide-by-zero when all nodes overlap (returns Infinity scale)
         const worldW = (maxX - minX) || 1;
         const worldH = (maxY - minY) || 1;
@@ -1335,7 +1232,13 @@ class LoreGraphV2 {
         qs('ccs_graph_physics_btn')?.addEventListener('click', (e) => {
             this.physicsEnabled = !this.physicsEnabled;
             e.currentTarget.classList.toggle('ccs-graph-tool-btn--active', this.physicsEnabled);
-            if (!this.physicsEnabled) this._applyStaticCategoryLayout();
+            if (this.physicsEnabled) {
+                // Restart the rAF loop (it went idle when physics was off)
+                this._scheduleFrame();
+            } else {
+                this._applyStaticCategoryLayout();
+                this._markDirty();
+            }
         });
 
         qs('ccs_graph_zoom_out')?.addEventListener('click', () => {
@@ -1474,6 +1377,9 @@ class LoreGraphV2 {
         let usedTokens = 0;
         const activated = new Set();
 
+        // Bug 3+6 fix: build O(1) UID lookup map once — replaces O(N) entries.find() inside loops.
+        const uidToEntry = new Map(entries.map(e => [e.uid, e]));
+
         // Always include CONSTANT entries
         const constantPass = new Set();
         for (const e of entries) {
@@ -1512,24 +1418,26 @@ class LoreGraphV2 {
         const MAX_RECURSION = 6;
 
         while (prevPass.size > 0 && passNum <= MAX_RECURSION) {
-            // Build content from previously activated entries
-            const newContent = [...prevPass].map(uid => {
-                const entry = entries.find(e => e.uid === uid);
-                return entry?.content || '';
-            }).join('\n');
+            // Bug 3 fix: use uidToEntry Map (O(1)) instead of entries.find() (O(N)) per uid.
+            const newContent = [...prevPass]
+                .map(uid => uidToEntry.get(uid)?.content || '')
+                .join('\n');
+
+            // Bug 6 fix: compute preventRecursion check ONCE per pass, not per entry.
+            // Checking every prevPass uid against entries was O(P×N) per entry.
+            let prevPassPreventsRecursion = false;
+            for (const srcUid of prevPass) {
+                if (uidToEntry.get(srcUid)?.preventRecursion) {
+                    prevPassPreventsRecursion = true;
+                    break;
+                }
+            }
+            if (prevPassPreventsRecursion) break; // entire recursion chain stops
 
             const passN = new Set();
             for (const e of entries) {
                 if (activated.has(e.uid)) continue;
                 if (e.enabled === false) continue;
-
-                // Check if source entries prevent recursion
-                const anySourcePreventsRecursion = [...prevPass].some(srcUid => {
-                    const src = entries.find(en => en.uid === srcUid);
-                    return src?.preventRecursion;
-                });
-                if (anySourcePreventsRecursion) continue;
-
                 if (_matchesKeys(newContent, e)) {
                     if (usedTokens + (e.tokens || 0) > tokenBudget) continue;
                     passN.add(e.uid);
@@ -1554,8 +1462,9 @@ class LoreGraphV2 {
             this.simActivated[`pass${p}`] = uidSet;
             p++;
         }
+        this._markDirty(); // redraw so highlight appears immediately
 
-        return { passes: allPasses, activated, usedTokens, tokenBudget, circularChains, entries };
+        return { passes: allPasses, activated, usedTokens, tokenBudget, circularChains, entries, uidToEntry };
     }
 
     _displaySimResult(result) {
@@ -1571,7 +1480,7 @@ class LoreGraphV2 {
                 : `Pass ${passKey.replace('pass', '')} — ${passKey === 'pass1' ? 'Direct keyword matches' : 'Recursive activation'}:`;
 
             const items = [...uidSet].map(uid => {
-                const entry = entries.find(e => e.uid === uid);
+                const entry = result.uidToEntry?.get(uid) || result.entries?.find(e => e.uid === uid);
                 if (!entry) return '';
                 const prob = (entry.probability ?? 100) < 100 ? ` 🎲 ${entry.probability}%` : '';
                 const stop = entry.preventRecursion ? ' 🛑' : '';
@@ -2125,7 +2034,10 @@ function _buildEdgesFromEntries(entries, nodes, isMultiBook) {
     // Keyword activation edges (A's content contains B's key → A activates B)
     // Fix 3: pre-compute lowercased, truncated content and filtered key arrays
     // outside the inner loop to avoid repeated work for each (A,B) pair.
-    const CONTENT_SCAN_LEN = 800; // only scan first 800 chars of content
+    // Bug 4 fix: raised from 800 → 2000 chars. SillyTavern entries routinely have
+    // 2000-5000 token content; 800 chars missed keywords appearing mid-entry.
+    // OOM risk is still bounded by the MAX_EDGES=400 cap on total output edges.
+    const CONTENT_SCAN_LEN = 2000;
     for (const entryA of entries) {
         if (edges.length >= MAX_EDGES) break;
         // Truncate content to avoid scanning huge strings 100× per entry
@@ -2179,7 +2091,12 @@ function _buildEdgesFromEntries(entries, nodes, isMultiBook) {
 // ─── Graph Analysis Helpers ──────────────────────────────────────────────────
 
 function _findOrphaned(nodes, edges) {
-    const connected = new Set(edges.flatMap(e => [e.sourceUid, e.targetUid]));
+    // Memory opt: avoid flatMap intermediate array allocation
+    const connected = new Set();
+    for (const e of edges) {
+        connected.add(e.sourceUid);
+        connected.add(e.targetUid);
+    }
     return nodes.filter(n => !connected.has(n.uid));
 }
 
@@ -2190,39 +2107,74 @@ function _findOrphaned(nodes, edges) {
  * with an iterative stack-based DFS. This eliminates JS call-stack overflows
  * on lorebooks with 80+ entries and dense keyword connections.
  */
+/**
+ * Bug 1 fix: replaced the old DFS that cloned `new Set(visited)` on every stack frame.
+ * On a 100-node dense graph that created thousands of Set copies, causing GC pressure.
+ *
+ * New approach: proper backtracking DFS using a path array + inPath Set.
+ * We push/pop from path as we go, so we never clone — O(V+E) time, O(V) space.
+ */
 function _detectCircularChains(entries, edges) {
     const chains = [];
     const uidToEntry = new Map(entries.map(e => [e.uid, e]));
+
+    // Build adjacency list
     const edgeMap = new Map();
     for (const edge of edges) {
         if (!edgeMap.has(edge.sourceUid)) edgeMap.set(edge.sourceUid, []);
         edgeMap.get(edge.sourceUid).push(edge.targetUid);
     }
 
-    const allUids = [...new Set(edges.flatMap(e => [e.sourceUid, e.targetUid]))];
+    // Collect all unique UIDs that appear in edges
+    const allUids = new Set();
+    for (const edge of edges) {
+        allUids.add(edge.sourceUid);
+        allUids.add(edge.targetUid);
+    }
 
+    // Standard iterative DFS with backtracking — no Set copies, zero allocations per frame
+    const globalVisited = new Set(); // nodes fully processed (all descendants explored)
     for (const startUid of allUids) {
-        // Iterative DFS — each stack frame carries its own visited set and path
-        const stack = [{ uid: startUid, visited: new Set(), path: [] }];
+        if (globalVisited.has(startUid)) continue;
+
+        const path = [];       // current DFS path
+        const inPath = new Set(); // O(1) cycle check
+
+        // Stack holds [uid, childIndex] pairs for iterative DFS with backtracking
+        const stack = [[startUid, 0]];
+        path.push(startUid);
+        inPath.add(startUid);
+
         while (stack.length > 0) {
-            const { uid, visited, path } = stack.pop();
-            if (visited.has(uid)) {
-                // Found a back-edge: reconstruct the cycle
-                const cycleStart = path.indexOf(uid);
-                if (cycleStart !== -1) {
-                    const chain = path.slice(cycleStart).map(u => {
-                        const e = uidToEntry.get(u);
-                        return e?.name || u;
-                    });
-                    chains.push(chain);
+            const frame = stack[stack.length - 1];
+            const uid = frame[0];
+            const neighbors = edgeMap.get(uid) || [];
+            const ci = frame[1];
+
+            if (ci < neighbors.length) {
+                frame[1]++; // advance child pointer
+                const next = neighbors[ci];
+                if (inPath.has(next)) {
+                    // Back edge → cycle found
+                    const cycleStart = path.indexOf(next);
+                    if (cycleStart !== -1) {
+                        const chain = path.slice(cycleStart).map(u => {
+                            const e = uidToEntry.get(u);
+                            return e?.name || u;
+                        });
+                        chains.push(chain);
+                    }
+                } else if (!globalVisited.has(next)) {
+                    path.push(next);
+                    inPath.add(next);
+                    stack.push([next, 0]);
                 }
-                continue;
-            }
-            const newVisited = new Set(visited);
-            newVisited.add(uid);
-            const newPath = [...path, uid];
-            for (const next of (edgeMap.get(uid) || [])) {
-                stack.push({ uid: next, visited: newVisited, path: newPath });
+            } else {
+                // All children explored — backtrack
+                stack.pop();
+                path.pop();
+                inPath.delete(uid);
+                globalVisited.add(uid);
             }
         }
     }
