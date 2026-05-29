@@ -1975,8 +1975,6 @@ html {
   /* The base .ccs-settings-overlay is already position:absolute (scoped to   */
   /* #ccs_window). On mobile, anchor to the bottom and go full-width.         */
   .ccs-settings-overlay {
-    position: fixed !important;
-    z-index: 9999999 !important;
     top: 0 !important;
     left: 0 !important;
     right: 0 !important;
@@ -2025,8 +2023,7 @@ html {
 
   /* ─── Inspector / Audit Modal: bottom-sheet on mobile ─────────────────── */
   .ccs-inspector-overlay {
-    position: fixed !important;
-    z-index: 9999999 !important;
+    position: absolute !important;
     top: 0 !important;
     left: 0 !important;
     right: 0 !important;

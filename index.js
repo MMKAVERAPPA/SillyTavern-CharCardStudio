@@ -17,7 +17,6 @@ import { openStudio, closeStudio, bindAppEvents, updateCharacterName } from './u
 import { bindChatEvents, renderMessages, onSend } from './ui/chat.js';
 import { showToast } from './ui/toast.js';
 import { initAgent } from './core/agent.js';
-import { getCtx } from './core/st-context.js';
 
 // ─── Extension Path Detection ─────────────────────────────────────────────────
 // ST loads extensions from: /scripts/extensions/third-party/CharCardStudio/index.js
@@ -44,6 +43,10 @@ try {
 console.log(`[CCS] Loaded from: ${EXT_PATH}`);
 
 // ─── ST Context Helpers ───────────────────────────────────────────────────────
+
+export function getCtx() {
+    return SillyTavern?.getContext?.() ?? null;
+}
 
 function getRequestHeaders() {
     return getCtx()?.getRequestHeaders?.() ?? { 'Content-Type': 'application/json' };

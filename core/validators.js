@@ -240,6 +240,20 @@ export function calculateStarRating(session, cardFields) {
   const standardPresent = standardFields.filter(has).length;
   const optionalPresent = optionalFields.filter(has).length;
 
+  // Bug G fix: run validateField ONCE per field and cache results.
+  // calculateStarRating is called on every card tab render — the old code called
+  // validateField twice on description/first_mes/personality (once in the base-score
+  // block and again in the modifiers block), doubling the regex work.
+  const format = session?.cardFormat || 'prose';
+  const _validationCache = new Map();
+  const getValidation = (stKey, ccsKey) => {
+    if (!_validationCache.has(ccsKey)) {
+      const val = cardFields[stKey];
+      _validationCache.set(ccsKey, val ? validateField(ccsKey, String(val), format) : null);
+    }
+    return _validationCache.get(ccsKey);
+  };
+
   // Base score calculation
   if (corePresent === 0) {
     baseScore = 1;
@@ -252,29 +266,15 @@ export function calculateStarRating(session, cardFields) {
   } else {
     // All fields present
     baseScore = 4;
-  }
 
-  // Pre-calculate validation results for all relevant fields
-  const format = session?.cardFormat || 'prose';
-  const validationResults = {};
-  for (const [stKey, ccsKey] of [
-    ['description', 'description'], ['firstMessage', 'first_mes'],
-    ['personality', 'personality'], ['system', 'system_prompt'],
-  ]) {
-    const val = cardFields[stKey];
-    if (val) {
-      validationResults[ccsKey] = validateField(ccsKey, String(val), format);
-    }
-  }
-
-  if (baseScore === 4) {
     // Check for quality (no placeholder, no validation issues)
     let hasIssues = false;
-    for (const res of Object.values(validationResults)) {
-      if (!res.valid) {
-        hasIssues = true;
-        break;
-      }
+    for (const [stKey, ccsKey] of [
+      ['description', 'description'], ['firstMessage', 'first_mes'],
+      ['personality', 'personality'], ['system', 'system_prompt'],
+    ]) {
+      const result = getValidation(stKey, ccsKey);
+      if (result && !result.valid) hasIssues = true;
     }
     if (!hasIssues) baseScore = 5;
   }
@@ -304,13 +304,11 @@ export function calculateStarRating(session, cardFields) {
     modifiers.push(`-${penalty} conflicts (${activeConflicts} active)`);
   }
 
-  // -1.0 per validation failure in core fields
+  // -1.0 per validation failure in core fields (uses cache — no extra validateField calls)
   let coreFailures = 0;
-  for (const ccsKey of ['description', 'first_mes', 'personality']) {
-    const res = validationResults[ccsKey];
-    if (res && !res.valid) {
-      coreFailures++;
-    }
+  for (const [stKey, ccsKey] of [['description', 'description'], ['firstMessage', 'first_mes'], ['personality', 'personality']]) {
+    const result = getValidation(stKey, ccsKey);
+    if (result && !result.valid) coreFailures++;
   }
   if (coreFailures > 0) {
     baseScore -= coreFailures;

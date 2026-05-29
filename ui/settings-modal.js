@@ -8,7 +8,7 @@ import {
     updateSession, loadSession,
 } from '../core/session.js';
 import { showToast } from './toast.js';
-import { getCtx } from '../core/st-context.js';
+import { getCtx } from '../index.js';
 import { getAvailableProfiles, getUtilityProfileId, setUtilityProfileId } from '../core/api-router.js';
 
 // ─── State ──────────────────────────────────────────────────────────────────

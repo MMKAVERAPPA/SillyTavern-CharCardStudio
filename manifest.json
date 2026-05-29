@@ -6,7 +6,7 @@
     "dependencies": [],
     "js": "index.js",
     "author": "DeathGamerSolo",
-    "version": "4.2.1",
+    "version": "5.0.0",
     "homePage": "https://github.com/MMKAVERAPPA/CharCardStudio",
     "auto_update": true,
     "minimum_client_version": "1.12.0"

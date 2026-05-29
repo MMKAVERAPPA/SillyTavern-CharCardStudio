@@ -8,15 +8,12 @@
  */
 
 import { getSession, updateSession, hashString } from './session.js';
-import { getCtx } from './st-context.js';
+import { getCtx } from './st-context.js'; // Bug E: was '../index.js' — broke circular chain
 import { updatePillar, addWorldPillar, markPillarDoneByField, calculateProgress } from './pillars.js';
 import { getLorebookEntries, createLorebookEntry, updateLorebookEntry, deleteLorebookEntry, getLorebookTokenBudget } from './lorebook.js';
 import { enqueueCheck } from './background.js';
 import { addMemoryRule, removeMemoryRule } from './session-memory.js';
 import { pushFieldVersion } from './field-history.js';
-
-const DEBUG = false;
-const log = (...args) => DEBUG && console.log(...args);
 
 // ─── Field Name Mapping ─────────────────────────────────────────────────────
 
@@ -103,7 +100,7 @@ export async function executeToolCall(call) {
 
 async function toolWriteField(params) {
   const { field, content, greeting_index } = params;
-  log('[CCS] toolWriteField called:', field, 'content length:', content?.length);
+  console.log('[CCS] toolWriteField called:', field, 'content length:', content?.length);
   
   if (!field || !VALID_FIELDS.has(field)) {
     return { result: `Error: Invalid field "${field}". Valid fields: ${[...VALID_FIELDS].join(', ')}` };
@@ -144,7 +141,7 @@ async function toolWriteField(params) {
     existing.content = content;
     existing.tokenCount = tokenCount;
     draft = existing;
-    log(`[CCS] Version ${existing.activeVersion + 1} added to draft for "${field}"`);
+    console.log(`[CCS] Version ${existing.activeVersion + 1} added to draft for "${field}"`);
   } else {
     // Create new draft with versions
     draft = {
@@ -164,7 +161,7 @@ async function toolWriteField(params) {
   await updateSession({ cardDrafts: drafts });
 
   const versionLabel = draft.versions ? `v${draft.activeVersion + 1}/${draft.versions.length}` : '';
-  log('[CCS] Draft created:', {
+  console.log('[CCS] Draft created:', {
     id: draft.id,
     field: draft.field,
     contentLength: draft.content?.length,
@@ -300,8 +297,7 @@ async function toolCreateLoreEntry(params) {
 
 async function toolReadLoreEntries(params) {
   try {
-    const { entries } = await getLorebookEntries();
-    
+    const { entries } = await getLorebookEntries(); // Bug A fix: getLorebookEntries returns { entries, bookName }
     if (!entries || entries.length === 0) {
       return { result: 'No lorebook entries found for this character.' };
     }
@@ -423,31 +419,10 @@ async function toolUpdateMemory(params) {
 // ─── Tool 10: Audit Card ───────────────────────────────────────────────────
 
 async function toolAuditCard(params) {
-  try {
-    const { runCoherenceAudit } = await import('./coherence-audit.js');
-    const report = await runCoherenceAudit();
-    
-    if (!report) {
-       return { result: "Error: Failed to run audit." };
-    }
-    
-    const { issues, stats, score } = report;
-    let resultText = `Card Audit Complete (Score: ${score}/100)\n\n`;
-    
-    if (issues.length === 0) {
-        resultText += "No issues found! The card looks great.";
-    } else {
-        resultText += "Found the following issues:\n";
-        issues.forEach(i => {
-            resultText += `- [${i.severity.toUpperCase()}] ${i.description}\n`;
-        });
-    }
-    
-    return { result: resultText };
-  } catch (err) {
-      console.error("[CCS] toolAuditCard error:", err);
-      return { result: `Error running audit: ${err.message}` };
-  }
+  const readResult = await toolReadField({ fields: ['all'] });
+  return { 
+    result: `Card audit data:\n${readResult.result}\n\n[Analyze the above fields and provide your assessment.]` 
+  };
 }
 
 // ─── Apply Draft to ST Card ─────────────────────────────────────────────────
@@ -459,7 +434,7 @@ async function toolAuditCard(params) {
  * @returns {Promise<boolean>}
  */
 export async function applyDraftToCard(draftId) {
-  log('[CCS] applyDraftToCard called:', draftId);
+  console.log('[CCS] applyDraftToCard called:', draftId);
   const session = getSession();
   const drafts = session.cardDrafts || {};
   
@@ -478,7 +453,7 @@ export async function applyDraftToCard(draftId) {
     console.error('[CCS] Draft not found:', draftId, 'Available drafts:', Object.keys(drafts));
     return false;
   }
-  log('[CCS] Found draft:', draft.field, 'status:', draft.status);
+  console.log('[CCS] Found draft:', draft.field, 'status:', draft.status);
 
   const ctx = getCtx();
   if (!ctx) {
@@ -492,7 +467,7 @@ export async function applyDraftToCard(draftId) {
     console.error('[CCS] No character loaded. charId:', charId, 'char:', char?.name);
     return false;
   }
-  log('[CCS] Applying to character:', char.name, 'avatar:', char.avatar);
+  console.log('[CCS] Applying to character:', char.name, 'avatar:', char.avatar);
 
   // Push the current value to history before applying the draft
   try {
@@ -563,13 +538,13 @@ export async function applyDraftToCard(draftId) {
       });
     }
 
-    log('[CCS] Merge request body:', body.substring(0, 300));
+    console.log('[CCS] Merge request body:', body.substring(0, 300));
 
     const headers = {
       'Content-Type': 'application/json',
       ...ctx.getRequestHeaders(),
     };
-    log('[CCS] Request headers:', Object.keys(headers));
+    console.log('[CCS] Request headers:', Object.keys(headers));
 
     const resp = await fetch('/api/characters/merge-attributes', {
       method: 'POST',
@@ -583,7 +558,7 @@ export async function applyDraftToCard(draftId) {
       return false;
     }
 
-    log('[CCS] Merge SUCCESS for field:', draft.field);
+    console.log('[CCS] Merge SUCCESS for field:', draft.field);
 
     // Mark draft as applied
     draft.status = 'applied';
@@ -599,7 +574,7 @@ export async function applyDraftToCard(draftId) {
                 detail: { id: refreshCtx.this_chid, character: refreshCtx.characters[refreshCtx.this_chid] }
             });
         }
-        log('[CCS] ST character data refreshed after apply');
+        console.log('[CCS] ST character data refreshed after apply');
     } catch (refreshErr) {
         console.warn('[CCS] Could not refresh ST data after apply:', refreshErr);
     }
@@ -620,7 +595,7 @@ export async function applyDraftToCard(draftId) {
     enqueueCheck('token', draft.field);
     enqueueCheck('validation', draft.field);
     
-    log(`[CCS] Applied draft for ${draft.field}`);
+    console.log(`[CCS] Applied draft for ${draft.field}`);
     return true;
   } catch (err) {
     console.error('[CCS] Apply draft error:', err);
@@ -638,7 +613,7 @@ export async function applyDraftToCard(draftId) {
  * @returns {Promise<boolean>}
  */
 export async function saveFieldDirect(fieldName, content, greetingIndex = null) {
-  log('[CCS] saveFieldDirect called:', fieldName);
+  console.log('[CCS] saveFieldDirect called:', fieldName);
   const session = getSession();
   const ctx = getCtx();
   if (!ctx) {
@@ -760,7 +735,7 @@ export async function saveFieldDirect(fieldName, content, greetingIndex = null) 
     enqueueCheck('token', fieldName);
     enqueueCheck('validation', fieldName);
 
-    log(`[CCS] Direct saved field: ${fieldName}`);
+    console.log(`[CCS] Direct saved field: ${fieldName}`);
     return true;
   } catch (err) {
     console.error('[CCS] Direct save error:', err);
@@ -803,7 +778,7 @@ export async function applyLoreDraft(draftId) {
           console.error('[CCS] Lore create failed:', result.error);
           return false;
         }
-        log(`[CCS] Lore entry created: "${draft.name}" (uid: ${result.uid})`);
+        console.log(`[CCS] Lore entry created: "${draft.name}" (uid: ${result.uid})`);
         break;
       }
       case 'update': {
@@ -812,7 +787,7 @@ export async function applyLoreDraft(draftId) {
           console.error('[CCS] Lore update failed:', result.error);
           return false;
         }
-        log(`[CCS] Lore entry updated: uid ${draft.uid}`);
+        console.log(`[CCS] Lore entry updated: uid ${draft.uid}`);
         break;
       }
       case 'delete': {
@@ -821,7 +796,7 @@ export async function applyLoreDraft(draftId) {
           console.error('[CCS] Lore delete failed:', result.error);
           return false;
         }
-        log(`[CCS] Lore entry deleted: uid ${draft.uid}`);
+        console.log(`[CCS] Lore entry deleted: uid ${draft.uid}`);
         break;
       }
       default: {
@@ -864,11 +839,12 @@ async function toolSubmitReview(params) {
 
   await updateSession({ aiReview: reviewData });
   
-  // Re-render the app UI to show the scorecard
+  // Bug C fix: renderApp is not exported from app.js. Dispatch the ccs:card-updated
+  // event instead — bindAppEvents() already listens to this and triggers re-renders.
   try {
     document.dispatchEvent(new CustomEvent('ccs:card-updated'));
   } catch (e) {
-    console.warn('[CCS] Failed to refresh UI after review submit:', e);
+    console.warn('[CCS] Failed to dispatch card-updated after review submit:', e);
   }
 
   return { result: `Success: Review scorecard saved and displayed in the Concept panel.` };
@@ -952,11 +928,11 @@ async function toolWriteBrief(params) {
 
   await updateSession({ conceptBrief: newBrief });
 
-  // Re-render to show brief in Concept Tab
+  // Bug C fix: renderApp is not exported from app.js. Use ccs:card-updated event.
   try {
     document.dispatchEvent(new CustomEvent('ccs:card-updated'));
   } catch (e) {
-    console.warn('[CCS] Failed to refresh UI after brief update:', e);
+    console.warn('[CCS] Failed to dispatch card-updated after brief update:', e);
   }
 
   const wordCount = newBrief.split(/\s+/).length;
@@ -1096,7 +1072,7 @@ async function toolSemanticSearch(params) {
   try {
     const session = getSession();
     if (session?.lorebookName) {
-      const { entries } = await getLorebookEntries({ include_content: true });
+      const { entries } = await getLorebookEntries(false); // Bug A fix: was passing object as forceRefresh arg
       for (const entry of (entries || [])) {
         const combined = [entry.name, entry.content, ...(entry.keys || [])].join(' ');
         const score = scoreText(combined);
@@ -1146,7 +1122,7 @@ async function toolSemanticSearch(params) {
 async function toolReadLoreGraph() {
   try {
     const { getLoreGraphData } = await import('../ui/lore-graph-v2.js');
-    const { entries } = await getLorebookEntries(false);
+    const { entries } = await getLorebookEntries(false); // Bug A fix: destructure return value
     if (!entries || entries.length === 0) {
       return { result: 'No lorebook entries found. Select a lorebook first.' };
     }
@@ -1201,7 +1177,7 @@ async function toolReadLoreGraph() {
 async function toolSuggestLoreConnections() {
   try {
     const { getLoreGraphData } = await import('../ui/lore-graph-v2.js');
-    const { entries } = await getLorebookEntries(false);
+    const { entries } = await getLorebookEntries(false); // Bug A fix: destructure return value
     if (!entries || entries.length === 0) {
       return { result: 'No lorebook entries found. Select a lorebook first.' };
     }
@@ -1294,12 +1270,14 @@ async function toolGenerateAvatarPrompt(params) {
   if (!session) return { result: 'Error: No active session.' };
 
   // ── 1. Gather character data ──────────────────────────────────────────────
-  const ctx = getCtx();
-  const cardFields = ctx?.getCharacterCardFields?.() || {};
-  const description   = cardFields.description || '';
-  const personality   = cardFields.personality || '';
-  const brief         = session.conceptBrief || '';
-  const charName      = session.characterName || 'the character';
+  // Bug B fix: session.cardFields doesn't exist. Read from ST context instead
+  // (same pattern used by toolReadField, toolWriteField, etc.)
+  const _ctx = getCtx();
+  const _cardFields = _ctx?.getCharacterCardFields?.() || {};
+  const description   = _cardFields.description || '';
+  const personality   = _cardFields.personality || '';
+  const brief         = session?.conceptBrief || '';
+  const charName      = session?.characterName || 'the character';
 
   // ── 2. Build framing tags from style / emphasis ───────────────────────────
   const STYLE_TAGS = {

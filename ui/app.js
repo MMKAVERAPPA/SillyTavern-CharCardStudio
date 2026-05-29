@@ -45,10 +45,12 @@ const RENDER_DEBOUNCE_MS = 150;
 // Only re-render the lore tab when the lorebook selection actually changes.
 let _lastLorebookName = null;
 
-// Bug 13 & 19: separate re-entrant guards to prevent onChange → updateSession → re-render loops.
+// Bug F+I: Split into separate per-tab flags so concept and card renders
+// don’t block each other (they render different DOM sections).
+// try/finally in each function ensures the flag is always cleared even if
+// the function early-returns or throws (Bug F: deadlock on missing DOM node).
 let _isRenderingConcept = false;
 let _isRenderingCard = false;
-let _isRenderingLore = false;
 
 // Bug 8: in-memory cache of the last lorebook fetch result.
 // Avoids hitting the ST REST API on every session-change notification.
@@ -58,30 +60,6 @@ let _loreCache = null; // { entries: [], tokenBudget: null, bookName: string }
 
 function el(id) {
     return document.getElementById(id);
-}
-
-let _styleInjected = false;
-function _injectStyles() {
-    if (_styleInjected) return;
-    
-    let cssPath = '/scripts/extensions/third-party/CharCardStudio/style.css';
-    for (const s of document.getElementsByTagName('script')) {
-        if (s.src && s.src.toLowerCase().includes('charcardstudio')) {
-            const match = new URL(s.src).pathname.match(/\/scripts\/extensions\/(.+)\/[^/]+\.js$/);
-            if (match) {
-                cssPath = `/scripts/extensions/${match[1]}/style.css`;
-                break;
-            }
-        }
-    }
-
-    const link = document.createElement('link');
-    link.rel = 'stylesheet';
-    link.href = cssPath;
-    document.head.appendChild(link);
-    
-    _styleInjected = true;
-    console.log('[CCS] Dynamic styles injected from', cssPath);
 }
 
 // ─── Open / Close ────────────────────────────────────────────────────────────
@@ -96,15 +74,31 @@ export async function openStudio() {
         return;
     }
 
+    // Bug N fix: inject style.css on first open instead of loading it globally
+    // via manifest.json. This avoids 115KB of CSS rules running against every
+    // ST DOM mutation when the studio has never been opened this session.
+    if (!document.getElementById('ccs-styles')) {
+        try {
+            const match = new URL(import.meta.url).pathname.match(/\/scripts\/extensions\/(.+)\/[^/]+\/[^/]+\.js$/);
+            const extPath = match ? match[1] : 'third-party/CharCardStudio';
+            const link = document.createElement('link');
+            link.id = 'ccs-styles';
+            link.rel = 'stylesheet';
+            link.href = `/scripts/extensions/${extPath}/style.css`;
+            document.head.appendChild(link);
+            // Give the stylesheet a frame to parse before rendering
+            await new Promise(r => requestAnimationFrame(r));
+        } catch (e) {
+            console.warn('[CCS] Failed to inject stylesheet:', e.message);
+        }
+    }
+
     const window_el = el('ccs_window');
     if (!window_el) {
         console.error('[CCS] Window template not found. Was it injected?');
         showToast('Studio failed to open — template missing.', 'error');
         return;
     }
-
-    // Inject CSS dynamically
-    _injectStyles();
 
     // Detect current ST character
     const ctx = SillyTavern?.getContext?.();
@@ -332,27 +326,27 @@ async function _renderRightPanel() {
 let _pillarListenerBound = false;
 
 function _renderConceptTab() {
-    if (_isRenderingConcept) return; // Bug 13 & 19: prevent re-entrant render loop
+    if (_isRenderingConcept) return; // Bug F+I: per-tab re-entrant guard
     _isRenderingConcept = true;
     try {
-        const session = getSession();
-        const listEl = el('ccs_pillar_list');
-        const countEl = el('ccs_pillar_count');
-        if (!listEl) return;
+    const session = getSession();
+    const listEl = el('ccs_pillar_list');
+    const countEl = el('ccs_pillar_count');
+    if (!listEl) return;
 
-        const pillars = session?.pillarStates || [];
-        const phase = session?.phase || 'ideate';
+    const pillars = session?.pillarStates || [];
+    const phase = session?.phase || 'ideate';
 
-        if (!pillars.length) {
-            // Show concept quickstart when in ideate phase with no pillars yet
-            if (phase === 'ideate') {
-                listEl.innerHTML = `
-                <div class="ccs-concept-paths">
-                    <div class="ccs-concept-paths-header"><i class="fa-solid fa-lightbulb"></i> Concept Quickstart</div>
-                    <p class="ccs-concept-paths-desc">Click a path to begin, or just start chatting.</p>
-                    <div class="ccs-concept-paths-chips">
-                        <button class="ccs-concept-chip" data-prompt="Brainstorm 3-5 unique character concepts for me. Show variety — different archetypes, tones, genres.">💡 Brainstorm</button>
-                        <button class="ccs-concept-chip" data-prompt="I want to design a morally complex villain. Let's explore their backstory and motivations.">🦹 Villain</button>
+    if (!pillars.length) {
+        // Show concept quickstart when in ideate phase with no pillars yet
+        if (phase === 'ideate') {
+            listEl.innerHTML = `
+            <div class="ccs-concept-paths">
+                <div class="ccs-concept-paths-header"><i class="fa-solid fa-lightbulb"></i> Concept Quickstart</div>
+                <p class="ccs-concept-paths-desc">Click a path to begin, or just start chatting.</p>
+                <div class="ccs-concept-paths-chips">
+                    <button class="ccs-concept-chip" data-prompt="Brainstorm 3-5 unique character concepts for me. Show variety — different archetypes, tones, genres.">💡 Brainstorm</button>
+                    <button class="ccs-concept-chip" data-prompt="I want to design a morally complex villain. Let's explore their backstory and motivations.">🦹 Villain</button>
                     <button class="ccs-concept-chip" data-prompt="Help me design a loyal companion character — someone who joins the protagonist on their journey.">🤝 Companion</button>
                     <button class="ccs-concept-chip" data-prompt="Let's create a mysterious mentor or wise sage. What secrets do they hold? What's their purpose?">🧙 Mentor</button>
                     <button class="ccs-concept-chip" data-prompt="I want an AI or android character. Help me explore how they think and what makes them uniquely non-human.">🤖 AI/Android</button>
@@ -696,15 +690,8 @@ function _renderConceptTab() {
         });
         _pillarListenerBound = true;
     }
-        // Attach re-evaluate button if summary exists
-        const btnReEval = document.getElementById('ccs-btn-reeval');
-        if (btnReEval) {
-            btnReEval.addEventListener('click', () => {
-                triggerAIReview();
-            });
-        }
     } finally {
-        _isRenderingConcept = false; // allow next render
+        _isRenderingConcept = false; // Bug F: always reset, even on early return
     }
 }
 
@@ -852,27 +839,27 @@ function _renderFieldHistory(row, ccsKey) {
 }
 
 function _renderCardTab() {
-    if (_isRenderingCard) return; // Bug 13 & 19: prevent re-entrant render loop
+    if (_isRenderingCard) return; // Bug F+I: per-tab re-entrant guard
     _isRenderingCard = true;
     try {
-        const session = getSession();
-        const fieldsEl = el('ccs_card_fields');
-        const tokensEl = el('ccs_card_tokens');
-        if (!fieldsEl) return;
+    const session = getSession();
+    const fieldsEl = el('ccs_card_fields');
+    const tokensEl = el('ccs_card_tokens');
+    if (!fieldsEl) return;
 
-        if (!session?.characterAvatar) {
-            fieldsEl.innerHTML = '<p class="ccs-empty-state">No character selected.</p>';
-            return;
-        }
+    if (!session?.characterAvatar) {
+        fieldsEl.innerHTML = '<p class="ccs-empty-state">No character selected.</p>';
+        return;
+    }
 
-        const ctx = SillyTavern?.getContext?.();
-        const fields = ctx?.getCharacterCardFields?.() || {};
+    const ctx = SillyTavern?.getContext?.();
+    const fields = ctx?.getCharacterCardFields?.() || {};
 
-        const FIELD_LABELS = {
-            description: 'Description',
-            personality: 'Personality',
-            scenario: 'Scenario',
-            firstMessage: 'First Message',
+    const FIELD_LABELS = {
+        description: 'Description',
+        personality: 'Personality',
+        scenario: 'Scenario',
+        firstMessage: 'First Message',
         mesExamples: 'Example Messages',
         system: 'System Prompt',
         creatorNotes: 'Creator Notes',
@@ -1294,227 +1281,211 @@ function _renderCardTab() {
         _cardListenerBound = true;
     }
     } finally {
-        _isRenderingCard = false; // Bug 13: allow next render
+        _isRenderingCard = false; // Bug F: always reset, even on early return
     }
 }
 
 
 async function _renderLoreTab() {
-    if (_isRenderingLore) return;
-    _isRenderingLore = true;
-    try {
-        const loreEl = el('ccs_lore_content');
-        if (!loreEl) return;
+    const loreEl = el('ccs_lore_entries');
+    const countEl = el('ccs_lore_count');
+    if (!loreEl) return;
 
-        const session = getSession();
-        if (!session?.characterAvatar) {
-            loreEl.innerHTML = '<p class="ccs-empty-state">No character selected.</p>';
-            return;
-        }
+    const session = getSession();
 
-        // ── No lorebook selected: show picker ─────────────────────────────────
-        if (!session?.lorebookName) {
-            const countEl = el('ccs_lore_count');
-            if (countEl) countEl.textContent = 'No book selected';
+    // ── No lorebook selected: show picker ─────────────────────────────────
+    if (!session?.lorebookName) {
+        if (countEl) countEl.textContent = 'No book selected';
 
-            loreEl.innerHTML = `
-            <div class="ccs-lb-picker">
-                <div class="ccs-lb-picker-icon"><i class="fa-solid fa-book-atlas"></i></div>
-                <h5 class="ccs-lb-picker-title">Choose a Lorebook</h5>
-                <p class="ccs-lb-picker-desc">Select an existing lorebook or create a new one to use for this character.</p>
-                <div class="ccs-lb-list-wrap" id="ccs_lb_list_wrap">
-                    <span class="ccs-lb-loading"><i class="fa-solid fa-spinner fa-spin"></i> Loading…</span>
-                </div>
-                <div class="ccs-lb-picker-create">
-                    <input type="text" id="ccs_lb_new_name" class="ccs-lb-create-input"
-                        placeholder="New lorebook name…" maxlength="80" />
-                    <button id="ccs_lb_create_btn" class="ccs-lb-create-btn">
-                        <i class="fa-solid fa-plus"></i> Create New
-                    </button>
-                </div>
-            </div>`;
-
-            // Async: populate book list and wire selection buttons
-            _populateLoreBookPicker(loreEl);
-
-            // Wire "Create New" button (synchronous — it's already in the DOM)
-            loreEl.querySelector('#ccs_lb_create_btn')?.addEventListener('click', async () => {
-                const input = loreEl.querySelector('#ccs_lb_new_name');
-                const name = input?.value?.trim();
-                if (!name) { showToast('Enter a lorebook name first', 'warning', 2000); return; }
-
-                const btn = loreEl.querySelector('#ccs_lb_create_btn');
-                if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Creating…'; }
-
-                const result = await createWorldInfoBook(name);
-                if (result.success) {
-                    updateSession({ lorebookName: name });
-                    showToast(`Lorebook created: ${name}`, 'success');
-                    _renderLoreTab();
-                } else {
-                    showToast(`Create failed: ${result.error}`, 'error');
-                    if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fa-solid fa-plus"></i> Create New'; }
-                }
-            });
-
-            return;
-        }
-
-        // ── Lorebook selected: render entries / graph ─────────────────────────
-        const bookName = session.lorebookName;
-        const loreDrafts = session?.loreDrafts || [];
-        const pendingDrafts = loreDrafts.filter(d => d.status === 'pending');
-
-        let entries = [];
-        let tokenBudget = null;
-        try {
-            const loreData = await getLorebookEntries();
-            entries = loreData.entries || [];
-            tokenBudget = await getLorebookTokenBudget();
-        } catch (e) {
-            console.warn('[CCS] Could not fetch lorebook:', e.message);
-        }
-
-        const countEl = el('ccs_lore_count');
-        if (countEl) {
-            let statsText = `${entries.length} entries`;
-            if (tokenBudget) statsText += ` · ~${tokenBudget.estimatedUsage}t`;
-            countEl.textContent = statsText;
-        }
-
-        let html = '';
-
-        // ── Book info bar with Change + new fullscreen Graph Overlay button ──────
-        html += `<div class="ccs-lb-info-bar">
-            <span class="ccs-lb-info-name"><i class="fa-solid fa-book"></i> ${escapeHtml(bookName)}</span>
-            <div class="ccs-lb-info-actions">
-                <button class="ccs-lb-graph-overlay-btn" id="ccs_lb_graph_overlay_btn" title="Open interactive Lore Graph">
-                    <i class="fa-solid fa-diagram-project"></i> Lore Graph
-                </button>
-                <button class="ccs-lb-change-btn" id="ccs_lb_change_btn" title="Switch lorebook">
-                    <i class="fa-solid fa-arrows-rotate"></i> Change
+        loreEl.innerHTML = `
+        <div class="ccs-lb-picker">
+            <div class="ccs-lb-picker-icon"><i class="fa-solid fa-book-atlas"></i></div>
+            <h5 class="ccs-lb-picker-title">Choose a Lorebook</h5>
+            <p class="ccs-lb-picker-desc">Select an existing lorebook or create a new one to use for this character.</p>
+            <div class="ccs-lb-list-wrap" id="ccs_lb_list_wrap">
+                <span class="ccs-lb-loading"><i class="fa-solid fa-spinner fa-spin"></i> Loading…</span>
+            </div>
+            <div class="ccs-lb-picker-create">
+                <input type="text" id="ccs_lb_new_name" class="ccs-lb-create-input"
+                    placeholder="New lorebook name…" maxlength="80" />
+                <button id="ccs_lb_create_btn" class="ccs-lb-create-btn">
+                    <i class="fa-solid fa-plus"></i> Create New
                 </button>
             </div>
         </div>`;
 
-        // ── List View ─────────────────────────────────────────────────────────
-        // Token budget
-        if (tokenBudget && entries.length > 0) {
-            html += `<div class="ccs-lore-budget">
-                <span class="ccs-lore-budget-label">📊 Token Budget:</span>
-                <span>📌 Constant: ~${tokenBudget.constantTokens}t</span>
-                <span>⚡ Triggered: ~${tokenBudget.conditionalTokens}t</span>
-                <span>📈 Est. Usage: ~${tokenBudget.estimatedUsage}t</span>
-            </div>`;
-        }
+        // Async: populate book list and wire selection buttons
+        _populateLoreBookPicker(loreEl);
 
-        // Staged drafts
-        if (pendingDrafts.length) {
-            html += `<div class="ccs-lore-staged-section">
-                <h5 class="ccs-lore-section-title">⏳ Staged (${pendingDrafts.length})</h5>
-                ${pendingDrafts.map(d => `
-                    <div class="ccs-lore-entry ccs-lore-entry--staged">
-                        <div class="ccs-lore-entry-header">
-                            <span class="ccs-lore-entry-name">${escapeHtml(d.name || 'Unnamed')}</span>
-                            <span class="ccs-badge ccs-badge--warning">${d.type || 'create'}</span>
-                            ${d.tokenCount ? `<span class="ccs-lore-entry-tokens">~${d.tokenCount}t</span>` : ''}
-                        </div>
-                        ${d.keys?.length ? `<div class="ccs-lore-entry-keys">Keys: ${d.keys.map(k => escapeHtml(k)).join(', ')}</div>` : ''}
-                        ${d.content ? `<div class="ccs-lore-entry-preview">${escapeHtml(d.content.substring(0, 120))}${d.content.length > 120 ? '…' : ''}</div>` : ''}
-                    </div>
-                `).join('')}
-            </div>`;
-        }
+        // Wire "Create New" button (synchronous — it's already in the DOM)
+        loreEl.querySelector('#ccs_lb_create_btn')?.addEventListener('click', async () => {
+            const input = loreEl.querySelector('#ccs_lb_new_name');
+            const name = input?.value?.trim();
+            if (!name) { showToast('Enter a lorebook name first', 'warning', 2000); return; }
 
-        // Existing entries — grouped by category (2.5)
-        if (!entries.length && !pendingDrafts.length) {
-            html += `<p class="ccs-empty-state">No entries yet. Switch to the Lore phase and ask the AI to create entries.</p>`;
-        } else if (entries.length > 0) {
-            const CATEGORY_ORDER = ['Geography', 'Factions', 'NPCs', 'Magic System', 'Items', 'History', 'Culture', 'Rules', 'Constant'];
-            const grouped = {};
-            for (const e of entries) {
-                const cat = (e.category || '').trim() || (e.constant ? 'Rules' : 'Uncategorized');
-                if (!grouped[cat]) grouped[cat] = [];
-                grouped[cat].push(e);
+            const btn = loreEl.querySelector('#ccs_lb_create_btn');
+            if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Creating…'; }
+
+            const result = await createWorldInfoBook(name);
+            if (result.success) {
+                updateSession({ lorebookName: name });
+                showToast(`Lorebook created: ${name}`, 'success');
+                _renderLoreTab();
+            } else {
+                showToast(`Create failed: ${result.error}`, 'error');
+                if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fa-solid fa-plus"></i> Create New'; }
             }
-
-            const sortedCats = Object.keys(grouped).sort((a, b) => {
-                const ia = CATEGORY_ORDER.indexOf(a);
-                const ib = CATEGORY_ORDER.indexOf(b);
-                if (a === 'Uncategorized') return 1;
-                if (b === 'Uncategorized') return -1;
-                if (ia >= 0 && ib >= 0) return ia - ib;
-                if (ia >= 0) return -1;
-                if (ib >= 0) return 1;
-                return a.localeCompare(b);
-            });
-
-            const CATEGORY_ICONS = {
-                'Geography': '🗺️', 'Factions': '⚔️', 'NPCs': '👤',
-                'Magic System': '✨', 'Items': '🎒', 'History': '📜',
-                'Culture': '🎭', 'Rules': '📋', 'Constant': '📌', 'Uncategorized': '📂',
-            };
-
-            html += `<div class="ccs-lore-existing-section">`;
-            for (const cat of sortedCats) {
-                const catEntries = grouped[cat];
-                const icon = CATEGORY_ICONS[cat] || '📁';
-                const totalTokens = catEntries.reduce((s, e) => s + (e.tokens || 0), 0);
-                html += `
-                <details class="ccs-lore-folder" open>
-                    <summary class="ccs-lore-folder-header">
-                        <span class="ccs-lore-folder-icon">${icon}</span>
-                        <span class="ccs-lore-folder-name">${escapeHtml(cat)}</span>
-                        <span class="ccs-badge ccs-badge--secondary">${catEntries.length}</span>
-                        <span class="ccs-lore-folder-tokens">~${totalTokens}t</span>
-                    </summary>
-                    <div class="ccs-lore-folder-entries">
-                        ${catEntries.map(e => `
-                            <div class="ccs-lore-entry ${e.enabled ? '' : 'ccs-lore-entry--disabled'}">
-                                <div class="ccs-lore-entry-header">
-                                    <span class="ccs-lore-entry-name">${escapeHtml(e.name || 'Unnamed')}</span>
-                                    ${e.constant ? '<span class="ccs-badge ccs-badge--info" title="Always active">📌</span>' : ''}
-                                    ${!e.enabled ? '<span class="ccs-badge ccs-badge--muted">off</span>' : ''}
-                                    <span class="ccs-lore-entry-tokens">~${e.tokens || 0}t</span>
-                                </div>
-                                ${e.keys?.length ? `<div class="ccs-lore-entry-keys">Keys: ${e.keys.map(k => escapeHtml(k)).join(', ')}</div>` : ''}
-                                <div class="ccs-lore-entry-preview">${escapeHtml((e.content || '').substring(0, 120))}${(e.content || '').length > 120 ? '…' : ''}</div>
-                            </div>
-                        `).join('')}
-                    </div>
-                </details>`;
-            }
-            html += `</div>`;
-        }
-
-        // Recursion warnings
-        if (entries.length > 1) {
-            try {
-                const recursion = await detectRecursion(entries);
-                if (recursion.warnings.length > 0) {
-                    html += `<div class="ccs-lore-recursion-warning">
-                        <div class="ccs-lore-section-title">⚠️ Recursion Warnings</div>
-                        ${recursion.warnings.map(w => `<div class="ccs-lore-warning-item">${escapeHtml(w)}</div>`).join('')}
-                    </div>`;
-                }
-            } catch (e) {
-                console.warn('[CCS] Recursion detection failed:', e.message);
-            }
-        }
-
-        loreEl.innerHTML = html;
-        _wireLoreViewBtns(loreEl, entries);
-
-        // Initialize Graph Overlay button
-        loreEl.querySelector('#ccs_lb_graph_overlay_btn')?.addEventListener('click', () => {
-            openLoreGraphOverlay(entries);
         });
 
-        // Bug 8: cache the fetched result so debounced re-renders can skip the API
-        _loreCache = { entries, tokenBudget, bookName };
-    } finally {
-        _isRenderingLore = false;
+        return;
     }
+
+    // ── Lorebook selected: render entries / graph ─────────────────────────
+    const bookName = session.lorebookName;
+    const loreDrafts = session?.loreDrafts || [];
+    const pendingDrafts = loreDrafts.filter(d => d.status === 'pending');
+
+    let entries = [];
+    let tokenBudget = null;
+    try {
+        const loreData = await getLorebookEntries();
+        entries = loreData.entries || [];
+        tokenBudget = await getLorebookTokenBudget();
+    } catch (e) {
+        console.warn('[CCS] Could not fetch lorebook:', e.message);
+    }
+
+    if (countEl) {
+        let statsText = `${entries.length} entries`;
+        if (tokenBudget) statsText += ` · ~${tokenBudget.estimatedUsage}t`;
+        countEl.textContent = statsText;
+    }
+
+    let html = '';
+
+    // ── Book info bar with Change + new fullscreen Graph Overlay button ──────
+    html += `<div class="ccs-lb-info-bar">
+        <span class="ccs-lb-info-name"><i class="fa-solid fa-book"></i> ${escapeHtml(bookName)}</span>
+        <div class="ccs-lb-info-actions">
+            <button class="ccs-lb-graph-overlay-btn" id="ccs_lb_graph_overlay_btn" title="Open interactive Lore Graph">
+                <i class="fa-solid fa-diagram-project"></i> Lore Graph
+            </button>
+            <button class="ccs-lb-change-btn" id="ccs_lb_change_btn" title="Switch lorebook">
+                <i class="fa-solid fa-arrows-rotate"></i> Change
+            </button>
+        </div>
+    </div>`;
+
+    // ── List View ─────────────────────────────────────────────────────────
+    // Token budget
+    if (tokenBudget && entries.length > 0) {
+        html += `<div class="ccs-lore-budget">
+            <span class="ccs-lore-budget-label">📊 Token Budget:</span>
+            <span>📌 Constant: ~${tokenBudget.constantTokens}t</span>
+            <span>⚡ Triggered: ~${tokenBudget.conditionalTokens}t</span>
+            <span>📈 Est. Usage: ~${tokenBudget.estimatedUsage}t</span>
+        </div>`;
+    }
+
+    // Staged drafts
+    if (pendingDrafts.length) {
+        html += `<div class="ccs-lore-staged-section">
+            <h5 class="ccs-lore-section-title">⏳ Staged (${pendingDrafts.length})</h5>
+            ${pendingDrafts.map(d => `
+                <div class="ccs-lore-entry ccs-lore-entry--staged">
+                    <div class="ccs-lore-entry-header">
+                        <span class="ccs-lore-entry-name">${escapeHtml(d.name || 'Unnamed')}</span>
+                        <span class="ccs-badge ccs-badge--warning">${d.type || 'create'}</span>
+                        ${d.tokenCount ? `<span class="ccs-lore-entry-tokens">~${d.tokenCount}t</span>` : ''}
+                    </div>
+                    ${d.keys?.length ? `<div class="ccs-lore-entry-keys">Keys: ${d.keys.map(k => escapeHtml(k)).join(', ')}</div>` : ''}
+                    ${d.content ? `<div class="ccs-lore-entry-preview">${escapeHtml(d.content.substring(0, 120))}${d.content.length > 120 ? '…' : ''}</div>` : ''}
+                </div>
+            `).join('')}
+        </div>`;
+    }
+
+    // Existing entries — grouped by category (2.5)
+    if (!entries.length && !pendingDrafts.length) {
+        html += `<p class="ccs-empty-state">No entries yet. Switch to the Lore phase and ask the AI to create entries.</p>`;
+    } else if (entries.length > 0) {
+        const CATEGORY_ORDER = ['Geography', 'Factions', 'NPCs', 'Magic System', 'Items', 'History', 'Culture', 'Rules', 'Constant'];
+        const grouped = {};
+        for (const e of entries) {
+            const cat = (e.category || '').trim() || (e.constant ? 'Rules' : 'Uncategorized');
+            if (!grouped[cat]) grouped[cat] = [];
+            grouped[cat].push(e);
+        }
+
+        const sortedCats = Object.keys(grouped).sort((a, b) => {
+            const ia = CATEGORY_ORDER.indexOf(a);
+            const ib = CATEGORY_ORDER.indexOf(b);
+            if (a === 'Uncategorized') return 1;
+            if (b === 'Uncategorized') return -1;
+            if (ia >= 0 && ib >= 0) return ia - ib;
+            if (ia >= 0) return -1;
+            if (ib >= 0) return 1;
+            return a.localeCompare(b);
+        });
+
+        const CATEGORY_ICONS = {
+            'Geography': '🗺️', 'Factions': '⚔️', 'NPCs': '👤',
+            'Magic System': '✨', 'Items': '🎒', 'History': '📜',
+            'Culture': '🎭', 'Rules': '📋', 'Constant': '📌', 'Uncategorized': '📂',
+        };
+
+        html += `<div class="ccs-lore-existing-section">`;
+        for (const cat of sortedCats) {
+            const catEntries = grouped[cat];
+            const icon = CATEGORY_ICONS[cat] || '📁';
+            const totalTokens = catEntries.reduce((s, e) => s + (e.tokens || 0), 0);
+            html += `
+            <details class="ccs-lore-folder" open>
+                <summary class="ccs-lore-folder-header">
+                    <span class="ccs-lore-folder-icon">${icon}</span>
+                    <span class="ccs-lore-folder-name">${escapeHtml(cat)}</span>
+                    <span class="ccs-badge ccs-badge--secondary">${catEntries.length}</span>
+                    <span class="ccs-lore-folder-tokens">~${totalTokens}t</span>
+                </summary>
+                <div class="ccs-lore-folder-entries">
+                    ${catEntries.map(e => `
+                        <div class="ccs-lore-entry ${e.enabled ? '' : 'ccs-lore-entry--disabled'}">
+                            <div class="ccs-lore-entry-header">
+                                <span class="ccs-lore-entry-name">${escapeHtml(e.name || 'Unnamed')}</span>
+                                ${e.constant ? '<span class="ccs-badge ccs-badge--info" title="Always active">📌</span>' : ''}
+                                ${!e.enabled ? '<span class="ccs-badge ccs-badge--muted">off</span>' : ''}
+                                <span class="ccs-lore-entry-tokens">~${e.tokens || 0}t</span>
+                            </div>
+                            ${e.keys?.length ? `<div class="ccs-lore-entry-keys">Keys: ${e.keys.map(k => escapeHtml(k)).join(', ')}</div>` : ''}
+                            <div class="ccs-lore-entry-preview">${escapeHtml((e.content || '').substring(0, 120))}${(e.content || '').length > 120 ? '…' : ''}</div>
+                        </div>
+                    `).join('')}
+                </div>
+            </details>`;
+        }
+        html += `</div>`;
+    }
+
+    // Recursion warnings
+    if (entries.length > 1) {
+        try {
+            const recursion = await detectRecursion(entries);
+            if (recursion.warnings.length > 0) {
+                html += `<div class="ccs-lore-recursion-warning">
+                    <div class="ccs-lore-section-title">⚠️ Recursion Warnings</div>
+                    ${recursion.warnings.map(w => `<div class="ccs-lore-warning-item">${escapeHtml(w)}</div>`).join('')}
+                </div>`;
+            }
+        } catch (e) {
+            console.warn('[CCS] Recursion detection failed:', e.message);
+        }
+    }
+
+    loreEl.innerHTML = html;
+    _wireLoreViewBtns(loreEl, entries);
+
+    // Bug 8: cache the fetched result so debounced re-renders can skip the API
+    _loreCache = { entries, tokenBudget, bookName };
 }
 
 /**
@@ -1523,7 +1494,7 @@ async function _renderLoreTab() {
  * changed — avoids hitting the ST API on every addMessage / updateSession call.
  */
 function _renderLoreTabFromCache() {
-    const loreEl = el('ccs_lore_content');
+    const loreEl = el('ccs_lore_entries');
     const countEl = el('ccs_lore_count');
     if (!loreEl) return;
 
@@ -2131,21 +2102,19 @@ export function bindAppEvents() {
         if (!_isOpen) return;
         clearTimeout(_renderDebounce);
         _renderDebounce = setTimeout(() => {
-            if (_isRendering) return; // Bug 13: prevent re-entrant render loops
             _updateProgress();
             _syncScratchpad();
             syncContextBar();
-            // Only re-render the currently visible tab
+            // Only re-render the currently visible tab (Bug 10: active-tab-only)
             if (_activeTab === 'concept') _renderConceptTab();
             else if (_activeTab === 'card') _renderCardTab();
             else if (_activeTab === 'lore') {
-                // Bug 8: only hit the ST lorebook API when the selection changes
+                // Bug 8: only hit the ST lorebook API when the lorebook changes
                 const currentBook = session?.lorebookName ?? null;
                 if (currentBook !== _lastLorebookName) {
                     _lastLorebookName = currentBook;
                     _renderLoreTab();
                 } else {
-                    // Just re-render the UI with cached data (no API call)
                     _renderLoreTabFromCache();
                 }
             }
