@@ -30,12 +30,12 @@ const MINIMAP_H = 85;
 const MINIMAP_PAD = 12;
 // For very large graphs, skip O(N²) repulsion — only spring + gravity
 const LARGE_GRAPH_THRESHOLD = 80;
-const DAMPING = 0.90;          // high damping = fast settling (10% energy loss per tick)
+const DAMPING = 0.90;
 const REPULSION = 18000;
 const SPRING_K = 0.035;
-const SPRING_REST = 260;       // nodes spread farther apart when connected
-const CENTER_GRAVITY = 0.0003; // very weak centre pull — don't fight cluster gravity
-const CLUSTER_GRAVITY = 0.007; // gentler cluster pull — less oscillation
+const SPRING_REST = 260;
+const CENTER_GRAVITY = 0;      // removed — was pulling everything to centre
+const CLUSTER_GRAVITY = 0.004; // gentler — keeps categories loosely grouped
 const LONG_PRESS_MS = 320;
 
 const CATEGORY_COLORS = {
@@ -67,13 +67,13 @@ const CATEGORY_ANCHORS = {
 
 // Edge types — drives color + dash pattern + arrow style
 const EDGE_TYPES = {
-    DIRECT:      { color: 'rgba(210,160,60,0.75)', dash: [], label: 'Activates' },   // warm amber — visible at any zoom
-    CONDITIONAL: { color: '#888',     dash: [6, 4],   label: 'Conditional' },
-    CONSTANT:    { color: '#f97316',  dash: [],       label: 'Always active',  glow: true },
-    STOP_RECUR:  { color: '#ef4444',  dash: [],       label: 'Stops recursion', stop: true },
-    PROBABILISTIC:{ color: '#eab308', dash: [3,3],   label: 'Probabilistic' },
-    INCLUSION:   { color: '#a855f7',  dash: [8,4],   label: 'Inclusion group', bidir: true },
-    DELAY_RECUR: { color: '#64748b',  dash: [2,5],   label: 'Delay until recursion' },
+    DIRECT:       { color: 'rgba(90,130,210,0.8)',  dash: [],     label: 'Direct' },        // steel blue — distinct from constant
+    CONDITIONAL:  { color: 'rgba(110,110,130,0.7)', dash: [6, 4], label: 'Conditional' },    // grey
+    CONSTANT:     { color: '#f97316',                dash: [],     label: 'Constant',  glow: true },  // orange
+    STOP_RECUR:   { color: '#ef4444',                dash: [],     label: 'Stops recursion', stop: true },  // red
+    PROBABILISTIC:{ color: '#eab308',                dash: [3,3],  label: 'Probabilistic' }, // yellow
+    INCLUSION:    { color: '#a855f7',                dash: [8,4],  label: 'Inclusion group', bidir: true }, // purple
+    DELAY_RECUR:  { color: '#64748b',                dash: [2,5],  label: 'Delayed recursion' }, // slate
 };
 
 // ─── Overlay Singleton ───────────────────────────────────────────────────────
@@ -618,7 +618,6 @@ class LoreGraphV2 {
     }
 
     _applyStaticCategoryLayout() {
-        // Use this.W / this.H set by _resize() — never read clientWidth again (could be 0).
         const W = this.W || 800;
         const H = this.H || 600;
 
@@ -629,26 +628,39 @@ class LoreGraphV2 {
             groups.get(node.category).push(node);
         }
 
-        // Vogel / sunflower-spiral placement within each category cluster.
-        // Golden angle ensures even angular distribution with no grid artifacts.
-        const GOLDEN_ANGLE = 2.399963229; // 137.508° in radians
-        // Minimum radius step between nodes — keeps them non-overlapping.
-        const STEP = Math.max(NODE_W * 1.3, NODE_H * 2.4);
+        const GOLDEN_ANGLE = 2.399963229;
+        const numGroups = Math.max(groups.size, 1);
+        // Each category gets a territory radius = fraction of canvas / sqrt(numGroups)
+        // Cap: outermost entry stays within 42% of min canvas dimension from category centre.
+        const maxTerritoryR = Math.min(W, H) * 0.42 / Math.sqrt(numGroups);
 
         for (const [cat, catNodes] of groups) {
             const anchor = CATEGORY_ANCHORS[cat] || CATEGORY_ANCHORS['Uncategorized'];
-            // Map anchor 0-1 to canvas with 80px edge padding so nodes don't clip.
             const cx = 80 + (W - 160) * anchor.nx;
             const cy = 80 + (H - 160) * anchor.ny;
 
-            const total = catNodes.length;
-            catNodes.forEach((node, i) => {
-                if (total === 1) {
+            const n = catNodes.length;
+
+            // Adaptive step: scale so outermost entry ≤ maxTerritoryR
+            // Vogel spiral outermost r ≈ STEP * sqrt(n)
+            // So STEP = maxTerritoryR / sqrt(n), floored at NODE_W * 0.45
+            const STEP = Math.max(
+                maxTerritoryR / Math.sqrt(Math.max(n, 1)),
+                NODE_W * 0.45   // absolute minimum — allows overlap but keeps structure
+            );
+
+            // Sort: constants placed at outer ring so they don't sit on top of regulars
+            const sorted = [...catNodes].sort((a, b) => {
+                const wa = (a.entry.constant ? 2 : 0) + (a.entry.enabled === false ? 1 : 0);
+                const wb = (b.entry.constant ? 2 : 0) + (b.entry.enabled === false ? 1 : 0);
+                return wa - wb; // regulars first, constants last (outer ring)
+            });
+
+            sorted.forEach((node, i) => {
+                if (n === 1) {
                     node.x = cx;
                     node.y = cy;
                 } else {
-                    // r grows with sqrt(i+0.5) → even packing density throughout the spiral
-                    // The 0.72 vertical scale gives a flatter, map-like aspect ratio
                     const r = STEP * Math.sqrt(i + 0.5);
                     const theta = i * GOLDEN_ANGLE;
                     node.x = cx + r * Math.cos(theta);
@@ -1034,10 +1046,27 @@ class LoreGraphV2 {
         // pass. For 100 nodes that was hundreds of shadow ops per frame.
         // Selected nodes get a thick bright border instead (same visual signal, zero cost).
 
-        // Node background — 0.28 opacity so edges behind the node don't bleed through
-        ctx.fillStyle = isSimActive ? _simPassColor(isSimActive) : _hexWithAlpha(baseColor, 0.28);
+        // Node background — 0.62 opacity so cards are clearly visible even when zoomed out
+        ctx.fillStyle = isSimActive ? _simPassColor(isSimActive) : _hexWithAlpha(baseColor, 0.62);
         _roundRect(ctx, x, y, nw, nh, NODE_R / this.scale);
         ctx.fill();
+
+        // Category accent bar — 3px solid strip on left edge for quick visual category ID
+        if (!isFiltered) {
+            ctx.fillStyle = baseColor;
+            const barW = 3 / this.scale;
+            const r = NODE_R / this.scale;
+            ctx.beginPath();
+            ctx.moveTo(x + r, y);
+            ctx.lineTo(x + barW, y);
+            ctx.lineTo(x + barW, y + nh);
+            ctx.lineTo(x + r, y + nh);
+            ctx.arc(x + r, y + nh - r, r, Math.PI * 0.5, Math.PI);
+            ctx.lineTo(x, y + r);
+            ctx.arc(x + r, y + r, r, Math.PI, Math.PI * 1.5);
+            ctx.closePath();
+            ctx.fill();
+        }
 
         // Hub ring: nodes with many connections get a subtle outer ring
         const cc = node.connectionCount || 0;
@@ -1219,8 +1248,8 @@ class LoreGraphV2 {
 
     _getEdgeAlpha(s, t) {
         if (this.matchedUids && (this.matchedUids.has(s.uid) || this.matchedUids.has(t.uid))) return 0.88;
-        if (this.matchedUids) return 0.05; // strongly dim non-matched edges
-        return 0.40; // default: visible but not overwhelming (was 0.70)
+        if (this.matchedUids) return 0.006; // nearly invisible when another node is focused
+        return 0.22; // default: subtle web — less overwhelming than 0.40
     }
 
     _getSimPassForUid(uid) {
@@ -1304,7 +1333,7 @@ class LoreGraphV2 {
         const circles = this._getCircularChains();
         const totalTokens = this.nodes.reduce((s, n) => s + (n.tokens || 0), 0);
         const edgeCapped = this.edges.length >= 400;
-        const conflictCount = this._keyOverlapFull?.size || 0;
+        const conflictCount = 0; // keyword sharing is intentional — not a warning
 
         const setTxt = (id, txt) => {
             const el = this.overlayEl.querySelector('#' + id);
@@ -1317,7 +1346,7 @@ class LoreGraphV2 {
         setTxt('ccs_graph_stat_orphaned', `⚠️ ${orphaned.length} orphaned`);
         setTxt('ccs_graph_stat_tokens', `~${totalTokens}t total`);
 
-        // Budget bar: compare total enabled tokens vs sim budget setting
+        // Budget bar
         const budgetEl = this.overlayEl.querySelector('#ccs_graph_sim_budget');
         const budget = budgetEl ? parseInt(budgetEl.value, 10) : 2000;
         const enabledTokens = this.nodes
@@ -1332,14 +1361,15 @@ class LoreGraphV2 {
         const budgetLbl = pct > 85 ? '⚠️ Over budget' : pct > 60 ? '🟡 Near limit' : '✅ In budget';
         setTxt('ccs_graph_stat_budget', `${Math.round(pct)}% context ${budgetLbl}`);
 
-        // Warnings badge
+        // Dead-entry badge (no keyword + not constant + enabled = will never fire)
+        const dead = this.entries.filter(e => e.enabled !== false && !e.constant && !(e.keys?.length));
         const badge = this.overlayEl.querySelector('#ccs_graph_warn_badge');
         if (badge) {
-            badge.textContent = conflictCount;
-            badge.classList.toggle('ccs-hidden', conflictCount === 0);
+            badge.textContent = dead.length;
+            badge.classList.toggle('ccs-hidden', dead.length === 0);
         }
         const warnBtn = this.overlayEl.querySelector('#ccs_graph_warn_btn');
-        if (warnBtn) warnBtn.classList.toggle('ccs-graph-tool-btn--warn', conflictCount > 0);
+        if (warnBtn) warnBtn.classList.toggle('ccs-graph-tool-btn--warn', dead.length > 0);
     }
 
     /**
@@ -1517,34 +1547,21 @@ class LoreGraphV2 {
         const body = this.overlayEl.querySelector('#ccs_graph_warn_body');
         if (!body) return;
 
-        const uidToName = new Map(this.nodes.map(n => [n.uid, n.name]));
-        const overlaps = this._keyOverlapFull;
-        // Dead entries: enabled, no keys, not constant — will never activate
+        // Dead entries: enabled, no keys, not constant — will never fire
         const dead = this.entries.filter(e =>
             e.enabled !== false && !e.constant && !(e.keys?.length));
 
         let html = '';
-
-        if (dead.length) {
-            html += `<div class="ccs-warn-section">Dead entries (no keywords &amp; not constant)</div>`;
+        if (!dead.length) {
+            html = '<div class="ccs-warn-ok">✅ No dead entries found. All enabled entries have keywords or are constant.</div>';
+        } else {
+            html += `<div class="ccs-warn-section">${dead.length} dead entr${dead.length !== 1 ? 'ies' : 'y'} (enabled but will never activate)</div>`;
             html += dead.map(e =>
                 `<div class="ccs-warn-item ccs-warn-item--dead">` +
                 `<i class="fa-solid fa-circle-xmark"></i> ` +
                 `<span>${_escHtml(e.name || String(e.uid))}</span>` +
-                `<span class="ccs-warn-tip">Will never activate</span></div>`
+                `<span class="ccs-warn-tip">Add keywords or mark Constant</span></div>`
             ).join('');
-        }
-
-        if (!overlaps || overlaps.size === 0) {
-            html += '<div class="ccs-warn-ok">\u2705 No keyword conflicts found.</div>';
-        } else {
-            html += `<div class="ccs-warn-section">${overlaps.size} shared keyword${overlaps.size !== 1 ? 's' : ''} (always co-activate)</div>`;
-            for (const [key, uids] of overlaps) {
-                const names = uids.map(uid => _escHtml(uidToName.get(uid) || String(uid))).join(', ');
-                html += `<div class="ccs-warn-item">` +
-                    `<span class="ccs-tt-key">${_escHtml(key)}</span>` +
-                    `<span class="ccs-warn-affected">\u2192 ${names}</span></div>`;
-            }
         }
         body.innerHTML = html;
     }
@@ -1671,10 +1688,7 @@ class LoreGraphV2 {
             ? keys.map(k => `<span class="ccs-tt-key">${_escHtml(k)}</span>`).join(' ')
             : '<span class="ccs-tt-nokeys">none</span>';
 
-        const overlapHtml = overlapping.length
-            ? `<div class="ccs-tt-warning">\u26a0\ufe0f Shared keywords: ${
-                overlapping.map(k => `<b>${_escHtml(k)}</b>`).join(', ')}</div>`
-            : '';
+        const overlapHtml = ''; // shared keywords are intentional (e.g. location shared by multiple characters)
 
         const probRow = (e.probability ?? 100) < 100
             ? `<div class="ccs-tt-row"><span class="ccs-tt-label">Probability</span><b>${e.probability}%</b></div>`
