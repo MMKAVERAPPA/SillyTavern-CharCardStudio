@@ -4936,3 +4936,219 @@ html {
     justify-content: center;
   }
 }
+
+/* ── Lore Graph v2 — new feature styles ──────────────────────────────────── */
+
+/* Toolbar warning badge */
+.ccs-graph-tool-btn { position: relative; }
+.ccs-graph-tool-badge {
+  position: absolute;
+  top: 2px; right: 2px;
+  min-width: 16px; height: 16px;
+  background: #ef4444;
+  color: #fff;
+  font-size: 9px;
+  font-weight: 700;
+  border-radius: 8px;
+  display: flex; align-items: center; justify-content: center;
+  padding: 0 3px;
+  pointer-events: none;
+}
+.ccs-graph-tool-btn--warn { color: #f59e0b !important; }
+
+/* Token budget bar inside stats */
+.ccs-graph-budget-track {
+  flex: 1;
+  height: 3px;
+  background: rgba(255,255,255,0.08);
+  border-radius: 2px;
+  margin: 0 6px;
+  overflow: hidden;
+  min-width: 60px;
+}
+.ccs-graph-budget-fill {
+  height: 100%;
+  width: 0%;
+  background: #22c55e;
+  border-radius: 2px;
+  transition: width 0.4s ease, background 0.4s ease;
+}
+
+/* Hover tooltip */
+.ccs-graph-tooltip {
+  position: absolute;
+  z-index: 9999;
+  background: rgba(10,10,20,0.96);
+  border: 1px solid rgba(255,255,255,0.12);
+  border-radius: 10px;
+  padding: 10px 12px;
+  max-width: 240px;
+  pointer-events: none;
+  backdrop-filter: blur(8px);
+  box-shadow: 0 8px 32px rgba(0,0,0,0.5);
+  font-size: 12px;
+  color: #ccc;
+  transition: opacity 0.12s ease;
+}
+.ccs-tt-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: #f0f0f0;
+  margin-bottom: 6px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ccs-tt-meta { margin-bottom: 6px; }
+.ccs-tt-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  line-height: 1.5;
+}
+.ccs-tt-label { color: #777; font-size: 11px; }
+.ccs-tt-section {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #555;
+  margin: 6px 0 3px;
+}
+.ccs-tt-keys { display: flex; flex-wrap: wrap; gap: 3px; margin-bottom: 5px; }
+.ccs-tt-key {
+  display: inline-block;
+  background: rgba(124,92,191,0.25);
+  border: 1px solid rgba(124,92,191,0.4);
+  color: #c4a7ff;
+  font-size: 10px;
+  padding: 1px 5px;
+  border-radius: 4px;
+}
+.ccs-tt-nokeys { color: #555; font-size: 11px; font-style: italic; }
+.ccs-tt-warning {
+  background: rgba(239,68,68,0.12);
+  border: 1px solid rgba(239,68,68,0.3);
+  border-radius: 6px;
+  padding: 4px 7px;
+  font-size: 11px;
+  color: #fca5a5;
+  margin-bottom: 5px;
+}
+.ccs-tt-trigger {
+  font-size: 11px;
+  color: #a0c4ff;
+  margin-bottom: 3px;
+  line-height: 1.4;
+}
+.ccs-tt-hint {
+  font-size: 10px;
+  color: #444;
+  border-top: 1px solid rgba(255,255,255,0.05);
+  padding-top: 4px;
+  margin-top: 4px;
+}
+
+/* Warnings panel */
+.ccs-graph-warn-panel { min-width: 260px; max-width: 320px; }
+.ccs-graph-warn-body {
+  padding: 8px;
+  overflow-y: auto;
+  max-height: 340px;
+}
+.ccs-warn-section {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #666;
+  margin: 8px 0 4px;
+  padding-bottom: 3px;
+  border-bottom: 1px solid rgba(255,255,255,0.05);
+}
+.ccs-warn-item {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  padding: 4px 0;
+  border-bottom: 1px solid rgba(255,255,255,0.04);
+  font-size: 12px;
+  flex-wrap: wrap;
+}
+.ccs-warn-item--dead { color: #fca5a5; }
+.ccs-warn-affected { color: #aaa; font-size: 11px; flex: 1; }
+.ccs-warn-tip {
+  font-size: 10px;
+  color: #ef4444;
+  margin-left: auto;
+  white-space: nowrap;
+}
+.ccs-warn-ok {
+  color: #4ade80;
+  font-size: 12px;
+  padding: 12px 8px;
+  text-align: center;
+}
+.ccs-warn-loading { color: #666; font-size: 12px; padding: 12px 8px; text-align: center; }
+
+/* Quick keyword editor panel */
+.ccs-graph-kw-panel { min-width: 240px; max-width: 300px; }
+.ccs-graph-kw-body { padding: 8px 10px 12px; }
+.ccs-kw-hint {
+  font-size: 11px;
+  color: #666;
+  margin: 0 0 8px;
+  line-height: 1.4;
+}
+.ccs-kw-status { min-height: 18px; font-size: 11px; margin: 4px 0; }
+.ccs-kw-actions {
+  display: flex;
+  gap: 6px;
+  margin-top: 8px;
+}
+.ccs-kw-actions .ccs-btn { flex: 1; justify-content: center; font-size: 12px; padding: 5px 10px; }
+
+/* Batch action bar */
+.ccs-graph-batch-bar {
+  position: absolute;
+  bottom: 14px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 120;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: rgba(12,10,28,0.94);
+  border: 1px solid rgba(124,92,191,0.4);
+  border-radius: 10px;
+  padding: 6px 12px;
+  backdrop-filter: blur(10px);
+  box-shadow: 0 4px 20px rgba(0,0,0,0.4);
+  animation: ccs-slide-up 0.2s ease;
+}
+@keyframes ccs-slide-up {
+  from { opacity: 0; transform: translateX(-50%) translateY(12px); }
+  to   { opacity: 1; transform: translateX(-50%) translateY(0); }
+}
+.ccs-batch-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: #a78bfa;
+  margin-right: 4px;
+  white-space: nowrap;
+}
+.ccs-batch-btn {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  background: rgba(255,255,255,0.06);
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 7px;
+  color: #ccc;
+  font-size: 12px;
+  padding: 4px 10px;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+  white-space: nowrap;
+}
+.ccs-batch-btn:hover { background: rgba(124,92,191,0.25); color: #fff; border-color: rgba(124,92,191,0.5); }
+.ccs-batch-btn--clear:hover { background: rgba(239,68,68,0.2); color: #fca5a5; border-color: rgba(239,68,68,0.3); }
+

@@ -30,12 +30,12 @@ const MINIMAP_H = 85;
 const MINIMAP_PAD = 12;
 // For very large graphs, skip O(N²) repulsion — only spring + gravity
 const LARGE_GRAPH_THRESHOLD = 80;
-const DAMPING = 0.78;
+const DAMPING = 0.90;          // high damping = fast settling (10% energy loss per tick)
 const REPULSION = 18000;
-const SPRING_K = 0.04;
-const SPRING_REST = 220;
-const CENTER_GRAVITY = 0.002;
-const CLUSTER_GRAVITY = 0.012;
+const SPRING_K = 0.035;
+const SPRING_REST = 260;       // nodes spread farther apart when connected
+const CENTER_GRAVITY = 0.0003; // very weak centre pull — don't fight cluster gravity
+const CLUSTER_GRAVITY = 0.007; // gentler cluster pull — less oscillation
 const LONG_PRESS_MS = 320;
 
 const CATEGORY_COLORS = {
@@ -216,6 +216,10 @@ function _buildOverlayHTML() {
         <button class="ccs-graph-tool-btn" id="ccs_graph_sim_btn" title="Keyword activation simulator">
             <i class="fa-solid fa-bolt"></i>
         </button>
+        <button class="ccs-graph-tool-btn" id="ccs_graph_warn_btn" title="Keyword conflict warnings">
+            <i class="fa-solid fa-triangle-exclamation"></i>
+            <span class="ccs-graph-tool-badge ccs-hidden" id="ccs_graph_warn_badge">0</span>
+        </button>
         <div class="ccs-graph-toolbar-sep"></div>
         <button class="ccs-graph-tool-btn" id="ccs_graph_export_btn" title="Export as PNG">
             <i class="fa-solid fa-image"></i>
@@ -241,6 +245,11 @@ function _buildOverlayHTML() {
         <span id="ccs_graph_stat_orphaned">…</span>
         <span class="ccs-graph-stats-sep">|</span>
         <span id="ccs_graph_stat_tokens">…</span>
+        <span class="ccs-graph-stats-sep">|</span>
+        <span id="ccs_graph_stat_budget">…</span>
+        <div class="ccs-graph-budget-track">
+            <div class="ccs-graph-budget-fill" id="ccs_graph_budget_fill"></div>
+        </div>
     </div>
 
     <!-- Main canvas + all absolute overlays inside the canvas area -->
@@ -306,6 +315,34 @@ function _buildOverlayHTML() {
             <div class="ccs-graph-sim-result" id="ccs_graph_sim_result"></div>
         </div>
 
+        <!-- Warnings panel -->
+        <div class="ccs-graph-panel ccs-graph-warn-panel ccs-hidden" id="ccs_graph_warn_panel">
+            <div class="ccs-graph-panel-header">
+                <i class="fa-solid fa-triangle-exclamation"></i> Keyword Conflicts
+                <button class="ccs-graph-panel-close" id="ccs_graph_warn_close"><i class="fa-solid fa-xmark"></i></button>
+            </div>
+            <div class="ccs-graph-warn-body" id="ccs_graph_warn_body">
+                <div class="ccs-warn-loading">Analysing…</div>
+            </div>
+        </div>
+
+        <!-- Quick keyword editor -->
+        <div class="ccs-graph-panel ccs-graph-kw-panel ccs-hidden" id="ccs_graph_kw_panel">
+            <div class="ccs-graph-panel-header">
+                <i class="fa-solid fa-key"></i> <span id="ccs_graph_kw_title">Edit Keywords</span>
+                <button class="ccs-graph-panel-close" id="ccs_graph_kw_close"><i class="fa-solid fa-xmark"></i></button>
+            </div>
+            <div class="ccs-graph-kw-body">
+                <p class="ccs-kw-hint">Comma-separated. Entry activates when any keyword appears in chat or prior activated content.</p>
+                <input type="text" class="ccs-graph-search-input" id="ccs_graph_kw_input" placeholder="dragon, tower, elena…" />
+                <div class="ccs-kw-status" id="ccs_graph_kw_status"></div>
+                <div class="ccs-kw-actions">
+                    <button class="ccs-btn ccs-btn--accent" id="ccs_graph_kw_save"><i class="fa-solid fa-floppy-disk"></i> Save</button>
+                    <button class="ccs-btn" id="ccs_graph_kw_cancel">Cancel</button>
+                </div>
+            </div>
+        </div>
+
         <!-- Node editor panel (hidden by default) -->
         <div class="ccs-graph-editor-panel ccs-hidden" id="ccs_graph_editor_panel">
             <div class="ccs-graph-panel-header">
@@ -321,6 +358,7 @@ function _buildOverlayHTML() {
         <div class="ccs-graph-ctx-menu ccs-hidden" id="ccs_graph_ctx_menu">
             <button class="ccs-graph-ctx-item" data-action="view"><i class="fa-solid fa-eye"></i> View Entry</button>
             <button class="ccs-graph-ctx-item" data-action="edit"><i class="fa-solid fa-pen"></i> Edit Entry</button>
+            <button class="ccs-graph-ctx-item" data-action="edit-keys"><i class="fa-solid fa-key"></i> Edit Keywords</button>
             <div class="ccs-graph-ctx-sep"></div>
             <button class="ccs-graph-ctx-item" data-action="focus"><i class="fa-solid fa-crosshairs"></i> Focus Connections</button>
             <button class="ccs-graph-ctx-item" data-action="pin"><i class="fa-solid fa-thumbtack"></i> Pin / Unpin</button>
@@ -329,6 +367,17 @@ function _buildOverlayHTML() {
             <button class="ccs-graph-ctx-item ccs-graph-ctx-item--danger" data-action="delete">
                 <i class="fa-solid fa-trash"></i> Delete Entry
             </button>
+        </div>
+
+        <!-- Hover tooltip -->
+        <div class="ccs-graph-tooltip ccs-hidden" id="ccs_graph_tooltip" aria-live="polite"></div>
+
+        <!-- Batch action bar (appears when 2+ nodes selected via lasso) -->
+        <div class="ccs-graph-batch-bar ccs-hidden" id="ccs_graph_batch_bar">
+            <span class="ccs-batch-label" id="ccs_batch_label">0 selected</span>
+            <button class="ccs-batch-btn" id="ccs_batch_enable"><i class="fa-solid fa-circle-check"></i> Enable All</button>
+            <button class="ccs-batch-btn" id="ccs_batch_disable"><i class="fa-solid fa-ban"></i> Disable All</button>
+            <button class="ccs-batch-btn ccs-batch-btn--clear" id="ccs_batch_clear"><i class="fa-solid fa-xmark"></i> Clear</button>
         </div>
 
         <!-- Main canvas -->
@@ -439,6 +488,9 @@ class LoreGraphV2 {
         this._wireEditor();
         this._wireCanvasEvents();
         this._wireContextMenu();
+        this._wireWarnings();
+        this._wireKeywordEditor();
+        this._wireBatchBar();
         this._updateStats();
 
         // ResizeObserver
@@ -521,28 +573,87 @@ class LoreGraphV2 {
             : this.entries;
 
         this.edges = _buildEdgesFromEntries(allEntries, this.nodes, this.worldEntries ? true : false);
-        // Bug 3: invalidate the circular-chain cache whenever edges are rebuilt
         this._invalidateCircularCache();
+        // Build per-node connection counts for hub detection in _drawNode
+        this._computeConnectionCounts();
+        // Analyse keyword overlaps (entries that share a keyword — always co-activate)
+        this._analyzeKeywordOverlaps();
+    }
+
+    /** Build a map of shared keywords so we can warn the user about unintended co-activation. */
+    _analyzeKeywordOverlaps() {
+        // keyToUids: keyword -> [uid, uid, ...]
+        const keyToUids = new Map();
+        for (const entry of this.entries) {
+            for (const key of (entry.keys || [])) {
+                const lk = key.toLowerCase().trim();
+                if (lk.length < 2) continue; // skip single-char keys
+                if (!keyToUids.has(lk)) keyToUids.set(lk, []);
+                keyToUids.get(lk).push(entry.uid);
+            }
+        }
+        // Per-node: which keywords are shared with at least one other entry
+        this._keyOverlaps = new Map();           // uid -> [keyword, ...]
+        this._keyOverlapFull = new Map();         // keyword -> [uid, ...] (only conflicts)
+        for (const [k, uids] of keyToUids) {
+            if (uids.length < 2) continue;
+            this._keyOverlapFull.set(k, uids);
+            for (const uid of uids) {
+                if (!this._keyOverlaps.has(uid)) this._keyOverlaps.set(uid, []);
+                this._keyOverlaps.get(uid).push(k);
+            }
+        }
+    }
+
+    /** Count incoming + outgoing edges per node. Stored as node.connectionCount. */
+    _computeConnectionCounts() {
+        const counts = new Map();
+        for (const edge of this.edges) {
+            counts.set(edge.sourceUid, (counts.get(edge.sourceUid) || 0) + 1);
+            counts.set(edge.targetUid, (counts.get(edge.targetUid) || 0) + 1);
+        }
+        for (const node of this.nodes) {
+            node.connectionCount = counts.get(node.uid) || 0;
+        }
     }
 
     _applyStaticCategoryLayout() {
-        const W = this.canvas.parentElement.clientWidth || 800;
-        const H = this.canvas.parentElement.clientHeight || 600;
-        const groups = {};
+        // Use this.W / this.H set by _resize() — never read clientWidth again (could be 0).
+        const W = this.W || 800;
+        const H = this.H || 600;
+
+        // Group nodes by category
+        const groups = new Map();
         for (const node of this.nodes) {
-            if (!groups[node.category]) groups[node.category] = [];
-            groups[node.category].push(node);
+            if (!groups.has(node.category)) groups.set(node.category, []);
+            groups.get(node.category).push(node);
         }
-        for (const [cat, catNodes] of Object.entries(groups)) {
+
+        // Vogel / sunflower-spiral placement within each category cluster.
+        // Golden angle ensures even angular distribution with no grid artifacts.
+        const GOLDEN_ANGLE = 2.399963229; // 137.508° in radians
+        // Minimum radius step between nodes — keeps them non-overlapping.
+        const STEP = Math.max(NODE_W * 1.3, NODE_H * 2.4);
+
+        for (const [cat, catNodes] of groups) {
             const anchor = CATEGORY_ANCHORS[cat] || CATEGORY_ANCHORS['Uncategorized'];
-            const cx = W * anchor.nx;
-            const cy = H * anchor.ny;
-            const cols = Math.ceil(Math.sqrt(catNodes.length));
+            // Map anchor 0-1 to canvas with 80px edge padding so nodes don't clip.
+            const cx = 80 + (W - 160) * anchor.nx;
+            const cy = 80 + (H - 160) * anchor.ny;
+
+            const total = catNodes.length;
             catNodes.forEach((node, i) => {
-                const col = i % cols;
-                const row = Math.floor(i / cols);
-                node.x = cx + (col - cols / 2) * (NODE_W + 20);
-                node.y = cy + (row - Math.floor(catNodes.length / cols) / 2) * (NODE_H + 16);
+                if (total === 1) {
+                    node.x = cx;
+                    node.y = cy;
+                } else {
+                    // r grows with sqrt(i+0.5) → even packing density throughout the spiral
+                    // The 0.72 vertical scale gives a flatter, map-like aspect ratio
+                    const r = STEP * Math.sqrt(i + 0.5);
+                    const theta = i * GOLDEN_ANGLE;
+                    node.x = cx + r * Math.cos(theta);
+                    node.y = cy + r * Math.sin(theta) * 0.72;
+                }
                 node.vx = 0;
                 node.vy = 0;
             });
@@ -741,10 +852,11 @@ class LoreGraphV2 {
             totalKE += node.vx * node.vx + node.vy * node.vy;
         }
 
-        // Memory opt: auto-stop physics once kinetic energy settles.
-        // physicsEnabled=false means the rAF loop also goes idle next tick.
-        if (totalKE < 0.08) {
+        // Auto-stop physics when kinetic energy settles, then zero residual velocity
+        // to prevent drift after the loop exits.
+        if (totalKE < 0.04) {
             this.physicsEnabled = false;
+            for (const node of nodes) { node.vx = 0; node.vy = 0; }
         }
     }
 
@@ -922,10 +1034,23 @@ class LoreGraphV2 {
         // pass. For 100 nodes that was hundreds of shadow ops per frame.
         // Selected nodes get a thick bright border instead (same visual signal, zero cost).
 
-        // Node background — 0.22 opacity for better readability (was 0.18)
-        ctx.fillStyle = isSimActive ? _simPassColor(isSimActive) : _hexWithAlpha(baseColor, 0.22);
+        // Node background — 0.28 opacity so edges behind the node don't bleed through
+        ctx.fillStyle = isSimActive ? _simPassColor(isSimActive) : _hexWithAlpha(baseColor, 0.28);
         _roundRect(ctx, x, y, nw, nh, NODE_R / this.scale);
         ctx.fill();
+
+        // Hub ring: nodes with many connections get a subtle outer ring
+        const cc = node.connectionCount || 0;
+        if (cc >= 4 && !isFiltered) {
+            const ringW = Math.min(cc, 10) * 0.35 + 1;
+            ctx.strokeStyle = _hexWithAlpha(baseColor, 0.35);
+            ctx.lineWidth = ringW / this.scale;
+            ctx.setLineDash([]);
+            _roundRect(ctx, x - ringW / this.scale, y - ringW / this.scale,
+                       nw + ringW * 2 / this.scale, nh + ringW * 2 / this.scale,
+                       (NODE_R + ringW) / this.scale);
+            ctx.stroke();
+        }
 
         // Border — thick bright purple for selected, category color otherwise.
         // Constant entries get a brighter, slightly thicker border (static, not pulsing).
@@ -1093,9 +1218,9 @@ class LoreGraphV2 {
     }
 
     _getEdgeAlpha(s, t) {
-        if (this.matchedUids && (this.matchedUids.has(s.uid) || this.matchedUids.has(t.uid))) return 0.9;
-        if (this.matchedUids) return 0.07;
-        return 0.7;
+        if (this.matchedUids && (this.matchedUids.has(s.uid) || this.matchedUids.has(t.uid))) return 0.88;
+        if (this.matchedUids) return 0.05; // strongly dim non-matched edges
+        return 0.40; // default: visible but not overwhelming (was 0.70)
     }
 
     _getSimPassForUid(uid) {
@@ -1176,10 +1301,10 @@ class LoreGraphV2 {
 
     _updateStats() {
         const orphaned = _findOrphaned(this.nodes, this.edges);
-        // Bug 3: use cached result; cache is invalidated by _initEdges()
         const circles = this._getCircularChains();
-        const totalTokens = this.nodes.reduce((s, n) => s + n.tokens, 0);
-        const edgeCapped = this.edges.length >= 400; // matches MAX_EDGES in _buildEdgesFromEntries
+        const totalTokens = this.nodes.reduce((s, n) => s + (n.tokens || 0), 0);
+        const edgeCapped = this.edges.length >= 400;
+        const conflictCount = this._keyOverlapFull?.size || 0;
 
         const setTxt = (id, txt) => {
             const el = this.overlayEl.querySelector('#' + id);
@@ -1187,10 +1312,34 @@ class LoreGraphV2 {
         };
         setTxt('ccs_graph_stat_entries', `${this.nodes.length} entries`);
         setTxt('ccs_graph_stat_edges', edgeCapped
-            ? `${this.edges.length} edges (capped — dense graph)`
+            ? `${this.edges.length} edges (capped)`
             : `${this.edges.length} edges`);
         setTxt('ccs_graph_stat_orphaned', `⚠️ ${orphaned.length} orphaned`);
         setTxt('ccs_graph_stat_tokens', `~${totalTokens}t total`);
+
+        // Budget bar: compare total enabled tokens vs sim budget setting
+        const budgetEl = this.overlayEl.querySelector('#ccs_graph_sim_budget');
+        const budget = budgetEl ? parseInt(budgetEl.value, 10) : 2000;
+        const enabledTokens = this.nodes
+            .filter(n => n.entry.enabled !== false)
+            .reduce((s, n) => s + (n.tokens || 0), 0);
+        const pct = Math.min(100, (enabledTokens / budget) * 100);
+        const fill = this.overlayEl.querySelector('#ccs_graph_budget_fill');
+        if (fill) {
+            fill.style.width = pct + '%';
+            fill.style.background = pct > 85 ? '#ef4444' : pct > 60 ? '#f59e0b' : '#22c55e';
+        }
+        const budgetLbl = pct > 85 ? '⚠️ Over budget' : pct > 60 ? '🟡 Near limit' : '✅ In budget';
+        setTxt('ccs_graph_stat_budget', `${Math.round(pct)}% context ${budgetLbl}`);
+
+        // Warnings badge
+        const badge = this.overlayEl.querySelector('#ccs_graph_warn_badge');
+        if (badge) {
+            badge.textContent = conflictCount;
+            badge.classList.toggle('ccs-hidden', conflictCount === 0);
+        }
+        const warnBtn = this.overlayEl.querySelector('#ccs_graph_warn_btn');
+        if (warnBtn) warnBtn.classList.toggle('ccs-graph-tool-btn--warn', conflictCount > 0);
     }
 
     /**
@@ -1216,8 +1365,14 @@ class LoreGraphV2 {
         const qs = (id) => this.overlayEl.querySelector('#' + id);
 
         qs('ccs_graph_back_btn')?.addEventListener('click', () => closeLoreGraphOverlay());
-
         qs('ccs_graph_fit_btn')?.addEventListener('click', () => this._fitAll());
+        qs('ccs_graph_warn_btn')?.addEventListener('click', () => {
+            const panel = qs('ccs_graph_warn_panel');
+            if (!panel) return;
+            const isHidden = panel.classList.contains('ccs-hidden');
+            panel.classList.toggle('ccs-hidden', !isHidden);
+            if (isHidden) this._renderWarningsPanel();
+        });
 
         qs('ccs_graph_grid_btn')?.addEventListener('click', (e) => {
             this.gridSnap = !this.gridSnap;
@@ -1347,6 +1502,212 @@ class LoreGraphV2 {
         const res = this.overlayEl.querySelector('#ccs_graph_search_result');
         if (res) res.textContent = `${matched.size} entr${matched.size === 1 ? 'y' : 'ies'} matched`;
         this._markDirty();
+    }
+
+
+    // ─── Warnings Panel ──────────────────────────────────────────────────────────
+
+    _wireWarnings() {
+        const qs = (id) => this.overlayEl.querySelector('#' + id);
+        qs('ccs_graph_warn_close')?.addEventListener('click', () =>
+            qs('ccs_graph_warn_panel')?.classList.add('ccs-hidden'));
+    }
+
+    _renderWarningsPanel() {
+        const body = this.overlayEl.querySelector('#ccs_graph_warn_body');
+        if (!body) return;
+
+        const uidToName = new Map(this.nodes.map(n => [n.uid, n.name]));
+        const overlaps = this._keyOverlapFull;
+        // Dead entries: enabled, no keys, not constant — will never activate
+        const dead = this.entries.filter(e =>
+            e.enabled !== false && !e.constant && !(e.keys?.length));
+
+        let html = '';
+
+        if (dead.length) {
+            html += `<div class="ccs-warn-section">Dead entries (no keywords &amp; not constant)</div>`;
+            html += dead.map(e =>
+                `<div class="ccs-warn-item ccs-warn-item--dead">` +
+                `<i class="fa-solid fa-circle-xmark"></i> ` +
+                `<span>${_escHtml(e.name || String(e.uid))}</span>` +
+                `<span class="ccs-warn-tip">Will never activate</span></div>`
+            ).join('');
+        }
+
+        if (!overlaps || overlaps.size === 0) {
+            html += '<div class="ccs-warn-ok">\u2705 No keyword conflicts found.</div>';
+        } else {
+            html += `<div class="ccs-warn-section">${overlaps.size} shared keyword${overlaps.size !== 1 ? 's' : ''} (always co-activate)</div>`;
+            for (const [key, uids] of overlaps) {
+                const names = uids.map(uid => _escHtml(uidToName.get(uid) || String(uid))).join(', ');
+                html += `<div class="ccs-warn-item">` +
+                    `<span class="ccs-tt-key">${_escHtml(key)}</span>` +
+                    `<span class="ccs-warn-affected">\u2192 ${names}</span></div>`;
+            }
+        }
+        body.innerHTML = html;
+    }
+
+    // ─── Quick Keyword Editor ────────────────────────────────────────────────────
+
+    _wireKeywordEditor() {
+        const qs = (id) => this.overlayEl.querySelector('#' + id);
+        qs('ccs_graph_kw_close')?.addEventListener('click', () =>
+            qs('ccs_graph_kw_panel')?.classList.add('ccs-hidden'));
+        qs('ccs_graph_kw_cancel')?.addEventListener('click', () =>
+            qs('ccs_graph_kw_panel')?.classList.add('ccs-hidden'));
+        qs('ccs_graph_kw_save')?.addEventListener('click', () => this._saveKeywords());
+        qs('ccs_graph_kw_input')?.addEventListener('keydown', (ev) => {
+            if (ev.key === 'Enter') this._saveKeywords();
+            if (ev.key === 'Escape') qs('ccs_graph_kw_panel')?.classList.add('ccs-hidden');
+        });
+    }
+
+    _openKeywordEditor(node) {
+        const qs = (id) => this.overlayEl.querySelector('#' + id);
+        this._kwEditNode = node;
+        const input = qs('ccs_graph_kw_input');
+        const status = qs('ccs_graph_kw_status');
+        const title = qs('ccs_graph_kw_title');
+        if (!input) return;
+        if (title) title.textContent = `Keywords \u2014 ${node.name}`;
+        input.value = (node.entry.keys || []).join(', ');
+        if (status) status.textContent = '';
+        qs('ccs_graph_kw_panel')?.classList.remove('ccs-hidden');
+        qs('ccs_graph_editor_panel')?.classList.add('ccs-hidden');
+        qs('ccs_graph_warn_panel')?.classList.add('ccs-hidden');
+        this._hideTooltip();
+        setTimeout(() => input.focus(), 60);
+    }
+
+    _saveKeywords() {
+        const qs = (id) => this.overlayEl.querySelector('#' + id);
+        const node = this._kwEditNode;
+        const input = qs('ccs_graph_kw_input');
+        const status = qs('ccs_graph_kw_status');
+        if (!node || !input) return;
+
+        const newKeys = input.value.split(',').map(k => k.trim()).filter(k => k.length > 0);
+        node.entry.keys = newKeys;
+        if (this.onEntryEdit) this.onEntryEdit(node.entry.uid, { keys: newKeys });
+
+        // Refresh edges + overlaps since keyword changes affect connections
+        this._initEdges();
+        this._updateStats();
+        this._markDirty();
+
+        if (status) {
+            status.textContent = `\u2705 Saved ${newKeys.length} keyword${newKeys.length !== 1 ? 's' : ''}`;
+            status.style.color = '#22c55e';
+        }
+        setTimeout(() => qs('ccs_graph_kw_panel')?.classList.add('ccs-hidden'), 900);
+    }
+
+    // ─── Batch Actions ───────────────────────────────────────────────────────────
+
+    _wireBatchBar() {
+        const qs = (id) => this.overlayEl.querySelector('#' + id);
+        qs('ccs_batch_enable')?.addEventListener('click', () => this._executeBatchAction('enable'));
+        qs('ccs_batch_disable')?.addEventListener('click', () => this._executeBatchAction('disable'));
+        qs('ccs_batch_clear')?.addEventListener('click', () => {
+            this.selectedUids.clear();
+            this.focusedUid = null;
+            this.matchedUids = null;
+            this._updateBatchBar();
+            this._markDirty();
+        });
+    }
+
+    _updateBatchBar() {
+        const bar = this.overlayEl?.querySelector('#ccs_graph_batch_bar');
+        if (!bar) return;
+        const n = this.selectedUids.size;
+        if (n < 2) { bar.classList.add('ccs-hidden'); return; }
+        bar.classList.remove('ccs-hidden');
+        const lbl = bar.querySelector('#ccs_batch_label');
+        if (lbl) lbl.textContent = `${n} selected`;
+    }
+
+    _executeBatchAction(action) {
+        const newEnabled = action === 'enable';
+        for (const uid of this.selectedUids) {
+            const node = this._nodeByUid(uid);
+            if (!node) continue;
+            node.entry.enabled = newEnabled;
+            if (this.onEntryEdit) this.onEntryEdit(node.entry.uid, { enabled: newEnabled });
+        }
+        this._updateStats();
+        this._markDirty();
+    }
+
+    // ─── Hover Tooltip ───────────────────────────────────────────────────────────
+
+    _showTooltip(node, screenX, screenY) {
+        const tt = this.overlayEl?.querySelector('#ccs_graph_tooltip');
+        if (!tt) return;
+
+        const e = node.entry;
+        const keys = e.keys || [];
+        const cc = node.connectionCount || 0;
+        const overlapping = this._keyOverlaps?.get(node.uid) || [];
+
+        // Plain-English "why isn't this triggering?" diagnosis
+        let triggerNote;
+        if (e.constant) {
+            triggerNote = '\ud83d\udccc Always loaded \u2014 constant entry';
+        } else if (e.enabled === false) {
+            triggerNote = '\ud83d\udeab Disabled \u2014 will never load';
+        } else if (!keys.length) {
+            triggerNote = '\u26a0\ufe0f No keywords \u2014 mark Constant or add keywords to activate';
+        } else if ((e.probability ?? 100) < 100) {
+            triggerNote = `\ud83c\udfb2 ${e.probability}% chance per match`;
+        } else {
+            const sample = keys.slice(0, 2).map(k => `"${k}"`).join(' or ');
+            triggerNote = `Triggers when ${sample}${keys.length > 2 ? ` (+${keys.length - 2} more)` : ''} appears in chat`;
+        }
+
+        const keyPills = keys.length
+            ? keys.map(k => `<span class="ccs-tt-key">${_escHtml(k)}</span>`).join(' ')
+            : '<span class="ccs-tt-nokeys">none</span>';
+
+        const overlapHtml = overlapping.length
+            ? `<div class="ccs-tt-warning">\u26a0\ufe0f Shared keywords: ${
+                overlapping.map(k => `<b>${_escHtml(k)}</b>`).join(', ')}</div>`
+            : '';
+
+        const probRow = (e.probability ?? 100) < 100
+            ? `<div class="ccs-tt-row"><span class="ccs-tt-label">Probability</span><b>${e.probability}%</b></div>`
+            : '';
+
+        tt.innerHTML =
+            `<div class="ccs-tt-title">${_escHtml(node.name)}</div>` +
+            `<div class="ccs-tt-meta">` +
+            `<div class="ccs-tt-row"><span class="ccs-tt-label">Category</span><b>${_escHtml(node.category)}</b></div>` +
+            `<div class="ccs-tt-row"><span class="ccs-tt-label">Tokens</span><b>~${node.tokens}t</b></div>` +
+            `<div class="ccs-tt-row"><span class="ccs-tt-label">Connections</span><b>${cc}</b></div>` +
+            probRow +
+            `</div>` +
+            `<div class="ccs-tt-section">Keywords</div>` +
+            `<div class="ccs-tt-keys">${keyPills}</div>` +
+            overlapHtml +
+            `<div class="ccs-tt-trigger">${triggerNote}</div>` +
+            `<div class="ccs-tt-hint">Double-click to edit \u2022 Right-click for options</div>`;
+
+        tt.classList.remove('ccs-hidden');
+
+        // Position near cursor, clamped inside overlay
+        const ovl = this.overlayEl.getBoundingClientRect();
+        let tx = (screenX - ovl.left) + 14;
+        let ty = (screenY - ovl.top) + 14;
+        if (tx + 240 > ovl.width)  tx = (screenX - ovl.left) - 254;
+        if (ty + 230 > ovl.height) ty = (screenY - ovl.top)  - 244;
+        tt.style.left = Math.max(4, tx) + 'px';
+        tt.style.top  = Math.max(4, ty) + 'px';
+    }
+
+    _hideTooltip() {
+        this.overlayEl?.querySelector('#ccs_graph_tooltip')?.classList.add('ccs-hidden');
     }
 
     // ─── Simulator Wiring ─────────────────────────────────────────────────────
@@ -1724,17 +2085,30 @@ ${!readOnly ? `
             this.dragNode.vx = 0;
             this.dragNode.vy = 0;
             this.isDragging = true;
+            this._hideTooltip(); // hide while dragging
             this._markDirty();
         } else if (this.isLassoing) {
             const rect = this.canvas.getBoundingClientRect();
             const world = this._screenToWorld(e.clientX - rect.left, e.clientY - rect.top);
             this.lassoX2 = world.x;
             this.lassoY2 = world.y;
+            this._hideTooltip();
             this._markDirty();
         } else if (this.isPanning) {
             this.vpX = e.clientX - this.panStartX;
             this.vpY = e.clientY - this.panStartY;
+            this._hideTooltip();
             this._markDirty();
+        } else {
+            // Idle — show tooltip on node hover
+            const rect = this.canvas.getBoundingClientRect();
+            const world = this._screenToWorld(e.clientX - rect.left, e.clientY - rect.top);
+            const hit = this._hitTest(world.x, world.y);
+            if (hit) {
+                this._showTooltip(hit, e.clientX, e.clientY);
+            } else {
+                this._hideTooltip();
+            }
         }
     }
 
@@ -1742,25 +2116,24 @@ ${!readOnly ? `
         if (this.dragNode) {
             this._snapToGrid(this.dragNode);
             if (!this.isDragging) {
-                // It was a click — select/deselect
                 const uid = this.dragNode.uid;
                 if (e.ctrlKey || e.metaKey) {
-                    // Multi-select
                     if (this.selectedUids.has(uid)) this.selectedUids.delete(uid);
                     else this.selectedUids.add(uid);
                 } else {
                     this.selectedUids.clear();
                     this.selectedUids.add(uid);
                 }
-                // Focus connections
                 this._setFocusedUid(uid);
             }
             this.dragNode = null;
             this.isDragging = false;
+            this._updateBatchBar();
             this._markDirty();
         } else if (this.isLassoing) {
             this._applyLassoSelection();
             this.isLassoing = false;
+            this._updateBatchBar();
             this._markDirty();
         } else if (this.isPanning) {
             this.isPanning = false;
@@ -1949,6 +2322,7 @@ ${!readOnly ? `
                 switch (action) {
                     case 'view': this._openEditor(node, true); break;
                     case 'edit': this._openEditor(node, false); break;
+                    case 'edit-keys': this._openKeywordEditor(node); break;
                     case 'focus':
                         this.selectedUids.clear();
                         this.selectedUids.add(node.uid);
