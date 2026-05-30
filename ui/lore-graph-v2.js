@@ -28,14 +28,14 @@ const GRID_SIZE = 40;      // Grid snap cell size
 const MINIMAP_W = 130;
 const MINIMAP_H = 85;
 const MINIMAP_PAD = 12;
-// For very large graphs, skip O(N²) repulsion — only spring + gravity
 const LARGE_GRAPH_THRESHOLD = 80;
-const DAMPING = 0.90;
-const REPULSION = 18000;
-const SPRING_K = 0.035;
-const SPRING_REST = 260;
-const CENTER_GRAVITY = 0;      // removed — was pulling everything to centre
-const CLUSTER_GRAVITY = 0.004; // gentler — keeps categories loosely grouped
+const DAMPING = 0.85;          // velocity retained per tick (works with cooling)
+const REPULSION = 22000;
+const SPRING_K = 0.025;
+const SPRING_REST = 220;       // ideal distance between connected nodes
+const CENTER_GRAVITY = 0.0002; // very gentle centre pull
+const CLUSTER_GRAVITY = 0.003; // pull nodes toward their category anchor
+const COOLING_RATE = 0.992;    // temperature decay per tick — converges in ~600 ticks
 const LONG_PRESS_MS = 320;
 
 const CATEGORY_COLORS = {
@@ -51,19 +51,9 @@ const CATEGORY_COLORS = {
     'Uncategorized':'#6a7383',
 };
 
-// Category cluster anchor positions (expressed as 0-1 normalized fractions)
-const CATEGORY_ANCHORS = {
-    'Geography':    { nx: 0.25, ny: 0.25 },
-    'Factions':     { nx: 0.75, ny: 0.25 },
-    'NPCs':         { nx: 0.75, ny: 0.75 },
-    'Magic System': { nx: 0.25, ny: 0.75 },
-    'Items':        { nx: 0.5,  ny: 0.15 },
-    'History':      { nx: 0.15, ny: 0.5  },
-    'Culture':      { nx: 0.85, ny: 0.5  },
-    'Rules':        { nx: 0.5,  ny: 0.85 },
-    'Constant':     { nx: 0.5,  ny: 0.5  },
-    'Uncategorized':{ nx: 0.5,  ny: 0.5  },
-};
+// Dynamic anchors computed at init from actual data — no hardcoded positions.
+// _computeCategoryAnchors() distributes categories evenly around a circle.
+let _dynamicAnchors = {};
 
 // Edge types — drives color + dash pattern + arrow style
 const EDGE_TYPES = {
@@ -252,6 +242,9 @@ function _buildOverlayHTML() {
         </div>
     </div>
 
+    <!-- Category filter chips -->
+    <div class="ccs-graph-cat-chips" id="ccs_graph_cat_chips"></div>
+
     <!-- Main canvas + all absolute overlays inside the canvas area -->
     <div class="ccs-graph-canvas-area" id="ccs_graph_canvas_area">
         <!-- Floating panels (search, simulator) -->
@@ -364,6 +357,12 @@ function _buildOverlayHTML() {
             <button class="ccs-graph-ctx-item" data-action="pin"><i class="fa-solid fa-thumbtack"></i> Pin / Unpin</button>
             <div class="ccs-graph-ctx-sep"></div>
             <button class="ccs-graph-ctx-item" data-action="toggle"><i class="fa-solid fa-toggle-on"></i> Enable / Disable</button>
+            <div class="ccs-graph-ctx-sep"></div>
+            <div class="ccs-graph-ctx-submenu">
+                <button class="ccs-graph-ctx-item ccs-graph-ctx-sub-trigger" data-action="set-category"><i class="fa-solid fa-tag"></i> Set Category <i class="fa-solid fa-chevron-right" style="margin-left:auto;font-size:9px"></i></button>
+                <div class="ccs-graph-ctx-sub-panel ccs-hidden" id="ccs_graph_ctx_cat_panel"></div>
+            </div>
+            <div class="ccs-graph-ctx-sep"></div>
             <button class="ccs-graph-ctx-item ccs-graph-ctx-item--danger" data-action="delete">
                 <i class="fa-solid fa-trash"></i> Delete Entry
             </button>
@@ -388,8 +387,8 @@ function _buildOverlayHTML() {
 
         <!-- Legend -->
         <div class="ccs-graph-legend" id="ccs_graph_legend">
-            <div class="ccs-graph-legend-item"><span class="ccs-graph-legend-edge ccs-graph-legend-solid" style="background:#aaa"></span> Direct</div>
-            <div class="ccs-graph-legend-item"><span class="ccs-graph-legend-edge ccs-graph-legend-dashed" style="background:#888"></span> Conditional</div>
+            <div class="ccs-graph-legend-item"><span class="ccs-graph-legend-edge ccs-graph-legend-solid" style="background:#5a82d2"></span> Direct</div>
+            <div class="ccs-graph-legend-item"><span class="ccs-graph-legend-edge ccs-graph-legend-dashed" style="background:#6e6e82"></span> Conditional</div>
             <div class="ccs-graph-legend-item"><span class="ccs-graph-legend-edge ccs-graph-legend-solid" style="background:#f97316"></span> Constant</div>
             <div class="ccs-graph-legend-item"><span class="ccs-graph-legend-edge ccs-graph-legend-solid" style="background:#ef4444"></span> Stops recursion</div>
             <div class="ccs-graph-legend-item"><span class="ccs-graph-legend-edge ccs-graph-legend-dashed" style="background:#eab308"></span> Probabilistic</div>
@@ -414,6 +413,7 @@ class LoreGraphV2 {
         this.worldLorebookName = options.worldLorebookName || null;
         this.onEntryEdit = options.onEntryEdit || null;
         this.onEntryDelete = options.onEntryDelete || null;
+        this.onEntryCreate = options.onEntryCreate || null;
         this.overlayEl = overlayEl;
 
         // Viewport state
@@ -444,6 +444,7 @@ class LoreGraphV2 {
 
         // Pan state
         this.isPanning = false;
+        this._panMoved = false;
         this.panStartX = 0;
         this.panStartY = 0;
 
@@ -506,16 +507,14 @@ class LoreGraphV2 {
 
         this.nodes = this.entries.map((entry) => {
             const cat = _resolveCategory(entry);
-            const anchor = CATEGORY_ANCHORS[cat] || CATEGORY_ANCHORS['Uncategorized'];
             return {
                 uid: entry.uid,
                 entry: entry,
                 name: entry.name || `uid:${entry.uid}`,
                 category: cat,
                 tokens: entry.tokens || 0,
-                // Initial position near category anchor with jitter
-                x: W * anchor.nx + (Math.random() - 0.5) * 180,
-                y: H * anchor.ny + (Math.random() - 0.5) * 180,
+                x: W * 0.5 + (Math.random() - 0.5) * 100, // temporary — real positions set by layout
+                y: H * 0.5 + (Math.random() - 0.5) * 100,
                 vx: 0,
                 vy: 0,
                 pinned: false,
@@ -527,16 +526,15 @@ class LoreGraphV2 {
         if (this.worldEntries) {
             const worldNodes = this.worldEntries.map((entry) => {
                 const cat = _resolveCategory(entry);
-                const anchor = CATEGORY_ANCHORS[cat] || CATEGORY_ANCHORS['Uncategorized'];
                 return {
                     uid: `world_${entry.uid}`,
                     entry: entry,
                     name: entry.name || `uid:${entry.uid}`,
                     category: cat,
                     tokens: entry.tokens || 0,
-                    // World entries in top half
-                    x: W * 0.5 + (anchor.nx - 0.5) * W * 0.8,
-                    y: H * 0.25 + (anchor.ny - 0.5) * H * 0.35,
+                    // Temporary positions — _computeInitialPositions() will place them properly
+                    x: W * 0.5 + (Math.random() - 0.5) * 100,
+                    y: H * 0.3 + (Math.random() - 0.5) * 80,
                     vx: 0,
                     vy: 0,
                     pinned: false,
@@ -617,58 +615,91 @@ class LoreGraphV2 {
         }
     }
 
-    _applyStaticCategoryLayout() {
+    /**
+     * Compute dynamic anchor positions based on what categories actually exist.
+     * Distributes categories evenly around a circle so no two share the same anchor.
+     */
+    _computeCategoryAnchors() {
+        const cats = new Map();
+        for (const node of this.nodes) {
+            cats.set(node.category, (cats.get(node.category) || 0) + 1);
+        }
+        // Sort: largest category first (gets top position)
+        const sorted = [...cats.entries()].sort((a, b) => b[1] - a[1]);
+        const n = sorted.length;
+        const anchors = {};
+        if (n === 1) {
+            // Single category — center it
+            anchors[sorted[0][0]] = { nx: 0.5, ny: 0.5 };
+        } else {
+            sorted.forEach(([cat], i) => {
+                // Distribute around circle, starting from top
+                const angle = (i / n) * Math.PI * 2 - Math.PI / 2;
+                anchors[cat] = {
+                    nx: 0.5 + 0.32 * Math.cos(angle),
+                    ny: 0.5 + 0.32 * Math.sin(angle),
+                };
+            });
+        }
+        _dynamicAnchors = anchors;
+    }
+
+    /**
+     * Place nodes at initial positions based on category anchors + random jitter.
+     * Connected nodes are pulled slightly toward each other's midpoint for a
+     * better starting state before the force simulation runs.
+     */
+    _computeInitialPositions() {
         const W = this.W || 800;
         const H = this.H || 600;
+        const PAD = 80;
 
-        // Group nodes by category
-        const groups = new Map();
+        this._computeCategoryAnchors();
+
+        // Count nodes per category for jitter radius scaling
+        const catCounts = new Map();
         for (const node of this.nodes) {
-            if (!groups.has(node.category)) groups.set(node.category, []);
-            groups.get(node.category).push(node);
+            catCounts.set(node.category, (catCounts.get(node.category) || 0) + 1);
         }
 
-        const GOLDEN_ANGLE = 2.399963229;
-        const numGroups = Math.max(groups.size, 1);
-        // Each category gets a territory radius = fraction of canvas / sqrt(numGroups)
-        // Cap: outermost entry stays within 42% of min canvas dimension from category centre.
-        const maxTerritoryR = Math.min(W, H) * 0.42 / Math.sqrt(numGroups);
+        // Place each node near its category anchor with jitter
+        for (const node of this.nodes) {
+            const anchor = _dynamicAnchors[node.category] || { nx: 0.5, ny: 0.5 };
+            const cx = PAD + (W - PAD * 2) * anchor.nx;
+            const cy = PAD + (H - PAD * 2) * anchor.ny;
+            const count = catCounts.get(node.category) || 1;
+            // Jitter radius grows with sqrt(count) — more entries = wider spread
+            const jitterR = Math.min(Math.sqrt(count) * 28, Math.min(W, H) * 0.28);
+            const angle = Math.random() * Math.PI * 2;
+            const r = Math.random() * jitterR;
+            node.x = cx + r * Math.cos(angle);
+            node.y = cy + r * Math.sin(angle) * 0.75; // slightly flatter
+            node.vx = 0;
+            node.vy = 0;
+        }
 
-        for (const [cat, catNodes] of groups) {
-            const anchor = CATEGORY_ANCHORS[cat] || CATEGORY_ANCHORS['Uncategorized'];
-            const cx = 80 + (W - 160) * anchor.nx;
-            const cy = 80 + (H - 160) * anchor.ny;
-
-            const n = catNodes.length;
-
-            // Adaptive step: scale so outermost entry ≤ maxTerritoryR
-            // Vogel spiral outermost r ≈ STEP * sqrt(n)
-            // So STEP = maxTerritoryR / sqrt(n), floored at NODE_W * 0.45
-            const STEP = Math.max(
-                maxTerritoryR / Math.sqrt(Math.max(n, 1)),
-                NODE_W * 0.45   // absolute minimum — allows overlap but keeps structure
-            );
-
-            // Sort: constants placed at outer ring so they don't sit on top of regulars
-            const sorted = [...catNodes].sort((a, b) => {
-                const wa = (a.entry.constant ? 2 : 0) + (a.entry.enabled === false ? 1 : 0);
-                const wb = (b.entry.constant ? 2 : 0) + (b.entry.enabled === false ? 1 : 0);
-                return wa - wb; // regulars first, constants last (outer ring)
-            });
-
-            sorted.forEach((node, i) => {
-                if (n === 1) {
-                    node.x = cx;
-                    node.y = cy;
-                } else {
-                    const r = STEP * Math.sqrt(i + 0.5);
-                    const theta = i * GOLDEN_ANGLE;
-                    node.x = cx + r * Math.cos(theta);
-                    node.y = cy + r * Math.sin(theta) * 0.72;
-                }
-                node.vx = 0;
-                node.vy = 0;
-            });
+        // Nudge connected nodes toward each other's midpoint for better starting state
+        const adj = new Map();
+        for (const edge of this.edges) {
+            if (!adj.has(edge.sourceUid)) adj.set(edge.sourceUid, []);
+            if (!adj.has(edge.targetUid)) adj.set(edge.targetUid, []);
+            adj.get(edge.sourceUid).push(edge.targetUid);
+            adj.get(edge.targetUid).push(edge.sourceUid);
+        }
+        // One pass: move each node 15% toward the average position of its neighbors
+        for (const node of this.nodes) {
+            const neighbors = adj.get(node.uid);
+            if (!neighbors || neighbors.length === 0) continue;
+            let avgX = 0, avgY = 0, count = 0;
+            for (const nuid of neighbors) {
+                const nb = this._nodeByUid(nuid);
+                if (nb) { avgX += nb.x; avgY += nb.y; count++; }
+            }
+            if (count > 0) {
+                avgX /= count; avgY /= count;
+                node.x += (avgX - node.x) * 0.15;
+                node.y += (avgY - node.y) * 0.15;
+            }
         }
     }
 
@@ -681,7 +712,8 @@ class LoreGraphV2 {
 
         const W = parent.clientWidth || 800;
         const H = parent.clientHeight || 600;
-        this.dpr = window.devicePixelRatio || 1;
+        const rawDpr = window.devicePixelRatio || 1;
+        this.dpr = this._isMobile ? Math.min(rawDpr, 2) : rawDpr;
 
         this.canvas.style.width = W + 'px';
         this.canvas.style.height = H + 'px';
@@ -698,11 +730,14 @@ class LoreGraphV2 {
         this.W = W;
         this.H = H;
 
-        // Bug 5 fix: apply static layout here, after W/H are known from the real DOM size.
-        // _initNodes() calls this with a guard so it only runs once on first paint.
+        // Layout: compute initial positions once when DOM size is known,
+        // then run force simulation to refine them.
         if (!this._initialLayoutDone && this.nodes?.length) {
             this._initialLayoutDone = true;
-            this._applyStaticCategoryLayout();
+            this._computeInitialPositions();
+            // Start a cooling force simulation to refine positions
+            this._physicsTemp = 1.0;
+            this.physicsEnabled = true;
             this._markDirty();
         }
     }
@@ -763,59 +798,50 @@ class LoreGraphV2 {
 
     // ─── Physics ─────────────────────────────────────────────────────────────
 
+    /**
+     * Simulated-annealing force-directed layout.
+     * Temperature starts at 1.0 and decays by COOLING_RATE each tick.
+     * All displacement is capped by temperature, guaranteeing convergence.
+     * This is the standard Fruchterman-Reingold approach.
+     */
     _physicsTick() {
         const nodes = this.nodes;
         const n = nodes.length;
         const W = this.W;
         const H = this.H;
 
-        // Fix 3: For large graphs (>LARGE_GRAPH_THRESHOLD nodes), skip the O(N²)
-        // repulsion calculation entirely. At 100 nodes that's 4950 pair comparisons
-        // per 16ms frame = ~300k float ops/sec, which causes GPU/CPU thrashing and
-        // OOM pressure from the JIT heat. Use spring + gravity only (O(E+N)).
-        const skipRepulsion = n > LARGE_GRAPH_THRESHOLD;
+        // Temperature (cooling schedule)
+        if (this._physicsTemp == null) this._physicsTemp = 1.0;
+        const temp = this._physicsTemp;
 
-        if (!skipRepulsion) {
-            // Repulsion (all pairs) — O(N²)
-            for (let i = 0; i < n; i++) {
-                const a = nodes[i];
-                for (let j = i + 1; j < n; j++) {
-                    const b = nodes[j];
-                    let dx = b.x - a.x;
-                    let dy = b.y - a.y;
-                    let dist = Math.sqrt(dx * dx + dy * dy) || 1;
-                    const minDist = (NODE_W + NODE_H) * 0.7;
-                    if (dist < minDist) dist = minDist;
-                    const force = REPULSION / (dist * dist);
-                    const fx = (dx / dist) * force;
-                    const fy = (dy / dist) * force;
-                    a.vx -= fx;
-                    a.vy -= fy;
-                    b.vx += fx;
-                    b.vy += fy;
-                }
-            }
-        } else {
-            // Simplified repulsion for large graphs: only repel nodes that are
-            // very close (colliding), O(N) best-case with spatial hint.
-            const COLLISION_R = (NODE_W + NODE_H) * 0.6;
-            for (let i = 0; i < n; i++) {
-                const a = nodes[i];
-                for (let j = i + 1; j < n; j++) {
-                    const b = nodes[j];
-                    const dx = b.x - a.x;
-                    const dy = b.y - a.y;
-                    const dist2 = dx * dx + dy * dy;
-                    if (dist2 > COLLISION_R * COLLISION_R) continue; // skip distant pairs
-                    const dist = Math.sqrt(dist2) || 1;
-                    const force = REPULSION * 0.3 / (dist * dist);
-                    const fx = (dx / dist) * force;
-                    const fy = (dy / dist) * force;
-                    a.vx -= fx;
-                    a.vy -= fy;
-                    b.vx += fx;
-                    b.vy += fy;
-                }
+        // --- Forces ---
+
+        // Overlap repulsion: push apart nodes that are too close.
+        // For large graphs, use wider collision radius but skip truly distant pairs.
+        const COLLISION_R = n > LARGE_GRAPH_THRESHOLD
+            ? (NODE_W + NODE_H) * 0.9   // wider check for large graphs
+            : Infinity;                  // small graphs: check all pairs
+        const COLLISION_R2 = COLLISION_R * COLLISION_R;
+
+        for (let i = 0; i < n; i++) {
+            const a = nodes[i];
+            for (let j = i + 1; j < n; j++) {
+                const b = nodes[j];
+                const dx = b.x - a.x;
+                const dy = b.y - a.y;
+                const dist2 = dx * dx + dy * dy;
+                if (dist2 > COLLISION_R2) continue;
+                let dist = Math.sqrt(dist2) || 1;
+                // Minimum distance prevents division-by-near-zero spikes
+                const minDist = NODE_W * 0.6;
+                if (dist < minDist) dist = minDist;
+                const force = REPULSION / (dist * dist) * temp;
+                const fx = (dx / dist) * force;
+                const fy = (dy / dist) * force;
+                a.vx -= fx;
+                a.vy -= fy;
+                b.vx += fx;
+                b.vy += fy;
             }
         }
 
@@ -828,7 +854,7 @@ class LoreGraphV2 {
             const dy = t.y - s.y;
             const dist = Math.sqrt(dx * dx + dy * dy) || 1;
             const delta = dist - SPRING_REST;
-            const force = delta * SPRING_K;
+            const force = delta * SPRING_K * temp;
             const fx = (dx / dist) * force;
             const fy = (dy / dist) * force;
             s.vx += fx;
@@ -837,38 +863,45 @@ class LoreGraphV2 {
             t.vy -= fy;
         }
 
-        // Category cluster gravity
+        // Category cluster gravity + centre gravity
         for (const node of nodes) {
-            const anchor = CATEGORY_ANCHORS[node.category] || CATEGORY_ANCHORS['Uncategorized'];
-            const tx = W * (node.worldNode ? anchor.nx * 0.5 + 0.25 : anchor.nx);
-            const ty = H * (node.worldNode ? anchor.ny * 0.35 + 0.05 : anchor.ny * 0.5 + 0.45);
-            node.vx += (tx - node.x) * CLUSTER_GRAVITY;
-            node.vy += (ty - node.y) * CLUSTER_GRAVITY;
-
-            // General center gravity
-            node.vx += (W / 2 - node.x) * CENTER_GRAVITY;
-            node.vy += (H / 2 - node.y) * CENTER_GRAVITY;
+            const anchor = _dynamicAnchors[node.category] || { nx: 0.5, ny: 0.5 };
+            const tx = 80 + (W - 160) * anchor.nx;
+            const ty = 80 + (H - 160) * anchor.ny;
+            node.vx += (tx - node.x) * CLUSTER_GRAVITY * temp;
+            node.vy += (ty - node.y) * CLUSTER_GRAVITY * temp;
+            node.vx += (W / 2 - node.x) * CENTER_GRAVITY * temp;
+            node.vy += (H / 2 - node.y) * CENTER_GRAVITY * temp;
         }
 
-        // Integrate + damp + clamp
-        const PAD = 20;
-        let totalKE = 0;
+        // --- Integrate with displacement cap ---
+        const maxDisp = Math.max(2, 18 * temp); // shrinks as simulation cools
         for (const node of nodes) {
             if (node.pinned || (this.dragNode && this.dragNode.uid === node.uid)) continue;
             node.vx *= DAMPING;
             node.vy *= DAMPING;
+            // Cap displacement by temperature-dependent maximum
+            const speed = Math.sqrt(node.vx * node.vx + node.vy * node.vy);
+            if (speed > maxDisp) {
+                const scale = maxDisp / speed;
+                node.vx *= scale;
+                node.vy *= scale;
+            }
             node.x += node.vx;
             node.y += node.vy;
-            node.x = Math.max(PAD + NODE_W / 2, Math.min(W - PAD - NODE_W / 2, node.x));
-            node.y = Math.max(PAD + NODE_H / 2, Math.min(H - PAD - NODE_H / 2, node.y));
-            totalKE += node.vx * node.vx + node.vy * node.vy;
         }
 
-        // Auto-stop physics when kinetic energy settles, then zero residual velocity
-        // to prevent drift after the loop exits.
-        if (totalKE < 0.04) {
+        // --- Cool down ---
+        this._physicsTemp *= COOLING_RATE;
+
+        // Stop when temperature is negligible
+        if (this._physicsTemp < 0.005) {
             this.physicsEnabled = false;
+            this._physicsTemp = 1.0;
             for (const node of nodes) { node.vx = 0; node.vy = 0; }
+            // Update the physics button visual state
+            const btn = this.overlayEl?.querySelector('#ccs_graph_physics_btn');
+            if (btn) btn.classList.remove('ccs-graph-tool-btn--active');
         }
     }
 
@@ -888,9 +921,28 @@ class LoreGraphV2 {
         // Grid (if snap mode)
         if (this.gridSnap) this._drawGrid(ctx);
 
-        // Edges
+        // Compute viewport bounds in world space for culling
+        const vpLeft = -this.vpX / this.scale;
+        const vpTop = -this.vpY / this.scale;
+        const vpRight = vpLeft + this.W / this.scale;
+        const vpBottom = vpTop + this.H / this.scale;
+        // Margin: include nodes/edges slightly outside viewport for smooth scrolling
+        const CULL_PAD = NODE_W * 2;
+        const cullL = vpLeft - CULL_PAD;
+        const cullR = vpRight + CULL_PAD;
+        const cullT = vpTop - CULL_PAD;
+        const cullB = vpBottom + CULL_PAD;
+
+        // Edges — skip if both endpoints are outside viewport
         for (const edge of this.edges) {
-            this._drawEdge(ctx, edge);
+            const s = this._nodeByUid(edge.sourceUid);
+            const t = this._nodeByUid(edge.targetUid);
+            if (s && t) {
+                // Skip edge only if BOTH nodes are fully outside viewport
+                const sVis = s.x >= cullL && s.x <= cullR && s.y >= cullT && s.y <= cullB;
+                const tVis = t.x >= cullL && t.x <= cullR && t.y >= cullT && t.y <= cullB;
+                if (sVis || tVis) this._drawEdge(ctx, edge);
+            }
         }
 
         // Lasso selection rect
@@ -910,9 +962,11 @@ class LoreGraphV2 {
             ctx.setLineDash([]);
         }
 
-        // Nodes
+        // Nodes — skip if outside viewport
         for (const node of this.nodes) {
-            this._drawNode(ctx, node);
+            if (node.x >= cullL && node.x <= cullR && node.y >= cullT && node.y <= cullB) {
+                this._drawNode(ctx, node);
+            }
         }
 
         ctx.restore();
@@ -1046,15 +1100,15 @@ class LoreGraphV2 {
         // pass. For 100 nodes that was hundreds of shadow ops per frame.
         // Selected nodes get a thick bright border instead (same visual signal, zero cost).
 
-        // Node background — 0.62 opacity so cards are clearly visible even when zoomed out
-        ctx.fillStyle = isSimActive ? _simPassColor(isSimActive) : _hexWithAlpha(baseColor, 0.62);
+        // Node background — 0.80 opacity for solid, dark, visible cards
+        ctx.fillStyle = isSimActive ? _simPassColor(isSimActive) : _hexWithAlpha(baseColor, 0.80);
         _roundRect(ctx, x, y, nw, nh, NODE_R / this.scale);
         ctx.fill();
 
         // Category accent bar — 3px solid strip on left edge for quick visual category ID
         if (!isFiltered) {
             ctx.fillStyle = baseColor;
-            const barW = 3 / this.scale;
+            const barW = 4 / this.scale;
             const r = NODE_R / this.scale;
             ctx.beginPath();
             ctx.moveTo(x + r, y);
@@ -1247,9 +1301,9 @@ class LoreGraphV2 {
     }
 
     _getEdgeAlpha(s, t) {
-        if (this.matchedUids && (this.matchedUids.has(s.uid) || this.matchedUids.has(t.uid))) return 0.88;
-        if (this.matchedUids) return 0.006; // nearly invisible when another node is focused
-        return 0.22; // default: subtle web — less overwhelming than 0.40
+        if (this.matchedUids && (this.matchedUids.has(s.uid) || this.matchedUids.has(t.uid))) return 0.85;
+        if (this.matchedUids) return 0.0; // completely hidden when focusing a node
+        return 0.10; // default: very subtle web — cards are the focus, not lines
     }
 
     _getSimPassForUid(uid) {
@@ -1339,12 +1393,22 @@ class LoreGraphV2 {
             const el = this.overlayEl.querySelector('#' + id);
             if (el) el.textContent = txt;
         };
+        const connected = this.nodes.length - orphaned.length;
         setTxt('ccs_graph_stat_entries', `${this.nodes.length} entries`);
         setTxt('ccs_graph_stat_edges', edgeCapped
             ? `${this.edges.length} edges (capped)`
-            : `${this.edges.length} edges`);
-        setTxt('ccs_graph_stat_orphaned', `⚠️ ${orphaned.length} orphaned`);
+            : `${connected} connected`);
+        const orphanEl = this.overlayEl.querySelector('#ccs_graph_stat_orphaned');
+        if (orphanEl) {
+            orphanEl.textContent = `⚠️ ${orphaned.length} orphaned`;
+            orphanEl.style.cursor = orphaned.length > 0 ? 'pointer' : 'default';
+            orphanEl.title = orphaned.length > 0 ? 'Click to highlight orphaned entries' : '';
+            this._orphanedUids = orphaned.length > 0 ? new Set(orphaned.map(n => n.uid)) : null;
+        }
         setTxt('ccs_graph_stat_tokens', `~${totalTokens}t total`);
+
+        // Category filter chips
+        this._renderCategoryChips();
 
         // Budget bar
         const budgetEl = this.overlayEl.querySelector('#ccs_graph_sim_budget');
@@ -1370,6 +1434,50 @@ class LoreGraphV2 {
         }
         const warnBtn = this.overlayEl.querySelector('#ccs_graph_warn_btn');
         if (warnBtn) warnBtn.classList.toggle('ccs-graph-tool-btn--warn', dead.length > 0);
+    }
+
+    /** Render category filter chips based on actual data. */
+    _renderCategoryChips() {
+        const container = this.overlayEl.querySelector('#ccs_graph_cat_chips');
+        if (!container) return;
+
+        // Count nodes per category
+        const cats = new Map();
+        for (const node of this.nodes) {
+            cats.set(node.category, (cats.get(node.category) || 0) + 1);
+        }
+        // Sort: largest first
+        const sorted = [...cats.entries()].sort((a, b) => b[1] - a[1]);
+
+        container.innerHTML = '';
+        for (const [cat, count] of sorted) {
+            const chip = document.createElement('button');
+            chip.className = 'ccs-graph-cat-chip';
+            if (this._activeCatFilter === cat) chip.classList.add('ccs-graph-cat-chip--active');
+            const color = CATEGORY_COLORS[cat] || CATEGORY_COLORS['Uncategorized'];
+            chip.style.setProperty('--chip-color', color);
+            chip.innerHTML = `<span class="ccs-graph-cat-dot" style="background:${color}"></span>${cat} <span class="ccs-graph-cat-count">${count}</span>`;
+            chip.addEventListener('click', () => {
+                if (this._activeCatFilter === cat) {
+                    // Toggle off
+                    this._activeCatFilter = null;
+                    this.matchedUids = null;
+                } else {
+                    // Filter to this category
+                    this._activeCatFilter = cat;
+                    const uids = new Set();
+                    for (const n of this.nodes) {
+                        if (n.category === cat) uids.add(n.uid);
+                    }
+                    this.matchedUids = uids;
+                }
+                this.selectedUids.clear();
+                this.focusedUid = null;
+                this._renderCategoryChips(); // update active state
+                this._markDirty();
+            });
+            container.appendChild(chip);
+        }
     }
 
     /**
@@ -1418,10 +1526,13 @@ class LoreGraphV2 {
             this.physicsEnabled = !this.physicsEnabled;
             e.currentTarget.classList.toggle('ccs-graph-tool-btn--active', this.physicsEnabled);
             if (this.physicsEnabled) {
-                // Restart the rAF loop (it went idle when physics was off)
+                // Reheat: reset temperature for a fresh simulation run
+                this._physicsTemp = 1.0;
                 this._scheduleFrame();
             } else {
-                this._applyStaticCategoryLayout();
+                // Stop and reset to initial layout
+                this._physicsTemp = 1.0;
+                this._computeInitialPositions();
                 this._markDirty();
             }
         });
@@ -1441,6 +1552,21 @@ class LoreGraphV2 {
         });
 
         qs('ccs_graph_export_btn')?.addEventListener('click', () => this._exportPNG());
+
+        // Clickable orphaned stat — toggles highlight filter
+        qs('ccs_graph_stat_orphaned')?.addEventListener('click', () => {
+            if (this._orphanedUids && this._orphanedUids.size > 0) {
+                // Toggle: if already showing orphans, clear; otherwise set filter
+                if (this.matchedUids === this._orphanedUids) {
+                    this.matchedUids = null;
+                } else {
+                    this.matchedUids = this._orphanedUids;
+                    this.selectedUids.clear();
+                    this.focusedUid = null;
+                }
+                this._markDirty();
+            }
+        });
     }
 
     _togglePanel(id) {
@@ -2083,6 +2209,7 @@ ${!readOnly ? `
         } else {
             // Pan start
             this.isPanning = true;
+            this._panMoved = false;
             this.panStartX = e.clientX - this.vpX;
             this.panStartY = e.clientY - this.vpY;
         }
@@ -2111,17 +2238,20 @@ ${!readOnly ? `
         } else if (this.isPanning) {
             this.vpX = e.clientX - this.panStartX;
             this.vpY = e.clientY - this.panStartY;
+            this._panMoved = true;
             this._hideTooltip();
             this._markDirty();
         } else {
-            // Idle — show tooltip on node hover
-            const rect = this.canvas.getBoundingClientRect();
-            const world = this._screenToWorld(e.clientX - rect.left, e.clientY - rect.top);
-            const hit = this._hitTest(world.x, world.y);
-            if (hit) {
-                this._showTooltip(hit, e.clientX, e.clientY);
-            } else {
-                this._hideTooltip();
+            // Idle — show tooltip on node hover (desktop only)
+            if (!this._isMobile) {
+                const rect = this.canvas.getBoundingClientRect();
+                const world = this._screenToWorld(e.clientX - rect.left, e.clientY - rect.top);
+                const hit = this._hitTest(world.x, world.y);
+                if (hit) {
+                    this._showTooltip(hit, e.clientX, e.clientY);
+                } else {
+                    this._hideTooltip();
+                }
             }
         }
     }
@@ -2151,14 +2281,15 @@ ${!readOnly ? `
             this._markDirty();
         } else if (this.isPanning) {
             this.isPanning = false;
-        } else {
-            // Click on empty space — deselect
-            if (!e.shiftKey) {
+            // If no actual pan movement occurred, this was a click on empty space — deselect
+            if (!this._panMoved && !e.shiftKey) {
                 this.selectedUids.clear();
                 this.focusedUid = null;
                 this.matchedUids = null;
+                this._updateBatchBar();
                 this._markDirty();
             }
+            this._panMoved = false;
         }
     }
 
@@ -2166,7 +2297,45 @@ ${!readOnly ? `
         const rect = this.canvas.getBoundingClientRect();
         const world = this._screenToWorld(e.clientX - rect.left, e.clientY - rect.top);
         const hit = this._hitTest(world.x, world.y);
-        if (hit) this._openEditor(hit, false);
+        if (hit) {
+            this._openEditor(hit, false);
+        } else if (this.onEntryCreate) {
+            // Double-click on empty space → create new entry at this position
+            // Find nearest category cluster to pre-assign
+            let nearestCat = 'Uncategorized';
+            let nearestDist = Infinity;
+            for (const [cat, anchor] of Object.entries(_dynamicAnchors)) {
+                const ax = 80 + (this.W - 160) * anchor.nx;
+                const ay = 80 + (this.H - 160) * anchor.ny;
+                const d = (world.x - ax) ** 2 + (world.y - ay) ** 2;
+                if (d < nearestDist) { nearestDist = d; nearestCat = cat; }
+            }
+            const newEntry = this.onEntryCreate({ category: nearestCat });
+            if (newEntry) {
+                // Add node to graph at click position
+                const cat = _resolveCategory(newEntry);
+                const node = {
+                    uid: newEntry.uid,
+                    entry: newEntry,
+                    name: newEntry.name || `uid:${newEntry.uid}`,
+                    category: cat,
+                    tokens: newEntry.tokens || 0,
+                    x: world.x,
+                    y: world.y,
+                    vx: 0, vy: 0,
+                    pinned: false,
+                    worldNode: false,
+                    connectionCount: 0,
+                };
+                this.nodes.push(node);
+                this._rebuildNodeMap();
+                this._rebuildMaxTokens();
+                this._updateStats();
+                this._markDirty();
+                // Open editor for the new entry
+                this._openEditor(node, false);
+            }
+        }
     }
 
     _handleRightClick(e) {
@@ -2250,6 +2419,7 @@ ${!readOnly ? `
         } else {
             // Pan
             this.isPanning = true;
+            this._panMoved = false;
             this.panStartX = touch.clientX - this.vpX;
             this.panStartY = touch.clientY - this.vpY;
         }
@@ -2293,6 +2463,7 @@ ${!readOnly ? `
         } else if (this.isPanning) {
             this.vpX = touch.clientX - this.panStartX;
             this.vpY = touch.clientY - this.panStartY;
+            this._panMoved = true;
             this._markDirty();
         }
     }
@@ -2311,8 +2482,20 @@ ${!readOnly ? `
             }
             this.dragNode = null;
             this.isDragging = false;
+            this._updateBatchBar();
+            this._markDirty();
+        } else if (this.isPanning) {
+            this.isPanning = false;
+            // Tap on empty space (no pan movement) = deselect
+            if (!this._panMoved) {
+                this.selectedUids.clear();
+                this.focusedUid = null;
+                this.matchedUids = null;
+                this._updateBatchBar();
+                this._markDirty();
+            }
+            this._panMoved = false;
         }
-        this.isPanning = false;
     }
 
     _showTouchContextMenu(node) {
@@ -2326,11 +2509,57 @@ ${!readOnly ? `
         const menu = this.overlayEl.querySelector('#ccs_graph_ctx_menu');
         if (!menu) return;
 
-        menu.querySelectorAll('.ccs-graph-ctx-item').forEach(item => {
+        // Category submenu trigger
+        const catTrigger = menu.querySelector('[data-action="set-category"]');
+        const catPanel = menu.querySelector('#ccs_graph_ctx_cat_panel');
+        if (catTrigger && catPanel) {
+            catTrigger.addEventListener('click', (e) => {
+                e.stopPropagation();
+                const isOpen = !catPanel.classList.contains('ccs-hidden');
+                catPanel.classList.toggle('ccs-hidden', isOpen);
+                if (!isOpen) {
+                    // Populate with available categories
+                    catPanel.innerHTML = '';
+                    for (const [cat, color] of Object.entries(CATEGORY_COLORS)) {
+                        const btn = document.createElement('button');
+                        btn.className = 'ccs-graph-ctx-item';
+                        btn.innerHTML = `<span class="ccs-graph-cat-dot" style="background:${color}"></span> ${cat}`;
+                        if (this.ctxNode && this.ctxNode.category === cat) {
+                            btn.style.opacity = '0.5';
+                            btn.style.pointerEvents = 'none';
+                        }
+                        btn.addEventListener('click', () => {
+                            const node = this.ctxNode;
+                            if (!node) return;
+                            node.category = cat;
+                            // Update entry extensions
+                            if (this.onEntryEdit) {
+                                this.onEntryEdit(node.entry.uid, {
+                                    extensions: { ...(node.entry.extensions || {}), category: cat }
+                                });
+                            }
+                            // Nudge node toward new category anchor
+                            const anchor = _dynamicAnchors[cat] || { nx: 0.5, ny: 0.5 };
+                            const tx = 80 + (this.W - 160) * anchor.nx;
+                            const ty = 80 + (this.H - 160) * anchor.ny;
+                            node.x += (tx - node.x) * 0.3;
+                            node.y += (ty - node.y) * 0.3;
+                            this._computeCategoryAnchors();
+                            this._updateStats();
+                            this._markDirty();
+                            menu.classList.add('ccs-hidden');
+                        });
+                        catPanel.appendChild(btn);
+                    }
+                }
+            });
+        }
+
+        menu.querySelectorAll('.ccs-graph-ctx-item:not(.ccs-graph-ctx-sub-trigger)').forEach(item => {
             item.addEventListener('click', () => {
                 const action = item.dataset.action;
                 const node = this.ctxNode;
-                if (!node) return;
+                if (!node || !action) return;
                 menu.classList.add('ccs-hidden');
 
                 switch (action) {
@@ -2354,8 +2583,8 @@ ${!readOnly ? `
                         if (this.onEntryDelete) this.onEntryDelete(node.entry.uid);
                         this.nodes = this.nodes.filter(n => n.uid !== node.uid);
                         this.edges = this.edges.filter(ed => ed.sourceUid !== node.uid && ed.targetUid !== node.uid);
-                        this._rebuildNodeMap(); // keep O(1) map in sync
-                        this._rebuildMaxTokens(); // max may have changed
+                        this._rebuildNodeMap();
+                        this._rebuildMaxTokens();
                         this._updateStats();
                         this._markDirty();
                         break;
