@@ -5297,3 +5297,102 @@ html {
 .ccs-batch-btn:hover { background: rgba(124,92,191,0.25); color: #fff; border-color: rgba(124,92,191,0.5); }
 .ccs-batch-btn--clear:hover { background: rgba(239,68,68,0.2); color: #fca5a5; border-color: rgba(239,68,68,0.3); }
 
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   v5.2.2 — BACKGROUND TASK MONITOR & RUN CHECKS
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* Background tasks pill in topbar */
+.ccs-bg-tasks {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.ccs-bg-tasks-btn {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  background: rgba(255, 152, 0, 0.12);
+  border: 1px solid rgba(255, 152, 0, 0.35);
+  border-radius: 20px;
+  color: var(--ccs-warning);
+  font-size: 11px;
+  font-weight: 600;
+  padding: 3px 10px 3px 8px;
+  cursor: pointer;
+  transition: background var(--ccs-transition), border-color var(--ccs-transition);
+  white-space: nowrap;
+}
+.ccs-bg-tasks-btn:hover {
+  background: rgba(255, 152, 0, 0.2);
+  border-color: rgba(255, 152, 0, 0.6);
+}
+.ccs-bg-spinner { font-size: 10px; }
+.ccs-bg-tasks-count { font-size: 12px; font-weight: 700; }
+
+/* Dropdown panel */
+.ccs-bg-tasks-panel {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  min-width: 240px;
+  max-width: 320px;
+  background: var(--ccs-bg-secondary);
+  border: 1px solid var(--ccs-border-strong);
+  border-radius: var(--ccs-radius);
+  box-shadow: var(--ccs-shadow);
+  z-index: 10001;
+  overflow: hidden;
+}
+.ccs-bg-tasks-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--ccs-border);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ccs-text-secondary);
+  gap: 8px;
+}
+.ccs-bg-tasks-list {
+  padding: 6px 4px;
+  max-height: 200px;
+  overflow-y: auto;
+}
+.ccs-bg-task-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  font-size: 12px;
+  color: var(--ccs-text-primary);
+  border-radius: var(--ccs-radius-sm);
+}
+.ccs-bg-task-item i { color: var(--ccs-warning); font-size: 10px; flex-shrink: 0; }
+.ccs-bg-task-name { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ccs-bg-task-time { color: var(--ccs-text-muted); font-size: 11px; flex-shrink: 0; }
+.ccs-bg-task-empty { padding: 10px 12px; font-size: 12px; color: var(--ccs-text-muted); text-align: center; }
+
+/* Panel header with actions (card tab) */
+.ccs-panel-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* Run Checks button */
+#ccs_run_checks_btn {
+  font-size: 11px;
+  padding: 3px 9px;
+  gap: 4px;
+  border-color: rgba(66, 165, 245, 0.3);
+  color: var(--ccs-info);
+  background: rgba(66, 165, 245, 0.08);
+}
+#ccs_run_checks_btn:hover {
+  background: rgba(66, 165, 245, 0.18);
+  border-color: rgba(66, 165, 245, 0.6);
+}
+

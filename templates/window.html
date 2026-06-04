@@ -27,6 +27,26 @@
                     <i class="fa-solid fa-magnifying-glass-chart"></i>
                 </button>
 
+                <!-- Background tasks indicator (hidden when idle) -->
+                <div id="ccs_bg_tasks" class="ccs-bg-tasks" style="display:none;" title="Background tasks running">
+                    <button id="ccs_bg_tasks_btn" class="ccs-bg-tasks-btn">
+                        <i class="fa-solid fa-spinner fa-spin ccs-bg-spinner"></i>
+                        <span id="ccs_bg_tasks_count" class="ccs-bg-tasks-count">0</span>
+                    </button>
+                    <!-- Dropdown panel -->
+                    <div id="ccs_bg_tasks_panel" class="ccs-bg-tasks-panel" style="display:none;">
+                        <div class="ccs-bg-tasks-header">
+                            <span><i class="fa-solid fa-gears"></i> Background Tasks</span>
+                            <button id="ccs_bg_cancel_all" class="ccs-btn ccs-btn--sm ccs-btn--danger">
+                                <i class="fa-solid fa-stop"></i> Cancel All
+                            </button>
+                        </div>
+                        <div id="ccs_bg_tasks_list" class="ccs-bg-tasks-list">
+                            <!-- Populated by task-monitor.js -->
+                        </div>
+                    </div>
+                </div>
+
                 <button id="ccs_wide_mode_btn" class="ccs-icon-btn" title="Wide Mode — side-by-side chat &amp; editor (desktop only)">
                     <i class="fa-solid fa-table-columns"></i>
                 </button>
@@ -162,7 +182,12 @@
                     <div id="ccs_card_tab" class="ccs-tab-panel" data-tab-panel="card">
                         <div class="ccs-panel-header">
                             <h4>Card Fields</h4>
-                            <span id="ccs_card_tokens" class="ccs-badge">0t</span>
+                            <div class="ccs-panel-header-actions">
+                                <button id="ccs_run_checks_btn" class="ccs-btn ccs-btn--sm" title="Run conflict & token checks on all filled fields">
+                                    <i class="fa-solid fa-shield-check"></i> Run Checks
+                                </button>
+                                <span id="ccs_card_tokens" class="ccs-badge">0t</span>
+                            </div>
                         </div>
                         <div id="ccs_card_fields" class="ccs-card-fields">
                             <p class="ccs-empty-state">No character selected. Open the studio with a character loaded.</p>

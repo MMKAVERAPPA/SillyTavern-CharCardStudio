@@ -41,6 +41,42 @@
                 </div>
 
                 <div class="ccs-setting-group">
+                    <label class="ccs-setting-label"><i class="fa-solid fa-brain"></i> Main Agent Connection</label>
+                    <p class="ccs-setting-desc">Route the Studio's AI agent through a specific ST connection profile. Use this to select your model without leaving CCS. Leave blank to use ST's currently active API connection.</p>
+                    <select id="ccs_setting_main_api" class="ccs-setting-select">
+                        <option value="">— Default (ST active connection) —</option>
+                        <!-- Populated dynamically from ST connection profiles -->
+                    </select>
+                    <p id="ccs_main_api_hint" class="ccs-setting-hint" style="display:none;">
+                        <i class="fa-solid fa-triangle-exclamation"></i> No connection profiles found. Configure profiles in ST's Connection Manager first.
+                    </p>
+                </div>
+
+                <div class="ccs-setting-group">
+                    <label class="ccs-setting-label"><i class="fa-solid fa-plug-circle-bolt"></i> Background Checks Connection</label>
+                    <p class="ccs-setting-desc">Route background checks (conflict detection, token analysis) to a different ST connection profile. Useful for directing utility tasks to a cheaper or faster model.</p>
+                    <select id="ccs_setting_utility_api" class="ccs-setting-select">
+                        <option value="">— Default (ST active connection) —</option>
+                        <!-- Populated dynamically from ST connection profiles -->
+                    </select>
+                    <p id="ccs_utility_api_hint" class="ccs-setting-hint" style="display:none;">
+                        <i class="fa-solid fa-triangle-exclamation"></i> No connection profiles found. Configure profiles in ST's API settings first.
+                    </p>
+                </div>
+
+                <div class="ccs-setting-group">
+                    <label class="ccs-setting-label"><i class="fa-solid fa-shield-halved"></i> Auto Background Checks</label>
+                    <p class="ccs-setting-desc">Automatically run conflict detection and token analysis after each draft is applied. <strong>Off by default</strong> — use the "Run Checks" button in the Card tab to trigger manually.</p>
+                    <div class="ccs-setting-row">
+                        <label class="ccs-toggle">
+                            <input type="checkbox" id="ccs_setting_auto_checks">
+                            <span class="ccs-toggle-slider"></span>
+                        </label>
+                        <span class="ccs-setting-inline-label">Auto-run after applying drafts</span>
+                    </div>
+                </div>
+
+                <div class="ccs-setting-group">
                     <label class="ccs-setting-label">Auto-Summarize Chat</label>
                     <p class="ccs-setting-desc">Automatically summarize older messages when chat history exceeds the threshold. Keeps the last 15 messages intact.</p>
                     <div class="ccs-setting-row">
@@ -61,17 +97,6 @@
                     </div>
                 </div>
 
-                <div class="ccs-setting-group">
-                    <label class="ccs-setting-label"><i class="fa-solid fa-plug-circle-bolt"></i> Utility API Profile</label>
-                    <p class="ccs-setting-desc">Route background checks (conflict detection, token analysis) to a different ST connection profile. Useful for directing utility tasks to a cheaper or faster model while keeping your main generation on a higher quality one.</p>
-                    <select id="ccs_setting_utility_api" class="ccs-setting-select">
-                        <option value="">— Default (active ST connection) —</option>
-                        <!-- Populated dynamically from ST connection profiles -->
-                    </select>
-                    <p id="ccs_utility_api_hint" class="ccs-setting-hint" style="display:none;">
-                        <i class="fa-solid fa-triangle-exclamation"></i> No connection profiles found. Configure profiles in ST's API settings first.
-                    </p>
-                </div>
                 <div class="ccs-setting-group">
                     <label class="ccs-setting-label"><i class="fa-solid fa-palette"></i> Theme Sync</label>
                     <p class="ccs-setting-desc">Automatically match SillyTavern's active color theme. When enabled, the Studio will adopt ST's background and text colors. Disable if you prefer the Studio's fixed dark theme.</p>

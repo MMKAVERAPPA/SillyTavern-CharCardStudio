@@ -479,6 +479,35 @@ async function toolSwitchPhase(params) {
     audit:  'Audit — review card quality and structure',
   };
 
+  // Guard: require explicit user confirmation before switching phase.
+  // Check the stored lastUserMessage for affirmative phase-switch intent.
+  const CONFIRM_PATTERNS = [
+    /go\s+to\s+build/i, /start\s+build/i, /let'?s\s+build/i, /switch\s+to\s+build/i,
+    /go\s+to\s+lore/i,  /start\s+lore/i,  /let'?s\s+do\s+lore/i, /switch\s+to\s+lore/i,
+    /go\s+to\s+audit/i, /start\s+audit/i, /run\s+audit/i, /switch\s+to\s+audit/i,
+    /go\s+to\s+ideate/i, /back\s+to\s+ideate/i, /restart\s+ideation/i,
+    /phase.*switch/i, /switch.*phase/i, /move.*next.*phase/i, /next.*phase/i,
+    /proceed/i, /continue\s+to/i, /ready.*build/i, /ready.*lore/i, /let'?s\s+go/i,
+  ];
+  const lastUserMsg = (session.lastUserMessage || '').toLowerCase();
+  const userConfirmed = CONFIRM_PATTERNS.some(p => p.test(lastUserMsg));
+
+  if (!userConfirmed) {
+    // Record the pending switch but don't execute it yet
+    await updateSession({ pendingPhase: phase });
+    return {
+      result: `⏸️ Phase switch to **${PHASE_LABELS[phase]}** is ready.
+
+All ideation requirements are complete. However, phase switching requires your explicit confirmation.
+
+➡️ Reply with **"go to ${phase}"**, **"let's build"**, or **"proceed"** when you're ready to switch.
+
+In the meantime, is there anything else you'd like to adjust or discuss?`,
+    };
+  }
+
+  // User confirmed — clear pending and switch
+  await updateSession({ pendingPhase: null });
   await updateSession({ phase });
 
   // Notify UI to update the active phase pill in the context bar
@@ -863,10 +892,12 @@ export async function applyDraftToCard(draftId) {
     fieldHashes[draft.field] = hashString(draft.content);
     await updateSession({ fieldHashes });
 
-    // Enqueue background checks (conflict + token + validation)
-    enqueueCheck('conflict', draft.field);
-    enqueueCheck('token', draft.field);
-    enqueueCheck('validation', draft.field);
+    // Enqueue background checks (opt-in — controlled by session.autoBackgroundChecks)
+    if (session.autoBackgroundChecks) {
+      enqueueCheck('conflict', draft.field);
+      enqueueCheck('token', draft.field);
+      enqueueCheck('validation', draft.field);
+    }
     
     console.log(`[CCS] Applied draft for ${draft.field}`);
     return true;
@@ -1003,10 +1034,12 @@ export async function saveFieldDirect(fieldName, content, greetingIndex = null) 
     fieldHashes[fieldName] = hashString(content);
     await updateSession({ fieldHashes });
 
-    // 6. Run background validators
-    enqueueCheck('conflict', fieldName);
-    enqueueCheck('token', fieldName);
-    enqueueCheck('validation', fieldName);
+    // 6. Run background validators (opt-in — controlled by session.autoBackgroundChecks)
+    if (session.autoBackgroundChecks) {
+      enqueueCheck('conflict', fieldName);
+      enqueueCheck('token', fieldName);
+      enqueueCheck('validation', fieldName);
+    }
 
     console.log(`[CCS] Direct saved field: ${fieldName}`);
     return true;

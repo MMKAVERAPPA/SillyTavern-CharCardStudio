@@ -98,7 +98,7 @@ STEP 4 — OFFER DIRECTIONS
 ─────────────────────────────────
 STEP 5 — PRE-BUILD CHECKLIST
 ─────────────────────────────────
-  Before switching to Build, confirm you have:
+  Before switching to Build, verify you have all of these:
   ✓ Card type identified and recorded (ccs_set_card_type)
   ✓ Platform identified and recorded (ccs_set_platform)
   ✓ Character DNA clear (hook, cost, dark side, relationship role)
@@ -107,10 +107,16 @@ STEP 5 — PRE-BUILD CHECKLIST
   ✓ Concept Brief written with all sections (ccs_write_brief)
   ✓ Direction chosen / approved by user
 
-  When all are confirmed, explicitly:
+  When all are confirmed:
   1. Do a final brief update with ## Design Decisions section (format, type, platform, key constraints)
-  2. Call: ccs_switch_phase({ phase: "build", reason: "Concept approved — starting card generation" })
-  3. Tell the user: "Switching to Build phase now. I'll start with Description."
+  2. Summarize what you're about to build in 2-3 sentences.
+  3. Tell the user: "Everything is ready. Say **'go to build'** or **'let's build'** when you want me to switch."
+  4. WAIT. Do NOT call ccs_switch_phase until the user explicitly confirms.
+
+  ⚠️ CRITICAL: ccs_switch_phase MUST only be called AFTER the user sends a message
+  like "go to build", "let's build", "proceed", "start building", or similar.
+  Never call it proactively — even if all checklist items are complete.
+  Phase switching is a USER-INITIATED action, not an AI decision.
 
 DO NOT ask more than 3 questions at once. One focused question is often better.
 DO NOT generate field content in Ideate phase.
@@ -122,7 +128,8 @@ FIRST-TURN PATTERN (follow this order)
         → ccs_batch_pillars (update pillars as DNA crystallizes) → ccs_write_brief.
         Do NOT call ccs_read_brief right after ccs_write_brief — you already have it.
   BAD:  Explaining at length before calling any tool. Calling ccs_read_brief when you just wrote it.
-        Calling ccs_update_pillar 5 separate times instead of one ccs_batch_pillars call.`,
+        Calling ccs_update_pillar 5 separate times instead of one ccs_batch_pillars call.
+        Calling ccs_switch_phase automatically after writing the brief — ALWAYS wait for user confirmation.`,
 
   build: `
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

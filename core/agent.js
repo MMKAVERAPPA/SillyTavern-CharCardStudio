@@ -13,6 +13,8 @@ import { runCancellableGeneration, generateText } from './silent-generation.js';
 import { parseToolCalls, stripToolCallBlocks } from './tools-fallback.js';
 import { executeToolCall } from './tools.js';
 import { buildSystemPrompt, TOOL_REMINDER } from '../prompts/phase-instructions.js';
+import { getMainProfileId } from './api-router.js';
+import { generateChat } from './silent-generation.js';
 
 const DEBUG = false;
 const log = (...args) => DEBUG && console.log(...args);
@@ -59,6 +61,9 @@ export async function handleUserMessage(text, callbacks) {
 
   setTyping(true, 'Thinking...');
 
+  // Store last user message so toolSwitchPhase can check for explicit confirmation
+  try { await updateSession({ lastUserMessage: text }); } catch (_) {}
+
   try {
     await runCancellableGeneration({
       name: 'agent-response',
@@ -91,14 +96,19 @@ async function _agentLoop(userText, session, signal, callbacks) {
   const systemPrompt = await buildSystemPrompt(session);
   log('[CCS] System prompt built:', systemPrompt.length, 'chars');
 
+  // Escape {{...}} macros so ST's substituteParams() doesn't replace them
+  // before the LLM sees the prompt. ST regex: /\{\{(\w+)\}\}/g — the BOM
+  // prefix (\uFEFF) causes it to not match, but the AI sees plain {{char}}.
+  const escapedPrompt = systemPrompt.replace(/\{\{/g, '\uFEFF{{');
+
   // Cache the stable prefix length so we can splice a fresh dynamic suffix later.
   // We detect it via the ━━━ SESSION CONTEXT ━━━ separator.
   const dynSepMarker = '\n\n━━━ SESSION CONTEXT ━━━';
-  const prefixEnd = systemPrompt.indexOf(dynSepMarker);
-  const stablePrefix = prefixEnd >= 0 ? systemPrompt.slice(0, prefixEnd) : systemPrompt;
+  const prefixEnd = escapedPrompt.indexOf(dynSepMarker);
+  const stablePrefix = prefixEnd >= 0 ? escapedPrompt.slice(0, prefixEnd) : escapedPrompt;
 
   // Assemble message history for the LLM
-  const messages = _buildMessageArray(systemPrompt, session);
+  const messages = _buildMessageArray(escapedPrompt, session);
   log('[CCS] Message array built:', messages.length, 'messages');
 
   let lastReasoning = '';
@@ -480,11 +490,25 @@ function _trimToolHistory(messages) {
  */
 async function _callLLM(messages, signal) {
   log('[CCS] Calling LLM with', messages.length, 'messages');
-  
-  let text = await generateText(messages, {
-    name: 'ccs-agent',
-    signal,
-  });
+
+  const mainProfileId = getMainProfileId();
+  let text;
+
+  if (mainProfileId) {
+    // Route through the user's chosen main connection profile
+    log('[CCS] Using main API profile:', mainProfileId);
+    text = await generateChat(messages, {
+      name: 'ccs-agent',
+      profileId: mainProfileId,
+      signal,
+    });
+  } else {
+    // Default: ST's active connection via generateRaw
+    text = await generateText(messages, {
+      name: 'ccs-agent',
+      signal,
+    });
+  }
 
   let reasoning = '';
 
@@ -498,3 +522,4 @@ async function _callLLM(messages, signal) {
 
   return { text, reasoning };
 }
+

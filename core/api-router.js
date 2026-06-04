@@ -10,7 +10,7 @@
  * and persisted via ctx.saveSettingsDebounced().
  */
 
-import { generateText } from './silent-generation.js';
+import { generateTextBackground } from './silent-generation.js';
 
 // ─── Extension Settings ───────────────────────────────────────────────────────
 
@@ -58,6 +58,26 @@ export function setUtilityProfileId(profileId) {
     _extSettings().utilityApiProfileId = profileId || null;
     _saveExtSettings();
     console.log(`[CCS] Utility API profile set to: ${profileId || 'default'}`);
+}
+
+/**
+ * Get the currently selected main agent API profile ID.
+ * When set, the agent routes its primary generation through this profile.
+ * @returns {string|null}
+ */
+export function getMainProfileId() {
+    return _extSettings().mainApiProfileId ?? null;
+}
+
+/**
+ * Persist the selected main agent API profile ID.
+ * Pass null or empty string to use ST's default active connection.
+ * @param {string|null} profileId
+ */
+export function setMainProfileId(profileId) {
+    _extSettings().mainApiProfileId = profileId || null;
+    _saveExtSettings();
+    console.log(`[CCS] Main agent API profile set to: ${profileId || 'default (ST active connection)'}`);
 }
 
 // ─── Public: Routed Generation ────────────────────────────────────────────────
@@ -138,6 +158,6 @@ export async function generateTextWithProfile(messages, opts = {}) {
         }
     }
 
-    // Default: standard ST generation
-    return generateText(messages, opts);
+    // Default: background-safe generation (does not block tabs / isGenerating)
+    return generateTextBackground(messages, opts);
 }

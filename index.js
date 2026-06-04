@@ -17,6 +17,7 @@ import { openStudio, closeStudio, bindAppEvents, updateCharacterName } from './u
 import { bindChatEvents, renderMessages, onSend } from './ui/chat.js';
 import { showToast } from './ui/toast.js';
 import { initAgent } from './core/agent.js';
+import { startTaskMonitor } from './ui/task-monitor.js';
 
 // ─── Extension Path Detection ─────────────────────────────────────────────────
 // ST loads extensions from: /scripts/extensions/third-party/CharCardStudio/index.js
@@ -85,6 +86,9 @@ async function init() {
 
     // 8. Handle page unload — save session and release lock
     window.addEventListener('beforeunload', _onBeforeUnload);
+
+    // 9. Start background task monitor (shows pill in topbar when tasks are running)
+    startTaskMonitor();
 
     console.log('[CCS] Ready.');
 }

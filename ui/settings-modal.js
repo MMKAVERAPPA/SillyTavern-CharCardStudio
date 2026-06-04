@@ -4,12 +4,17 @@
  */
 
 import {
+    getAvailableProfiles,
+    getUtilityProfileId, setUtilityProfileId,
+    getMainProfileId, setMainProfileId,
+} from '../core/api-router.js';
+import { enqueueCheck } from '../core/background.js';
+import {
     getSession, saveSession, resetCurrentSession,
     updateSession, loadSession,
 } from '../core/session.js';
 import { showToast } from './toast.js';
 import { getCtx } from '../index.js';
-import { getAvailableProfiles, getUtilityProfileId, setUtilityProfileId } from '../core/api-router.js';
 
 // ─── State ──────────────────────────────────────────────────────────────────
 
@@ -40,7 +45,8 @@ export async function openSettings() {
     _syncSettingsUI();
     _updateSessionInfo();
     _updateStorageInfo();
-    await _populateUtilityApiDropdown();
+    await _populateApiDropdowns();
+    _wireRunChecksButton();
 
     const overlay = el('ccs_settings_overlay');
     if (overlay) {
@@ -138,13 +144,32 @@ function _bindEvents() {
         });
     }
 
+    // Main API profile
+    const mainApiEl = el('ccs_setting_main_api');
+    if (mainApiEl) {
+        mainApiEl.addEventListener('change', () => {
+            const val = mainApiEl.value || null;
+            setMainProfileId(val);
+            showToast(val ? `Main Agent → ${val}` : 'Main Agent: ST default connection', 'info', 2000);
+        });
+    }
+
     // Utility API profile
     const utilityApiEl = el('ccs_setting_utility_api');
     if (utilityApiEl) {
         utilityApiEl.addEventListener('change', () => {
             const val = utilityApiEl.value || null;
             setUtilityProfileId(val);
-            showToast(val ? `Utility API: ${val}` : 'Utility API: Default connection', 'info', 2000);
+            showToast(val ? `Background Checks → ${val}` : 'Background Checks: default connection', 'info', 2000);
+        });
+    }
+
+    // Auto background checks toggle
+    const autoChecksEl = el('ccs_setting_auto_checks');
+    if (autoChecksEl) {
+        autoChecksEl.addEventListener('change', () => {
+            updateSession({ autoBackgroundChecks: autoChecksEl.checked });
+            showToast(`Auto background checks ${autoChecksEl.checked ? 'enabled' : 'disabled'}`, 'info', 2000);
         });
     }
 
@@ -208,10 +233,22 @@ function _syncSettingsUI() {
     const formatEl = el('ccs_setting_format');
     if (formatEl) formatEl.value = session.cardFormat || 'prose';
 
+    const mainApiEl = el('ccs_setting_main_api');
+    if (mainApiEl) {
+        const savedMainId = getMainProfileId();
+        mainApiEl.value = savedMainId || '';
+    }
+
     const utilityApiEl = el('ccs_setting_utility_api');
     if (utilityApiEl) {
         const savedId = getUtilityProfileId();
         utilityApiEl.value = savedId || '';
+    }
+
+    // Auto background checks toggle
+    const autoChecksEl = el('ccs_setting_auto_checks');
+    if (autoChecksEl) {
+        autoChecksEl.checked = session.autoBackgroundChecks === true;
     }
 
     // Sync theme sync toggle
@@ -226,35 +263,78 @@ function _syncSettingsUI() {
 }
 
 /**
- * Fetch available ST connection profiles and populate the utility API dropdown.
- * Called each time settings open so the list stays fresh.
+ * Wire the "Run Checks" button in the Card tab header.
+ * Queues conflict + token checks for all filled card fields.
+ * Safe to call multiple times — idempotent via _ccsWired flag.
  */
-async function _populateUtilityApiDropdown() {
-    const selectEl = el('ccs_setting_utility_api');
-    const hintEl   = el('ccs_utility_api_hint');
-    if (!selectEl) return;
+function _wireRunChecksButton() {
+    const btn = el('ccs_run_checks_btn');
+    if (!btn || btn._ccsWired) return;
+    btn._ccsWired = true;
 
+    btn.addEventListener('click', () => {
+        const ALL_FIELDS = [
+            'description', 'personality', 'scenario',
+            'first_mes', 'mes_example', 'creator_notes',
+            'character_note', 'alternate_greetings', 'tags',
+        ];
+        const session = getSession();
+        const filledFields = ALL_FIELDS.filter(f =>
+            session?.cardDrafts?.[f]?.content || session?.fieldHashes?.[f]
+        );
+
+        if (filledFields.length === 0) {
+            showToast('No filled fields to check yet.', 'info', 2000);
+            return;
+        }
+
+        for (const f of filledFields) {
+            enqueueCheck('conflict', f);
+            enqueueCheck('token', f);
+        }
+        showToast(`Queued checks for ${filledFields.length} field(s)`, 'info', 2000);
+    });
+}
+
+/**
+ * Populate both API profile dropdowns (main agent + background checks).
+ * Called each time settings opens so the lists stay fresh.
+ */
+async function _populateApiDropdowns() {
     const profiles = getAvailableProfiles();
+    const hasProfiles = profiles.length > 0;
 
-    // Clear all options except the default placeholder
-    while (selectEl.options.length > 1) selectEl.remove(1);
+    // Helper: populate a single dropdown
+    function _fillSelect(selectId, hintId, savedId) {
+        const selectEl = el(selectId);
+        const hintEl   = el(hintId);
+        if (!selectEl) return;
 
-    if (!profiles.length) {
-        if (hintEl) hintEl.style.display = 'block';
-        return;
+        while (selectEl.options.length > 1) selectEl.remove(1);
+
+        if (!hasProfiles) {
+            if (hintEl) hintEl.style.display = 'block';
+            return;
+        }
+        if (hintEl) hintEl.style.display = 'none';
+
+        for (const p of profiles) {
+            const opt = document.createElement('option');
+            opt.value = p.id;
+            opt.textContent = p.name;
+            selectEl.appendChild(opt);
+        }
+
+        if (savedId) selectEl.value = savedId;
     }
-    if (hintEl) hintEl.style.display = 'none';
 
-    for (const p of profiles) {
-        const opt = document.createElement('option');
-        opt.value = p.id;
-        opt.textContent = p.name;
-        selectEl.appendChild(opt);
-    }
+    _fillSelect('ccs_setting_main_api',    'ccs_main_api_hint',    getMainProfileId());
+    _fillSelect('ccs_setting_utility_api', 'ccs_utility_api_hint', getUtilityProfileId());
+}
 
-    // Restore saved selection
-    const savedId = getUtilityProfileId();
-    if (savedId) selectEl.value = savedId;
+// Legacy alias kept for any external callers
+async function _populateUtilityApiDropdown() {
+    return _populateApiDropdowns();
 }
 
 function _updateSessionInfo() {

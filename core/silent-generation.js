@@ -120,6 +120,59 @@ export async function generateText(prompt, options = {}) {
 }
 
 /**
+ * Generate text for background/utility tasks.
+ *
+ * Identical to generateText() but does NOT register in activeJobs.
+ * This means isGenerating() returns false while background jobs run,
+ * so tab switching and other UI interactions remain unblocked.
+ *
+ * Use this for: conflict checks, token analysis, auto-summarization.
+ * Do NOT use for the main agent loop (use generateText there).
+ *
+ * @param {string|Array} prompt
+ * @param {object} [options] - Same as generateText options
+ * @returns {Promise<string>}
+ */
+export async function generateTextBackground(prompt, options = {}) {
+    const {
+        name = 'generateTextBackground',
+        maxTokens = null,
+        systemPrompt = '',
+        prefill = '',
+        jsonSchema = null,
+        signal = null,
+    } = options;
+
+    // No activeJobs registration — background tasks are invisible to isGenerating()
+    const controller = new AbortController();
+
+    if (signal) {
+        if (signal.aborted) {
+            throw new DOMException('Background generation aborted before start', 'AbortError');
+        }
+        signal.addEventListener('abort', () => controller.abort(signal.reason), { once: true });
+    }
+
+    try {
+        const ctx = getSTContext();
+        const result = await ctx.generateRaw({
+            prompt,
+            systemPrompt,
+            responseLength: maxTokens,
+            prefill,
+            jsonSchema,
+        });
+        return typeof result === 'string' ? result.trim() : String(result ?? '').trim();
+    } catch (err) {
+        if (isAbortError(err)) {
+            throw new DOMException(`Background generation "${name}" was cancelled`, 'AbortError');
+        }
+        throw err;
+    }
+}
+
+
+/**
  * Generate using ConnectionManagerRequestService for a specific connection profile.
  *
  * This allows using a different API (e.g., a cheap/fast model for background

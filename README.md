@@ -19,7 +19,7 @@ Character Card Studio is a full-screen SillyTavern extension that turns characte
 
 The studio is built around an **agentic tool-calling architecture**: the AI reasons through your requests, calls structured tools to write fields, save state, manage lorebook entries, and track progress — all staged for your review before anything touches your card.
 
-> ![The CharCardStudio full-screen interface open on a character session]()
+> ![The CharCardStudio full-screen interface open on a character session](images\main_panel.png)
 > *Caption: The full-screen studio interface with the Chat panel (left), Card tab (right), and phase controls at the bottom. The card fields update live as drafts are applied.*
 
 ---
@@ -76,7 +76,7 @@ The studio is built around an **agentic tool-calling architecture**: the AI reas
 6. Accept, edit, or regenerate each staged draft as it comes in.
 7. Switch to **Lore phase** if you want a lorebook. Switch to **Audit** to run a quality check.
 
-> ![The Concept Tab showing Structural Pillars, Concept Brief panel, and Scratchpad]()
+> ![The Concept Tab showing Structural Pillars, Concept Brief panel, and Scratchpad](images\concept_panel.png)
 > *Caption: The Concept Tab. Structural Pillars track foundational creative decisions (Core Identity, Voice, Scenario, etc.). The Concept Brief panel shows the AI's living design document. The Scratchpad is private — never sent to the AI.*
 
 ---
@@ -362,7 +362,7 @@ Open the 🗺️ button in the Lore Tab for an interactive **Lore Graph** — a 
 - Token weight per node.
 - Circular chain detection.
 
-> ![The Lore Graph visualization showing nodes connected by activation edges, with one orphaned node highlighted]()
+> ![The Lore Graph visualization showing nodes connected by activation edges, with one orphaned node highlighted](images\lore_graph.png)
 > *Caption: The Lore Graph. Each node is a lorebook entry. Edges show keyword-to-keyword activation chains. The highlighted orphaned node has no trigger keywords — it will never fire.*
 
 Graph analysis tools (`ccs_read_lore_graph`, `ccs_suggest_lore_connections`) are available on demand — they don't fire automatically.
@@ -506,14 +506,14 @@ Click 🔍 in the Studio header to open the **Prompt Inspector** — a read-only
 - Per-section token estimates
 - One-click clipboard copy
 
-> ![The Prompt Inspector modal showing the system prompt split into layered sections with token counts]()
+> ![The Prompt Inspector modal showing the system prompt split into layered sections with token counts](images\prompt_inspector.png)
 > *Caption: The Prompt Inspector. Each section of the system prompt is labeled (Agent Identity, Field Knowledge, Phase Instructions, Tool Definitions, Dynamic Context) with its token cost.*
 
 ### Personality Radar
 
 Run a Psychological Depth Profile to get a **radar chart** of your character across 6 axes: Introversion, Logic, Chaos, Aggression, Seriousness, Secrecy.
 
-> ![The personality radar chart — a hexagonal radar visualization of character psychological traits]()
+> ![The personality radar chart — a hexagonal radar visualization of character psychological traits](images\personality.png)
 > *Caption: The Personality Radar. Generated from the AI's analysis of the character's description and concept brief. Each axis has a 0–10 score.*
 
 ### Ghost Mode
