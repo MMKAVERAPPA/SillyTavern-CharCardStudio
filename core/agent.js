@@ -139,7 +139,19 @@ async function _agentLoop(userText, session, signal, callbacks) {
     }
 
     // Trim old tool results before sending to LLM to reduce token bloat
-    const trimmedMessages = _trimToolHistory(messages);
+    const trimmedMessages = [..._trimToolHistory(messages)];
+
+    // Inject TOOL_REMINDER at the end of the context on iteration 0. 
+    // Models with long contexts often forget XML formatting if instructions are only at the top.
+    if (iteration === 0 && trimmedMessages.length > 0) {
+      const lastIdx = trimmedMessages.length - 1;
+      const lastMsg = trimmedMessages[lastIdx];
+      if (lastMsg.role === 'user') {
+        trimmedMessages[lastIdx] = { ...lastMsg, content: lastMsg.content + '\n\n' + TOOL_REMINDER };
+      } else {
+        trimmedMessages.push({ role: 'user', content: TOOL_REMINDER });
+      }
+    }
 
     // GAP 3: Estimate context size from char count (generateRaw doesn't return token counts).
     // Trigger early background summarization if context is getting large.
