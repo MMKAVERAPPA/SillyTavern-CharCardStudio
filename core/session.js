@@ -127,7 +127,7 @@ const changeListeners = new Set();
  * @property {string} characterAvatar  - ST character avatar filename (unique key)
  * @property {string} characterName    - Display name
  * @property {'studio'|'janitor'|'html'|'imageprompt'} mode
- * @property {'ideate'|'build'|'lore'} phase
+ * @property {'ideate'|'build'|'lore'|'audit'} phase
  * @property {'prose'|'plist'} cardFormat
  * @property {Message[]} messages
  * @property {PillarState[]} pillarStates
@@ -139,6 +139,7 @@ const changeListeners = new Set();
  * @property {number} createdAt
  * @property {number} updatedAt
  * @property {string} autoSummary      - Auto-generated context summary
+ * @property {string|null} lorePlan    - Markdown lore plan written by AI in Lore phase
  */
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
@@ -186,9 +187,10 @@ function createDefaultSession(avatar, name = '') {
         cardTypeDescription: null,   // Human-readable card type description
         targetPlatform: 'sillyTavern', // 'sillyTavern' or 'janitorai'
         platformNote: null,          // Optional notes about platform-specific constraints
-        conceptBrief: null,          // Markdown brief written by AI during ideation (2.1)
+        conceptBrief: null,          // Markdown brief written by AI during ideation
         briefAnnotation: '',         // User annotations added to the brief
-        personalityMatrix: null,     // { introvert, logical, chaotic, aggressive, serious, secretive } (3.2)
+        lorePlan: null,              // Markdown lore plan written by AI in Lore phase
+        personalityMatrix: null,     // { introvert, logical, chaotic, aggressive, serious, secretive }
         messages: [],
         pillarStates: [],
         stagedDrafts: [],

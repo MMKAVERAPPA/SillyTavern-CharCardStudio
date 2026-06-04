@@ -52,6 +52,8 @@ const TOOLS = {
   ccs_write_field:       toolWriteField,
   ccs_read_field:        toolReadField,
   ccs_update_pillar:     toolUpdatePillar,
+  ccs_batch_pillars:     toolBatchPillars,
+  ccs_switch_phase:      toolSwitchPhase,
   ccs_create_lore_entry: toolCreateLoreEntry,
   ccs_read_lore_entries: toolReadLoreEntries,
   ccs_update_lore_entry: toolUpdateLoreEntry,
@@ -64,6 +66,8 @@ const TOOLS = {
   ccs_set_platform:      toolSetPlatform,
   ccs_write_brief:       toolWriteBrief,
   ccs_read_brief:        toolReadBrief,
+  ccs_write_lore_plan:   toolWriteLorePlan,
+  ccs_read_lore_plan:    toolReadLorePlan,
   ccs_optimize_tokens:        toolOptimizeTokens,
   ccs_semantic_search:        toolSemanticSearch,
   ccs_read_lore_graph:        toolReadLoreGraph,
@@ -71,8 +75,144 @@ const TOOLS = {
   ccs_generate_avatar_prompt:   toolGenerateAvatarPrompt,
 };
 
+// ─── Tool Parameter Validation & Coercion ───────────────────────────────────
+
+/**
+ * Type coercion rules per tool.
+ * Models frequently output strings where booleans / numbers / arrays are expected.
+ * Coercions run BEFORE the tool handler so handlers always receive clean types.
+ *
+ * ST constraint note: SillyTavern's native registerFunctionTool (with JSON Schema)
+ * only works for main-chat generation, NOT for generateRaw. CCS uses generateRaw
+ * for its agent loop, so this manual coercion layer is the correct approach.
+ */
+const TOOL_COERCIONS = {
+  ccs_write_field: {
+    required: ['field', 'content'],
+    coerce: {
+      content: v => String(v ?? ''),
+      greeting_index: v => (v !== undefined ? Number(v) || 0 : undefined),
+    },
+  },
+  ccs_read_field: {
+    coerce: {
+      // Accept "description,personality" or "all" as a string, or ["all"] as array
+      fields: v => Array.isArray(v) ? v : (typeof v === 'string' ? v.split(',').map(s => s.trim()).filter(Boolean) : ['all']),
+    },
+  },
+  ccs_update_pillar: {
+    required: ['pillar_id', 'status'],
+    coerce: {
+      status: v => String(v || 'pending'),
+    },
+  },
+  ccs_batch_pillars: {
+    required: ['updates'],
+    coerce: {
+      updates: v => Array.isArray(v) ? v : [],
+    },
+  },
+  ccs_create_lore_entry: {
+    required: ['name', 'content', 'keys'],
+    coerce: {
+      // "Iron Circle, iron circles" → ["Iron Circle", "iron circles"]
+      keys: v => Array.isArray(v) ? v.filter(Boolean) : (typeof v === 'string' ? v.split(',').map(s => s.trim()).filter(Boolean) : []),
+      // Same for secondary_keys — optional, default empty
+      secondary_keys: v => !v ? [] : (Array.isArray(v) ? v.filter(Boolean) : v.split(',').map(s => s.trim()).filter(Boolean)),
+      // "true" string → true boolean
+      constant: v => v === true || v === 'true',
+      prevent_recursion: v => v === true || v === 'true',
+      // "100" string → 100 number
+      order: v => (v !== undefined && v !== null) ? (Number(v) || 100) : 100,
+      depth: v => (v !== undefined && v !== null) ? (Number(v) || 4) : 4,
+      position: v => ['before_char', 'after_char'].includes(v) ? v : 'after_char',
+    },
+  },
+  ccs_update_lore_entry: {
+    required: ['uid'],
+    coerce: {
+      uid: v => String(v ?? ''),
+      // Coerce keys if provided — guard against non-string/non-array (e.g. a number)
+      keys: v => (v === undefined || v === null) ? undefined
+        : Array.isArray(v) ? v
+        : String(v).split(',').map(s => s.trim()).filter(Boolean),
+    },
+  },
+  ccs_delete_lore_entry: {
+    required: ['uid'],
+    coerce: { uid: v => String(v ?? '') },
+  },
+  ccs_update_memory: {
+    required: ['type', 'content'],
+    coerce: {
+      type: v => String(v || 'learning'),
+      action: v => ['add', 'remove'].includes(v) ? v : 'add',
+    },
+  },
+  ccs_optimize_tokens: {
+    required: ['field'],
+    coerce: {
+      target_tokens: v => (v !== undefined && v !== null) ? (Number(v) || null) : null,
+      original_tokens: v => (v !== undefined && v !== null) ? (Number(v) || null) : null,
+    },
+  },
+  ccs_resolve_conflict: {
+    required: ['conflict_id', 'resolution'],
+    coerce: {
+      conflict_id: v => String(v ?? ''),
+      resolution: v => ['fix', 'ignore', 'defer'].includes(v) ? v : 'fix',
+    },
+  },
+  ccs_submit_review: {
+    required: ['overall_rating'],
+    coerce: {
+      overall_rating: v => Math.max(1, Math.min(5, Number(v) || 3)),
+      categories: v => Array.isArray(v) ? v : [],
+      strengths: v => Array.isArray(v) ? v : (typeof v === 'string' ? [v] : []),
+      weaknesses: v => Array.isArray(v) ? v : (typeof v === 'string' ? [v] : []),
+      suggestions: v => Array.isArray(v) ? v : (typeof v === 'string' ? [v] : []),
+    },
+  },
+};
+
+/**
+ * Validate and coerce tool parameters before execution.
+ * Returns coerced params or throws with a descriptive message if required params are missing.
+ * @param {string} toolName
+ * @param {object} params
+ * @returns {object} Coerced params
+ * @throws {Error} If a required param is missing after coercion
+ */
+function validateAndCoerce(toolName, params) {
+  const schema = TOOL_COERCIONS[toolName];
+  if (!schema) return params; // No schema → pass through as-is
+
+  const result = { ...params };
+
+  // Apply coercions first (before required check, so coercion can normalise empty values)
+  for (const [key, coerceFn] of Object.entries(schema.coerce || {})) {
+    try {
+      const coerced = coerceFn(result[key]);
+      if (coerced !== undefined) result[key] = coerced;
+    } catch (_) { /* coercion failure is non-fatal; original value kept */ }
+  }
+
+  // Check required params AFTER coercion
+  for (const req of (schema.required || [])) {
+    const val = result[req];
+    const isEmpty = val === undefined || val === null || val === '' ||
+      (Array.isArray(val) && val.length === 0);
+    if (isEmpty) {
+      throw new Error(`Required parameter "${req}" is missing or empty for tool ${toolName}.`);
+    }
+  }
+
+  return result;
+}
+
 /**
  * Execute a tool call by name.
+ * Parameters are coerced to the correct types before the handler runs.
  * @param {{ name: string, parameters: object }} call
  * @returns {Promise<{ result: string, draft?: object }>}
  */
@@ -89,7 +229,9 @@ export async function executeToolCall(call) {
     return { result: `Error: Unknown tool "${call.name}". Available: ${Object.keys(TOOLS).join(', ')}` };
   }
   try {
-    return await handler(call.parameters || {});
+    // Validate & coerce parameters before running the handler
+    const coercedParams = validateAndCoerce(call.name, call.parameters || {});
+    return await handler(coercedParams);
   } catch (err) {
     console.error(`[CCS] Tool ${call.name} error:`, err);
     return { result: `Error executing ${call.name}: ${err.message}` };
@@ -170,8 +312,14 @@ async function toolWriteField(params) {
     status: draft.status,
   });
 
+  // Self-check prompt (GAP 6): nudge the model to verify quality before moving on.
+  // This costs no extra API call — it's part of the tool result the model sees next turn.
+  const selfCheck = `Before continuing: quickly verify (1) voice matches Concept Brief, ` +
+    `(2) no info repeated from already-written fields, (3) token count is within budget. ` +
+    `If any check fails, call ccs_write_field again with improvements. Otherwise, tell the user this field is ready for review.`;
+
   return {
-    result: `Draft created for "${field}" (${draft.tokenCount || '?'} tokens${versionLabel ? ', ' + versionLabel : ''}). Waiting for user approval.`,
+    result: `Draft staged for "${field}" (${draft.tokenCount || '?'}t${versionLabel ? ', ' + versionLabel : ''}). ${selfCheck}`,
     draft,
   };
 }
@@ -247,6 +395,99 @@ async function toolUpdatePillar(params) {
   }
 
   return { result: result.error || 'Error updating pillar.' };
+}
+
+// ─── Tool 3b: Batch Update Pillars ─────────────────────────────────────────
+
+/**
+ * Update multiple concept pillars in a single call.
+ * Preferred over N separate ccs_update_pillar calls — each update goes through
+ * independently (partial success design).
+ * @param {{ updates: Array<{pillar_id: string, status: string, summary?: string}> }} params
+ */
+async function toolBatchPillars(params) {
+  // Normalise: accept { updates: [...] } or a direct array as params itself
+  let updates = params.updates;
+  if (!updates && Array.isArray(params)) updates = params;
+
+  if (!Array.isArray(updates) || updates.length === 0) {
+    return { result: 'Error: updates must be a non-empty array of {pillar_id, status, summary?} objects.' };
+  }
+
+  const succeeded = [];
+  const failed = [];
+
+  for (const upd of updates) {
+    if (!upd.pillar_id || !upd.status) {
+      failed.push(`(missing pillar_id or status)`);
+      continue;
+    }
+    try {
+      const result = updatePillar(upd.pillar_id, upd.status, upd.summary);
+      if (result.success) {
+        succeeded.push(`"${result.pillar.name}" → ${upd.status}`);
+      } else if (result.error?.includes('not found')) {
+        // Auto-create as world pillar if not found (mutates in-place, no save yet)
+        const pillar = addWorldPillar(upd.pillar_id, upd.summary);
+        if (pillar) {
+          pillar.status = upd.status;
+          succeeded.push(`"${pillar.name}" (created) → ${upd.status}`);
+        } else {
+          failed.push(`"${upd.pillar_id}" — could not create`);
+        }
+      } else {
+        failed.push(`"${upd.pillar_id}" — ${result.error}`);
+      }
+    } catch (err) {
+      failed.push(`"${upd.pillar_id}" — ${err.message}`);
+    }
+  }
+
+  // Single persist + UI update after all mutations are done
+  const session = getSession();
+  await updateSession({ pillarStates: session.pillarStates });
+  const progress = calculateProgress(session.pillarStates);
+  document.dispatchEvent(new CustomEvent('ccs:card-updated'));
+
+  const lines = [];
+  if (succeeded.length > 0) lines.push(`Updated ${succeeded.length}: ${succeeded.join(', ')}`);
+  if (failed.length > 0) lines.push(`Failed ${failed.length}: ${failed.join(', ')}`);
+  lines.push(`Progress: ${progress.done}/${progress.total - progress.skipped} (${progress.percent}%)`);
+
+  return { result: lines.join('\n') };
+}
+
+// ─── Tool 3c: Switch Phase ──────────────────────────────────────────────────
+
+/**
+ * Switch the active studio phase. Takes effect immediately — future turns
+ * will use the new phase's prompt and tool definitions.
+ * @param {{ phase: string, reason?: string }} params
+ */
+async function toolSwitchPhase(params) {
+  const { phase, reason } = params;
+  const VALID_PHASES = ['ideate', 'build', 'lore', 'audit'];
+
+  if (!phase || !VALID_PHASES.includes(phase)) {
+    return { result: `Error: phase must be one of: ${VALID_PHASES.join(', ')}` };
+  }
+
+  const PHASE_LABELS = {
+    ideate: 'Ideate — brainstorm and character DNA',
+    build:  'Build — generate card field content',
+    lore:   'Lore — create and manage lorebook entries',
+    audit:  'Audit — review card quality and structure',
+  };
+
+  await updateSession({ phase });
+
+  // Notify UI to update the active phase pill in the context bar
+  document.dispatchEvent(new CustomEvent('ccs:phase-changed', { detail: { phase } }));
+
+  const reasonNote = reason ? ` (${reason})` : '';
+  return {
+    result: `Phase switched to: ${PHASE_LABELS[phase]}${reasonNote}. New phase tools are now active. Continue with your request.`,
+  };
 }
 
 // ─── Tool 4: Create Lore Entry (Staged) ─────────────────────────────────────
@@ -419,9 +660,41 @@ async function toolUpdateMemory(params) {
 // ─── Tool 10: Audit Card ───────────────────────────────────────────────────
 
 async function toolAuditCard(params) {
+  const focus = params?.focus || 'full';
+
+  // 1. Read all card fields for the LLM to analyze qualitatively
   const readResult = await toolReadField({ fields: ['all'] });
-  return { 
-    result: `Card audit data:\n${readResult.result}\n\n[Analyze the above fields and provide your assessment.]` 
+
+  // 2. Run static coherence audit (no API call — local analysis)
+  let staticAuditBlock = '';
+  try {
+    const { runCoherenceAudit } = await import('./coherence-audit.js');
+    const report = await runCoherenceAudit();
+    if (report) {
+      const { issues, stats, score } = report;
+      const severityOrder = { error: 0, warning: 1, info: 2 };
+      const sorted = [...issues].sort((a, b) => severityOrder[a.severity] - severityOrder[b.severity]);
+      const issueLines = sorted.slice(0, 20).map(i => `  [${i.severity.toUpperCase()}] ${i.message}`);
+      staticAuditBlock =
+        `\n\n━━━ STATIC COHERENCE AUDIT (${score}/100) ━━━` +
+        `\nFields populated: ${stats.totalFields} | Total tokens: ~${stats.totalTokens}t | Lore entries: ${stats.loreEntries}` +
+        `\nErrors: ${stats.errors}  Warnings: ${stats.warnings}  Info: ${stats.infos}` +
+        (issueLines.length > 0
+          ? '\nIssues found:\n' + issueLines.join('\n')
+          : '\nNo structural issues found.') +
+        '\n━━━';
+    }
+  } catch (e) {
+    staticAuditBlock = '\n\n[Static coherence audit unavailable]';
+    console.warn('[CCS] Coherence audit failed in toolAuditCard:', e.message);
+  }
+
+  const focusNote = focus !== 'full'
+    ? `\n\nAudit focus: ${focus}. Focus your qualitative analysis on this aspect.`
+    : '';
+
+  return {
+    result: `Card field content:\n${readResult.result}${staticAuditBlock}${focusNote}\n\n[Analyze the above and provide your qualitative assessment per the Audit phase instructions.]`,
   };
 }
 
@@ -953,6 +1226,58 @@ async function toolReadBrief() {
   }
 
   return { result: `Concept Brief (${brief.split(/\s+/).length} words):\n\n${brief}` };
+}
+
+// ─── Tool 15b: Write Lore Plan ─────────────────────────────────────────────
+
+/**
+ * Write or update the lore plan — the AI's living plan for what lorebook entries
+ * to create, stored in session.lorePlan. Injected into the Lore phase context.
+ * Structured as a markdown doc with sections:
+ *   ## Overview, ## Lorebook, ## Priority Plan, ## Created, ## Notes
+ */
+async function toolWriteLorePlan(params) {
+  const { content, mode = 'replace' } = params;
+
+  if (!content || typeof content !== 'string') {
+    return { result: 'Error: content parameter is required.' };
+  }
+
+  const session = getSession();
+  let newPlan;
+
+  if (mode === 'append' && session?.lorePlan) {
+    newPlan = session.lorePlan + '\n\n' + content;
+  } else {
+    newPlan = content;
+  }
+
+  await updateSession({ lorePlan: newPlan });
+
+  try {
+    document.dispatchEvent(new CustomEvent('ccs:card-updated'));
+  } catch (e) {
+    console.warn('[CCS] Failed to dispatch card-updated after lore plan update:', e);
+  }
+
+  const wordCount = newPlan.split(/\s+/).length;
+  return { result: `Success: Lore Plan saved (${wordCount} words). It will appear in your context on every Lore phase turn.` };
+}
+
+// ─── Tool 15c: Read Lore Plan ──────────────────────────────────────────────
+
+/**
+ * Read the current lore plan back for context.
+ */
+async function toolReadLorePlan() {
+  const session = getSession();
+  const plan = session?.lorePlan;
+
+  if (!plan) {
+    return { result: 'No Lore Plan exists yet. Use ccs_write_lore_plan to create one after doing the gap analysis.' };
+  }
+
+  return { result: `Lore Plan (${plan.split(/\s+/).length} words):\n\n${plan}` };
 }
 
 // ─── Tool 16: Optimize Tokens ───────────────────────────────────────────

@@ -49,6 +49,11 @@ export function parseToolCalls(text) {
     }
   }
 
+  // Normalise any tool names the model may have mangled
+  for (const tc of toolCalls) {
+    tc.name = _normalizeToolName(tc.name);
+  }
+
   return { toolCalls, prose: prose.trim() };
 }
 
@@ -69,7 +74,7 @@ function _tryParseToolCall(raw) {
   // Strategy A: Direct JSON parse — standard format
   try {
     const obj = JSON.parse(raw);
-    if (obj.name) return { name: obj.name, parameters: obj.parameters || {} };
+    if (obj.name) return { name: obj.name, parameters: obj.parameters || obj.arguments || {} };
   } catch (e) { /* continue */ }
 
   // Strategy B: tool_name {params} or tool_name({params})
@@ -92,7 +97,7 @@ function _tryParseToolCall(raw) {
     try {
       const obj = JSON.parse(jsonStr);
       // If it has a "name" key, it's the standard format
-      if (obj.name) return { name: obj.name, parameters: obj.parameters || {} };
+      if (obj.name) return { name: obj.name, parameters: obj.parameters || obj.arguments || {} };
       
       // If no "name" key, check if there's a tool name before the brace
       const prefix = raw.substring(0, firstBrace).trim();
@@ -118,7 +123,187 @@ function _tryParseToolCall(raw) {
     }
   }
 
+  // Strategy E: XML-style <arg_key>...</arg_key><arg_value>...</arg_value>
+  // Common for GLM and some other models that natively intercept <tool_call>
+  if (raw.includes('<arg_key>')) {
+    const xmlNameMatch = raw.match(/^([a-z_][a-z0-9_]*)/i);
+    if (xmlNameMatch) {
+      const toolName = xmlNameMatch[1];
+      const params = {};
+      const keyRegex = /<arg_key>([^<]+)<\/arg_key>\s*<arg_value>([\s\S]*?)<\/arg_value>/gi;
+      let match;
+      let hasArgs = false;
+      while ((match = keyRegex.exec(raw)) !== null) {
+        params[match[1]] = match[2];
+        hasArgs = true;
+      }
+      if (hasArgs) {
+        return { name: toolName, parameters: params };
+      }
+    }
+  }
+
+  // Strategy F: Generic XML tags <name>tool</name> <param1>value1</param1>
+  const xmlToolMatch = raw.match(/<(?:name|tool_name|tool)>\s*(ccs_[a-z0-9_]+)\s*<\/(?:name|tool_name|tool)>/i);
+  if (xmlToolMatch) {
+    const toolName = xmlToolMatch[1];
+    const params = {};
+    const paramRegex = /<([a-z_][a-z0-9_]*)>([\s\S]*?)<\/\1>/gi;
+    let match;
+    while ((match = paramRegex.exec(raw)) !== null) {
+      const key = match[1];
+      if (['name', 'tool_name', 'tool'].includes(key.toLowerCase())) continue;
+      params[key] = match[2].trim();
+    }
+    return { name: toolName, parameters: params };
+  }
+
+  // Strategy G: Tool name as XML tag <ccs_write_field><param1>...</param1></ccs_write_field>
+  const toolAsTagMatch = raw.match(/<(ccs_[a-z0-9_]+)>([\s\S]*?)<\/\1>/i);
+  if (toolAsTagMatch) {
+    const toolName = toolAsTagMatch[1];
+    const innerContent = toolAsTagMatch[2];
+    const params = {};
+    const paramRegex = /<([a-z_][a-z0-9_]*)>([\s\S]*?)<\/\1>/gi;
+    let match;
+    let hasArgs = false;
+    while ((match = paramRegex.exec(innerContent)) !== null) {
+      params[match[1]] = match[2].trim();
+      hasArgs = true;
+    }
+    if (hasArgs) {
+       return { name: toolName, parameters: params };
+    }
+  }
+
   return null;
+}
+
+// ─── Tool Name Normalizer ────────────────────────────────────────────────────
+
+/**
+ * Map common model misspellings / variations to the canonical tool name.
+ * Some models drop underscores, pluralise, or vary capitalisation.
+ * @param {string} name
+ * @returns {string}
+ */
+function _normalizeToolName(name) {
+  if (!name) return name;
+
+  // Lowercase and strip leading/trailing whitespace first
+  const n = name.toLowerCase().trim();
+
+  const MAP = {
+    // write_field variants
+    'ccs_writefield':              'ccs_write_field',
+    'ccs_write_fields':            'ccs_write_field',
+    'ccs_writefiled':              'ccs_write_field',
+    'ccs_write_filed':             'ccs_write_field',
+    'ccs_writefieldcontent':       'ccs_write_field',
+    // read_field variants
+    'ccs_readfield':               'ccs_read_field',
+    'ccs_read_fields':             'ccs_read_field',
+    'ccs_readfields':              'ccs_read_field',
+    // update_pillar variants
+    'ccs_updatepillar':            'ccs_update_pillar',
+    'ccs_update_pillars':          'ccs_update_pillar',
+    'ccs_pillar_update':           'ccs_update_pillar',
+    // batch_pillars variants
+    'ccs_batchpillars':            'ccs_batch_pillars',
+    'ccs_batch_pillar':            'ccs_batch_pillars',
+    'ccs_pillars_batch':           'ccs_batch_pillars',
+    'ccs_batch_update_pillars':    'ccs_batch_pillars',
+    // switch_phase variants
+    'ccs_switchphase':             'ccs_switch_phase',
+    'ccs_switch_phases':           'ccs_switch_phase',
+    'ccs_phase_switch':            'ccs_switch_phase',
+    'ccs_changephase':             'ccs_switch_phase',
+    'ccs_change_phase':            'ccs_switch_phase',
+    'ccs_setphase':                'ccs_switch_phase',
+    'ccs_set_phase':               'ccs_switch_phase',
+    // write_brief variants
+    'ccs_writebrief':              'ccs_write_brief',
+    'ccs_write_briefs':            'ccs_write_brief',
+    'ccs_updatebrief':             'ccs_write_brief',
+    'ccs_update_brief':            'ccs_write_brief',
+    'ccs_concept_brief':           'ccs_write_brief',
+    'ccs_write_concept_brief':     'ccs_write_brief',
+    // read_brief variants
+    'ccs_readbrief':               'ccs_read_brief',
+    'ccs_get_brief':               'ccs_read_brief',
+    'ccs_read_concept_brief':      'ccs_read_brief',
+    // update_memory variants
+    'ccs_updatememory':            'ccs_update_memory',
+    'ccs_update_memories':         'ccs_update_memory',
+    'ccs_save_memory':             'ccs_update_memory',
+    'ccs_savememory':              'ccs_update_memory',
+    'ccs_add_memory':              'ccs_update_memory',
+    // lore entry variants
+    'ccs_create_lore':             'ccs_create_lore_entry',
+    'ccs_createloreentry':         'ccs_create_lore_entry',
+    'ccs_add_lore_entry':          'ccs_create_lore_entry',
+    'ccs_addloreentry':            'ccs_create_lore_entry',
+    'ccs_read_lore':               'ccs_read_lore_entries',
+    'ccs_readloreentries':         'ccs_read_lore_entries',
+    'ccs_get_lore_entries':        'ccs_read_lore_entries',
+    'ccs_update_lore':             'ccs_update_lore_entry',
+    'ccs_updateloreentry':         'ccs_update_lore_entry',
+    'ccs_delete_lore':             'ccs_delete_lore_entry',
+    'ccs_deleteloreentry':         'ccs_delete_lore_entry',
+    'ccs_remove_lore_entry':       'ccs_delete_lore_entry',
+    // semantic_search variants
+    'ccs_semanticsearch':          'ccs_semantic_search',
+    'ccs_search':                  'ccs_semantic_search',
+    'ccs_keyword_search':          'ccs_semantic_search',
+    'ccs_find':                    'ccs_semantic_search',
+    // set_card_type variants
+    'ccs_setcardtype':             'ccs_set_card_type',
+    'ccs_set_type':                'ccs_set_card_type',
+    'ccs_cardtype':                'ccs_set_card_type',
+    // set_platform variants
+    'ccs_setplatform':             'ccs_set_platform',
+    'ccs_platform':                'ccs_set_platform',
+    // optimize_tokens
+    'ccs_optimizetokens':          'ccs_optimize_tokens',
+    'ccs_optimize':                'ccs_optimize_tokens',
+    'ccs_token_optimize':          'ccs_optimize_tokens',
+    // audit / review
+    'ccs_auditcard':               'ccs_audit_card',
+    'ccs_audit':                   'ccs_audit_card',
+    'ccs_reviewcard':              'ccs_audit_card',
+    'ccs_submitreview':            'ccs_submit_review',
+    'ccs_submit_scorecard':        'ccs_submit_review',
+    // lore graph
+    'ccs_readloregraph':           'ccs_read_lore_graph',
+    'ccs_lore_graph':              'ccs_read_lore_graph',
+    'ccs_suggestloreconnections':  'ccs_suggest_lore_connections',
+    'ccs_lore_connections':        'ccs_suggest_lore_connections',
+    'ccs_suggest_connections':     'ccs_suggest_lore_connections',
+    // resolve_conflict
+    'ccs_resolveconflict':         'ccs_resolve_conflict',
+    'ccs_resolve':                 'ccs_resolve_conflict',
+    // generate_avatar_prompt
+    'ccs_generateavatarprompt':    'ccs_generate_avatar_prompt',
+    'ccs_avatar_prompt':           'ccs_generate_avatar_prompt',
+    'ccs_generate_avatar':         'ccs_generate_avatar_prompt',
+    'ccs_avatar':                  'ccs_generate_avatar_prompt',
+    // write_lore_plan
+    'ccs_writeloreplan':           'ccs_write_lore_plan',
+    'ccs_save_lore_plan':          'ccs_write_lore_plan',
+    'ccs_saveloreplan':            'ccs_write_lore_plan',
+    'ccs_lore_plan':               'ccs_write_lore_plan',
+    'ccs_update_lore_plan':        'ccs_write_lore_plan',
+    // read_lore_plan
+    'ccs_readloreplan':            'ccs_read_lore_plan',
+    'ccs_get_lore_plan':           'ccs_read_lore_plan',
+    'ccs_getloreplan':             'ccs_read_lore_plan',
+    // read_lore_entries (common missing s-variant)
+    'ccs_read_lore_entry':         'ccs_read_lore_entries',
+    'ccs_list_lore_entries':       'ccs_read_lore_entries',
+    'ccs_listloreentries':         'ccs_read_lore_entries',
+  };
+
+  return MAP[n] || n;
 }
 
 /**

@@ -6,6 +6,115 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [5.2.1] — 2026-06-04
+
+Agentic engine robustness pass — improved reliability, context efficiency, and behavior consistency of the AI agent loop.
+
+### Added
+
+- **Input Validation & Coercion Layer** (`core/tools.js`) — `validateAndCoerce()` pre-processes all tool parameters before execution. Normalizes types, coerces comma-strings to arrays, clamps numeric ranges, and throws a clean error for genuinely missing required params. Covers all 15 parameterized tools.
+- **Structured Tool Result Delimiters** — Tool responses are now wrapped in `━━━ TOOL RESULTS ━━━` / `━━━ END TOOL RESULTS ━━━` blocks, giving the AI a clear visual boundary between its own reasoning and injected data. `_trimToolHistory` detects both new and legacy formats (backward-compatible).
+- **Context Size Monitoring** — Agent loop now estimates context size from character count (`÷3.8` to approximate tokens). Logs estimate on every iteration; triggers early background summarization if context exceeds ~40,000 chars (~10,500 tokens).
+- **Guard Clauses on Read Tools** — `ccs_read_brief`, `ccs_read_lore_entries`, and `ccs_read_lore_plan` now include `CALL ONLY IF` instructions. The AI skips redundant reads when the data is already present in its session context.
+- **First-Turn Trajectory Examples** (`prompts/phase-instructions.js`) — Each phase (Ideate / Build / Lore / Audit) now ends with a compact `FIRST-TURN PATTERN` block showing explicitly: correct action order, what to skip, and anti-patterns to avoid. Lives in the stable prompt prefix (cached after first call).
+- **Self-Check in `ccs_write_field`** — Tool result now includes a 3-point self-check (voice consistent? no {{user}} actions? field-appropriate length?). AI verifies before confirming to user.
+- **Tool Metadata on Session Messages** — Assistant messages now store `meta.toolsUsed` (deduplicated list of tool names called that turn) and `meta.toolRounds` (iteration index). Used for context summarization quality.
+- **Stuck-Loop Detection** — Agent tracks a rolling signature of the last 12 AI responses. If the same signature appears 3 times in a row, the loop breaks and injects a system warning, preventing runaway repetition loops.
+- **Char-Count Based Summarization** — `autoSummaryCharCount` replaces the old message-count threshold. Summarization fires when total history size exceeds a character budget, not an arbitrary message count. More accurate for heavy tool-result sessions.
+
+### Fixed
+
+- **`KEEP_RECENT` scope bug** — Constant was defined inside `_buildMessageArray` but used in `_agentLoop` for the early-summarization trigger. Moved to module scope. Previously, `_agentLoop` would throw a `ReferenceError` if context was large and it tried to auto-summarize on `iteration === 0`.
+- **`ccs_update_lore_entry` keys coercion** — Coercion now guards against non-string values (`String(v).split(...)`) instead of calling `.split()` directly, which would throw if the model passed a number.
+- **Build phase contradictory instruction** — `BEFORE STARTING` block previously said "Call `ccs_read_brief` to recall the approved concept" unconditionally, directly contradicting the guard clause added for the same tool. Fixed to "Check SESSION CONTEXT first; only call if the brief block is NOT visible."
+
+### Changed
+
+- Module-level constants `KEEP_RECENT = 15` and `SUMMARIZE_CHAR_THRESHOLD = 40000` added to `agent.js` for consistent use across all summarization triggers.
+
+---
+
+## [5.2.0] — 2026-06-04
+
+Major update: story-first ideation workflow, Lore Plan system, prompt architecture overhaul, and comprehensive audit/fix pass.
+
+### Added
+
+**Ideation Phase — Story Arc & Narrative Planning**
+- New **STEP 3 — Story Arc & Narrative Potential** in the Ideation prompt:
+  - 2–4 narrative scenarios with inherent tension (not just "they talk").
+  - Emotional arc mapping — how the relationship evolves across a long conversation.
+  - 3 **Signature Moments**: specific defining scenes that feed directly into First Message and Example Dialogue.
+  - Player experience definition — what need or fantasy the card serves.
+- New **STEP 5 — Pre-Build Checklist**: AI confirms all pillars resolved, format/platform decided, and brief saved before calling `ccs_switch_phase` to Build. Explicit phase switch is now mandatory.
+
+**Lore Phase — Lore Plan System**
+- New `session.lorePlan` field in session state — a living markdown document for the lore strategy.
+- New tool: `ccs_write_lore_plan` — saves/appends the lore gap analysis and priority plan.
+- New tool: `ccs_read_lore_plan` — reads the current plan back (used on session resume).
+- The Lore Plan is automatically injected into every Lore phase turn (similar to Concept Brief in Ideate/Build).
+- Lore Phase now has a full 3-step workflow: **Lorebook Setup → Gap Analysis & Plan → Create Entries**.
+  - Step 1: Checks `lorebookName` in session context; if none, gives exact ST navigation path.
+  - Step 2: Reads brief + card + existing entries, then produces a prioritized plan (Essential / Enrichment / Optional / Skip) for user approval before any entry is created.
+  - Step 3: Creates entries in priority order; updates the plan with ✔ marks as entries are created.
+- Graph connectivity tools (`ccs_read_lore_graph`, `ccs_suggest_lore_connections`) moved to **optional only** — not called automatically.
+
+**Prompt Architecture**
+- Dynamic suffix now injects **CARD PROGRESS** block (pillar states: pending / in_progress / done) as Layer 5a — always first in the suffix, every phase.
+- In Lore phase, **LORE PLAN** block is injected instead of CONCEPT BRIEF (brief still readable on demand via `ccs_read_brief`).
+- In non-Lore phases, **CONCEPT BRIEF** is injected (with `[USER ANNOTATIONS]` block if present).
+- Standalone **USER NOTES** block shown when user has annotations but no brief yet.
+- Lorebook compact summary injected from lorebook.js (unchanged, layer 5d).
+
+**Tool Fallback Normalizer**
+- Expanded from ~30 to **90+ name variants** covering all 23 tools.
+- New variants for: `ccs_change_phase`, `ccs_update_brief`, `ccs_add_memory`, `ccs_resolve`, `ccs_avatar`, `ccs_lore_plan`, `ccs_find`, `ccs_list_lore_entries`, and many more.
+
+### Fixed
+
+- **`ccs_create_lore_entry` parameter mismatch** — Tool definition listed `secondaryKeys` / `preventRecursion` (camelCase) but implementation reads `secondary_keys` / `prevent_recursion` (snake_case). Secondary keys and recursion prevention silently did nothing. Fixed to snake_case in tool definition.
+- **Dynamic suffix separator** — Missing newline before `freshDynamic` concatenation caused the pillar block and session context to run together without separation.
+- **Pillar duplicate detection** — Previously only checked by pillar ID. Now normalizes and checks by name too, so "The Hook" and "Hook" won't create duplicate entries.
+- **`toolBatchPillars` N+1 saves** — Was calling `updateSession` once per pillar in a loop. Consolidated to a single `updateSession` + `notifyListeners` after the loop completes.
+- **`toolAuditCard` missing static analysis** — Previously just dumped raw field text. Now calls `runCoherenceAudit()` first and prepends the score/100 + errors/warnings list before the field content.
+
+### Changed
+
+- `session.js` — Added `lorePlan: null` to default session state and typedef.
+- `TOOLS_LORE` — Completely rewritten with `ccs_write_lore_plan` and `ccs_read_lore_plan` as primary tools; graph tools marked as optional.
+- `PHASE_PROMPTS.lore` — Rewritten from flat instructions to 3-step structured workflow with lorebook setup guidance.
+- `PHASE_PROMPTS.ideate` — Steps expanded from 4 to 5; story arc section is new STEP 3.
+- `PHASE_PROMPTS.build` — Added "read brief first", pillar progress check, and next-step suggestions.
+
+---
+
+## [5.1.0] — 2026-06-03
+
+### Added
+
+- **Field Undo History** (`core/field-history.js`) — `pushFieldVersion` called on every field write. Undo stack tracked in session, Ctrl+Z / Ctrl+Shift+Z wired through the agent.
+- **`ccs_set_card_type` tool** — Records detected card type (A/B/C/D/E) in `session.cardType` and `session.cardTypeDescription`.
+- **`ccs_set_platform` tool** — Records target platform (`sillyTavern` / `janitorai`) in `session.targetPlatform`.
+- **`ccs_write_brief` / `ccs_read_brief` tools** — Concept Brief system; brief stored in `session.conceptBrief`, annotations in `session.briefAnnotation`.
+- **`ccs_optimize_tokens` tool** — Stages a token-compressed rewrite of a card field. Shows estimated savings.
+- **`ccs_semantic_search` tool** — Pure-JS keyword search across all card fields and lorebook entries. No API call required.
+- **`ccs_generate_avatar_prompt` tool** — Reads description + brief, assembles an SD/Flux-optimized image prompt, renders an interactive avatar prompt card in the chat.
+- **`ccs_submit_review` tool** — Submits a structured 5-axis scorecard; category bars are clickable "Fix" buttons.
+- **`ccs_read_lore_graph` tool** — Returns lorebook topology: edges, orphaned nodes, circular chains, per-entry token counts.
+- **`ccs_suggest_lore_connections` tool** — Pure-JS analysis of lorebook connectivity; returns specific improvement suggestions.
+- **Phase-gated tool definitions** — `TOOLS_IDEATE`, `TOOLS_BUILD`, `TOOLS_LORE`, `TOOLS_AUDIT` exported from `phase-instructions.js`. Each phase's tool token overhead reduced by ~1,100t vs sending all tools always.
+- **Tool name normalizer** — `_normalizeToolName()` in `tools-fallback.js` maps model misspellings to canonical tool names.
+- **Lorebook context injection** — `buildSystemPrompt` injects compact lorebook summary into dynamic suffix (≤20 entries: listed by category; >20: statistics only).
+
+### Changed
+
+- `phase-instructions.js` — Complete architectural overhaul (v5.0.0 → v5.2.0). Stable prefix / dynamic suffix split. `buildSystemPrompt` now exports `getStablePrefix()` and `buildDynamicSuffix()` separately.
+- `agent.js` — Stable prefix cached and sent once per phase+format combination. Dynamic suffix rebuilt each turn.
+- `identity.js` — `AGENT_IDENTITY`, `FIELD_KNOWLEDGE`, `FORMAT_RULES`, `NAMING_RULES`, `CREATIVE_PRINCIPLES` exported as named constants for layered assembly.
+
+---
+
+
 ## [4.2.1] — 2026-05-27
 
 ### Fixed

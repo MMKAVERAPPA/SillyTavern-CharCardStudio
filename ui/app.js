@@ -2143,6 +2143,14 @@ export function bindAppEvents() {
             }
         });
     }
+
+    // Listen for phase changes triggered by toolSwitchPhase (AI-driven phase switching)
+    document.addEventListener('ccs:phase-changed', (e) => {
+        syncContextBar();
+        const phase = e.detail?.phase || '';
+        const PHASE_LABELS = { ideate: 'Ideate', build: 'Build', lore: 'Lore', audit: 'Audit' };
+        if (phase) showToast(`Switched to ${PHASE_LABELS[phase] || phase} phase`, 'info', 2500);
+    });
 }
 
 let _resizeTimer;

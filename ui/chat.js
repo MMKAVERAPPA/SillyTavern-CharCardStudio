@@ -48,6 +48,29 @@ export function setTyping(active, label = 'Thinking...') {
     if (labelEl) labelEl.textContent = label;
     _isStreaming = active;
     _syncInputState();
+
+    // Clear tool badge when typing stops
+    if (!active) clearToolStatus();
+}
+
+/**
+ * Show the tool activity badge in the context bar.
+ * @param {string} toolName - e.g. "ccs_write_brief"
+ */
+export function setToolStatus(toolName) {
+    const badge = el('ccs_tool_activity');
+    if (!badge) return;
+    const label = badge.querySelector('.ccs-tool-activity-label');
+    if (label) label.textContent = toolName || '';
+    badge.style.display = 'inline-flex';
+}
+
+/**
+ * Hide the tool activity badge.
+ */
+export function clearToolStatus() {
+    const badge = el('ccs_tool_activity');
+    if (badge) badge.style.display = 'none';
 }
 
 /**
@@ -495,6 +518,8 @@ export async function sendMessage(text) {
                     renderStagedDraftMessage(draft);
                 },
                 setTyping,
+                setToolStatus,
+                clearToolStatus,
             });
         } catch (err) {
             if (err?.name !== 'AbortError') {
@@ -637,6 +662,8 @@ async function _handleMessageAction(action, messageId) {
                         },
                         renderDraft: (draft) => renderStagedDraftMessage(draft),
                         setTyping,
+                        setToolStatus,
+                        clearToolStatus,
                     });
                 } catch (err) {
                     if (err?.name !== 'AbortError') {

@@ -32,10 +32,10 @@ const LARGE_GRAPH_THRESHOLD = 80;
 const DAMPING = 0.85;          // velocity retained per tick (works with cooling)
 const REPULSION = 22000;
 const SPRING_K = 0.025;
-const SPRING_REST = 220;       // ideal distance between connected nodes
+const SPRING_REST = 280;       // ideal distance between connected nodes
 const CENTER_GRAVITY = 0.0002; // very gentle centre pull
 const CLUSTER_GRAVITY = 0.003; // pull nodes toward their category anchor
-const COOLING_RATE = 0.992;    // temperature decay per tick — converges in ~600 ticks
+const COOLING_RATE = 0.992;    // temperature decay per tick
 const LONG_PRESS_MS = 320;
 
 const CATEGORY_COLORS = {
@@ -479,10 +479,18 @@ class LoreGraphV2 {
 
         this._isMobile = window.innerWidth < 768;
 
+        // ── Edge layer cache (offscreen canvas) ──
+        // All edges are pre-rendered to an offscreen canvas and stamped via drawImage().
+        // This replaces 400+ individual bezier draw calls with 1 GPU blit per frame.
+        // The cache is only re-rendered when edges/nodes actually change (not on pan/zoom).
+        this._edgeLayerCanvas = document.createElement('canvas');
+        this._edgeLayerCtx = this._edgeLayerCanvas.getContext('2d');
+        this._edgeCacheDirty = true;
+
         this._initNodes();
         this._initEdges();
-        this._initialLayoutDone = false; // Bug 5: layout deferred to first _resize()
-        this._resize();                  // _resize() calls _applyStaticCategoryLayout() on first run
+        this._initialLayoutDone = false;
+        this._resize();
         this._wireToolbar();
         this._wireSearch();
         this._wireSimulator();
@@ -645,61 +653,44 @@ class LoreGraphV2 {
     }
 
     /**
-     * Place nodes at initial positions based on category anchors + random jitter.
-     * Connected nodes are pulled slightly toward each other's midpoint for a
-     * better starting state before the force simulation runs.
+     * Place nodes in a clean, non-overlapping layout.
+     * Uses a grid-per-category approach that guarantees no overlap.
      */
     _computeInitialPositions() {
         const W = this.W || 800;
         const H = this.H || 600;
-        const PAD = 80;
+        const PAD = 60;
 
         this._computeCategoryAnchors();
 
-        // Count nodes per category for jitter radius scaling
-        const catCounts = new Map();
+        // Group nodes by category
+        const groups = new Map();
         for (const node of this.nodes) {
-            catCounts.set(node.category, (catCounts.get(node.category) || 0) + 1);
+            if (!groups.has(node.category)) groups.set(node.category, []);
+            groups.get(node.category).push(node);
         }
 
-        // Place each node near its category anchor with jitter
-        for (const node of this.nodes) {
-            const anchor = _dynamicAnchors[node.category] || { nx: 0.5, ny: 0.5 };
-            const cx = PAD + (W - PAD * 2) * anchor.nx;
-            const cy = PAD + (H - PAD * 2) * anchor.ny;
-            const count = catCounts.get(node.category) || 1;
-            // Jitter radius grows with sqrt(count) — more entries = wider spread
-            const jitterR = Math.min(Math.sqrt(count) * 28, Math.min(W, H) * 0.28);
-            const angle = Math.random() * Math.PI * 2;
-            const r = Math.random() * jitterR;
-            node.x = cx + r * Math.cos(angle);
-            node.y = cy + r * Math.sin(angle) * 0.75; // slightly flatter
-            node.vx = 0;
-            node.vy = 0;
-        }
+        const GAP_X = NODE_W * 1.4;  // horizontal gap between cards
+        const GAP_Y = NODE_H * 2.4;  // vertical gap between cards
 
-        // Nudge connected nodes toward each other's midpoint for better starting state
-        const adj = new Map();
-        for (const edge of this.edges) {
-            if (!adj.has(edge.sourceUid)) adj.set(edge.sourceUid, []);
-            if (!adj.has(edge.targetUid)) adj.set(edge.targetUid, []);
-            adj.get(edge.sourceUid).push(edge.targetUid);
-            adj.get(edge.targetUid).push(edge.sourceUid);
-        }
-        // One pass: move each node 15% toward the average position of its neighbors
-        for (const node of this.nodes) {
-            const neighbors = adj.get(node.uid);
-            if (!neighbors || neighbors.length === 0) continue;
-            let avgX = 0, avgY = 0, count = 0;
-            for (const nuid of neighbors) {
-                const nb = this._nodeByUid(nuid);
-                if (nb) { avgX += nb.x; avgY += nb.y; count++; }
-            }
-            if (count > 0) {
-                avgX /= count; avgY /= count;
-                node.x += (avgX - node.x) * 0.15;
-                node.y += (avgY - node.y) * 0.15;
-            }
+        for (const [cat, catNodes] of groups) {
+            const anchor = _dynamicAnchors[cat] || { nx: 0.5, ny: 0.5 };
+            // Compute grid dimensions for this category
+            const cols = Math.max(1, Math.ceil(Math.sqrt(catNodes.length * 1.6)));
+            const gridW = cols * GAP_X;
+            const gridH = Math.ceil(catNodes.length / cols) * GAP_Y;
+            // Center the grid on the category anchor
+            const originX = PAD + (W - PAD * 2) * anchor.nx - gridW / 2;
+            const originY = PAD + (H - PAD * 2) * anchor.ny - gridH / 2;
+
+            catNodes.forEach((node, i) => {
+                const col = i % cols;
+                const row = Math.floor(i / cols);
+                node.x = originX + col * GAP_X + (Math.random() - 0.5) * 20;
+                node.y = originY + row * GAP_Y + (Math.random() - 0.5) * 10;
+                node.vx = 0;
+                node.vy = 0;
+            });
         }
     }
 
@@ -713,7 +704,7 @@ class LoreGraphV2 {
         const W = parent.clientWidth || 800;
         const H = parent.clientHeight || 600;
         const rawDpr = window.devicePixelRatio || 1;
-        this.dpr = this._isMobile ? Math.min(rawDpr, 2) : rawDpr;
+        this.dpr = Math.min(rawDpr, 1.5); // cap DPR to save GPU memory
 
         this.canvas.style.width = W + 'px';
         this.canvas.style.height = H + 'px';
@@ -735,9 +726,7 @@ class LoreGraphV2 {
         if (!this._initialLayoutDone && this.nodes?.length) {
             this._initialLayoutDone = true;
             this._computeInitialPositions();
-            // Start a cooling force simulation to refine positions
-            this._physicsTemp = 1.0;
-            this.physicsEnabled = true;
+            this._fitAll();
             this._markDirty();
         }
     }
@@ -767,11 +756,16 @@ class LoreGraphV2 {
             if (this.physicsEnabled) {
                 this._physicsTick();
                 this._dirty = true;
+                this._edgeCacheDirty = true; // nodes moved → edges need re-render
             }
 
             if (this._dirty) {
                 this._render();
-                this._renderMinimap();
+                // Throttle minimap during physics (every 5th frame)
+                this._minimapTick = (this._minimapTick || 0) + 1;
+                if (!this.physicsEnabled || this._minimapTick % 5 === 0) {
+                    this._renderMinimap();
+                }
                 this._dirty = false;
             }
 
@@ -783,10 +777,15 @@ class LoreGraphV2 {
         });
     }
 
-    /** Mark canvas dirty and restart the idle rAF loop if needed. */
-    _markDirty() {
+    /**
+     * Mark canvas dirty and restart the idle rAF loop if needed.
+     * @param {boolean} [edgesToo=false] — also invalidate the edge layer cache
+     *   (only needed when nodes move or selection/edges change, NOT for pan/zoom)
+     */
+    _markDirty(edgesToo) {
         this._dirty = true;
-        this._scheduleFrame(); // no-op if already running
+        if (edgesToo) this._edgeCacheDirty = true;
+        this._scheduleFrame();
     }
 
     destroy() {
@@ -926,23 +925,31 @@ class LoreGraphV2 {
         const vpTop = -this.vpY / this.scale;
         const vpRight = vpLeft + this.W / this.scale;
         const vpBottom = vpTop + this.H / this.scale;
-        // Margin: include nodes/edges slightly outside viewport for smooth scrolling
         const CULL_PAD = NODE_W * 2;
         const cullL = vpLeft - CULL_PAD;
         const cullR = vpRight + CULL_PAD;
         const cullT = vpTop - CULL_PAD;
         const cullB = vpBottom + CULL_PAD;
 
-        // Edges — skip if both endpoints are outside viewport
-        for (const edge of this.edges) {
-            const s = this._nodeByUid(edge.sourceUid);
-            const t = this._nodeByUid(edge.targetUid);
-            if (s && t) {
-                // Skip edge only if BOTH nodes are fully outside viewport
-                const sVis = s.x >= cullL && s.x <= cullR && s.y >= cullT && s.y <= cullB;
-                const tVis = t.x >= cullL && t.x <= cullR && t.y >= cullT && t.y <= cullB;
-                if (sVis || tVis) this._drawEdge(ctx, edge);
-            }
+        // ── Edge Layer (cached offscreen canvas) ──
+        // Auto-detect matchedUids/selectedUids changes (edge alpha depends on them)
+        if (this.matchedUids !== this._lastMatchedRef) {
+            this._edgeCacheDirty = true;
+            this._lastMatchedRef = this.matchedUids;
+        }
+        // Rebuild edge cache only when edges/nodes actually change.
+        // Pan/zoom reuses the cached layer via drawImage — zero edge draw calls.
+        if (this._edgeCacheDirty) {
+            this._rebuildEdgeCache();
+            this._edgeCacheDirty = false;
+        }
+        // Stamp the cached edge layer at its world-space position
+        if (this._edgeLayerCanvas.width > 0 && this._edgeScale) {
+            const invS = 1 / this._edgeScale;
+            ctx.drawImage(this._edgeLayerCanvas,
+                this._edgeWorldOffX, this._edgeWorldOffY,
+                this._edgeLayerCanvas.width * invS,
+                this._edgeLayerCanvas.height * invS);
         }
 
         // Lasso selection rect
@@ -962,15 +969,68 @@ class LoreGraphV2 {
             ctx.setLineDash([]);
         }
 
-        // Nodes — skip if outside viewport
+        // ── Node rendering with 3-tier LOD ──
+        // LOD 0 (zoom < 0.35): colored rectangles only — zero text rendering
+        // LOD 1 (zoom 0.35-0.7): cards with top bar + border, no text
+        // LOD 2 (zoom > 0.7): full detail with name + token text
+        const lod = this.scale < 0.35 ? 0 : (this.scale < 0.7 ? 1 : 2);
+
         for (const node of this.nodes) {
             if (node.x >= cullL && node.x <= cullR && node.y >= cullT && node.y <= cullB) {
-                this._drawNode(ctx, node);
+                this._drawNodeLOD(ctx, node, lod);
             }
         }
 
         ctx.restore();
     }
+
+    /**
+     * Rebuild the offscreen edge cache. Called only when _edgeCacheDirty is true.
+     * The offscreen canvas is sized to the world bounding box of all nodes.
+     */
+    _rebuildEdgeCache() {
+        // Compute world bounds
+        let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+        for (const n of this.nodes) {
+            if (n.x < minX) minX = n.x;
+            if (n.x > maxX) maxX = n.x;
+            if (n.y < minY) minY = n.y;
+            if (n.y > maxY) maxY = n.y;
+        }
+        minX -= NODE_W; maxX += NODE_W * 2;
+        minY -= NODE_H; maxY += NODE_H * 2;
+        const worldW = maxX - minX || 1;
+        const worldH = maxY - minY || 1;
+
+        // Size offscreen canvas to world bounds (at 1:1 scale — always sharp enough for edges)
+        this._edgeLayerCanvas.width = Math.min(worldW, 6000);
+        this._edgeLayerCanvas.height = Math.min(worldH, 4000);
+        this._edgeWorldOffX = minX;
+        this._edgeWorldOffY = minY;
+        const ec = this._edgeLayerCtx;
+        const scaleX = this._edgeLayerCanvas.width / worldW;
+        const scaleY = this._edgeLayerCanvas.height / worldH;
+        const es = Math.min(scaleX, scaleY);
+
+        ec.clearRect(0, 0, this._edgeLayerCanvas.width, this._edgeLayerCanvas.height);
+        ec.save();
+        ec.scale(es, es);
+        ec.translate(-minX, -minY);
+
+        // Draw all edges to the offscreen canvas
+        // Temporarily set this.scale = 1 because _drawEdge uses this.scale for line widths
+        const savedScale = this.scale;
+        this.scale = 1;
+        for (const edge of this.edges) {
+            this._drawEdge(ec, edge);
+        }
+        this.scale = savedScale;
+        ec.restore();
+
+        // Store transform for compositing
+        this._edgeScale = es;
+    }
+
 
     _drawGrid(ctx) {
         const gs = GRID_SIZE;
@@ -1079,7 +1139,13 @@ class LoreGraphV2 {
         ctx.restore();
     }
 
-    _drawNode(ctx, node) {
+    /**
+     * Draw a node with level-of-detail based on zoom.
+     * LOD 0: colored rectangle (1 fill)
+     * LOD 1: dark card + top bar + border (3 draws)
+     * LOD 2: full detail with text (6 draws)
+     */
+    _drawNodeLOD(ctx, node, lod) {
         const nw = this._nodeWidth(node);
         const nh = NODE_H;
         const x = node.x - nw / 2;
@@ -1088,131 +1154,79 @@ class LoreGraphV2 {
         const baseColor = CATEGORY_COLORS[node.category] || CATEGORY_COLORS['Uncategorized'];
         const isSelected = this.selectedUids.has(node.uid);
         const isFiltered = this.matchedUids !== null && !this.matchedUids.has(node.uid);
-        const isSimActive = this._getSimPassForUid(node.uid);
         const isDisabled = node.entry.enabled === false;
-        const alpha = isFiltered ? 0.15 : (isDisabled ? 0.35 : 1);
+        const alpha = isFiltered ? 0.12 : (isDisabled ? 0.3 : 1);
 
         ctx.save();
         ctx.globalAlpha = alpha;
 
-        // Memory opt: NO shadowBlur. canvas.shadowBlur forces the browser to allocate
-        // a separate offscreen compositing buffer per draw call and run a gaussian blur
-        // pass. For 100 nodes that was hundreds of shadow ops per frame.
-        // Selected nodes get a thick bright border instead (same visual signal, zero cost).
+        // ── LOD 0: Simple colored rectangle (1 draw call) ──
+        if (lod === 0) {
+            const isSimActive = this._getSimPassForUid(node.uid);
+            ctx.fillStyle = isSimActive ? _simPassColor(isSimActive) : baseColor;
+            ctx.fillRect(x, y, nw, nh);
+            if (isSelected) {
+                ctx.strokeStyle = '#a78bfa';
+                ctx.lineWidth = 3;
+                ctx.strokeRect(x, y, nw, nh);
+            }
+            ctx.restore();
+            return;
+        }
 
-        // Node background — 0.80 opacity for solid, dark, visible cards
-        ctx.fillStyle = isSimActive ? _simPassColor(isSimActive) : _hexWithAlpha(baseColor, 0.80);
-        _roundRect(ctx, x, y, nw, nh, NODE_R / this.scale);
+        const r = NODE_R / this.scale;
+
+        // ── LOD 1+2: Dark card background ──
+        const isSimActive = this._getSimPassForUid(node.uid);
+        ctx.fillStyle = isSimActive ? _simPassColor(isSimActive) : 'rgba(18,20,28,0.92)';
+        _roundRect(ctx, x, y, nw, nh, r);
         ctx.fill();
 
-        // Category accent bar — 3px solid strip on left edge for quick visual category ID
-        if (!isFiltered) {
-            ctx.fillStyle = baseColor;
-            const barW = 4 / this.scale;
-            const r = NODE_R / this.scale;
-            ctx.beginPath();
-            ctx.moveTo(x + r, y);
-            ctx.lineTo(x + barW, y);
-            ctx.lineTo(x + barW, y + nh);
-            ctx.lineTo(x + r, y + nh);
-            ctx.arc(x + r, y + nh - r, r, Math.PI * 0.5, Math.PI);
-            ctx.lineTo(x, y + r);
-            ctx.arc(x + r, y + r, r, Math.PI, Math.PI * 1.5);
-            ctx.closePath();
-            ctx.fill();
-        }
+        // Category color top bar (4px)
+        ctx.fillStyle = baseColor;
+        const barH = 4 / this.scale;
+        ctx.beginPath();
+        ctx.moveTo(x + r, y);
+        ctx.lineTo(x + nw - r, y);
+        ctx.arc(x + nw - r, y + r, r, -Math.PI / 2, 0);
+        ctx.lineTo(x + nw, y + barH);
+        ctx.lineTo(x, y + barH);
+        ctx.lineTo(x, y + r);
+        ctx.arc(x + r, y + r, r, Math.PI, -Math.PI / 2);
+        ctx.closePath();
+        ctx.fill();
 
-        // Hub ring: nodes with many connections get a subtle outer ring
-        const cc = node.connectionCount || 0;
-        if (cc >= 4 && !isFiltered) {
-            const ringW = Math.min(cc, 10) * 0.35 + 1;
-            ctx.strokeStyle = _hexWithAlpha(baseColor, 0.35);
-            ctx.lineWidth = ringW / this.scale;
-            ctx.setLineDash([]);
-            _roundRect(ctx, x - ringW / this.scale, y - ringW / this.scale,
-                       nw + ringW * 2 / this.scale, nh + ringW * 2 / this.scale,
-                       (NODE_R + ringW) / this.scale);
-            ctx.stroke();
-        }
-
-        // Border — thick bright purple for selected, category color otherwise.
-        // Constant entries get a brighter, slightly thicker border (static, not pulsing).
-        const borderWidth = isSelected ? 2.5 : (node.entry.constant ? 2 : 1.5);
-        const borderColor = isSelected
-            ? '#a78bfa'
-            : (node.entry.constant ? baseColor : _hexWithAlpha(baseColor, 0.7));
-        ctx.strokeStyle = borderColor;
+        // Border
+        const borderWidth = isSelected ? 2.5 : (node.entry.constant ? 1.8 : 1);
+        ctx.strokeStyle = isSelected ? '#a78bfa' : _hexWithAlpha(baseColor, 0.5);
         ctx.lineWidth = borderWidth / this.scale;
         ctx.setLineDash(node.entry.constant ? [4, 2] : []);
-        _roundRect(ctx, x, y, nw, nh, NODE_R / this.scale);
+        _roundRect(ctx, x, y, nw, nh, r);
         ctx.stroke();
         ctx.setLineDash([]);
 
-        // Category bar on left edge
-        ctx.fillStyle = baseColor;
-        _roundRect(ctx, x, y + 2 / this.scale, 4 / this.scale, nh - 4 / this.scale, 2 / this.scale);
-        ctx.fill();
+        // ── LOD 2: Full text detail ──
+        if (lod >= 2) {
+            const textX = x + 8 / this.scale;
+            const textY = y + nh / 2;
 
-        // World node badge (left of name)
-        const startX = x + 10 / this.scale;
-        let textX = startX;
-        const textY = y + nh / 2;
+            // Entry name (white, bold)
+            const nameFS = Math.max(9, 12 / this.scale);
+            ctx.font = `700 ${nameFS}px 'Inter', sans-serif`;
+            ctx.fillStyle = isDisabled ? '#555' : '#fff';
+            ctx.textBaseline = 'middle';
+            const maxNameW = nw - 16 / this.scale;
+            ctx.fillText(_abbreviateCanvas(ctx, node.name, maxNameW), textX, textY - 6 / this.scale);
 
-        if (node.worldNode) {
-            ctx.font = `${11 / this.scale}px sans-serif`;
-            ctx.fillText('🌍', textX, textY + 4 / this.scale);
-            textX += 16 / this.scale;
+            // Token count (dim)
+            const tokenFS = Math.max(7, 9 / this.scale);
+            ctx.font = `${tokenFS}px 'Inter', sans-serif`;
+            ctx.fillStyle = '#666';
+            ctx.fillText(`~${node.tokens}t`, textX, textY + 8 / this.scale);
         }
 
-        // Entry name
-        const nameFS = Math.max(9, 11 / this.scale);
-        ctx.font = `600 ${nameFS}px 'Inter', sans-serif`;
-        ctx.fillStyle = isDisabled ? '#666' : '#e8e8e8';
-        ctx.textBaseline = 'middle';
-        const maxNameW = nw - 30 / this.scale - (textX - startX);
-        const nameTxt = _abbreviateCanvas(ctx, node.name, maxNameW);
-        ctx.fillText(nameTxt, textX, textY - 7 / this.scale);
-
-        // Token count + category badge
-        const tokenFS = Math.max(7.5, 9 / this.scale);
-        ctx.font = `${tokenFS}px 'Inter', sans-serif`;
-        ctx.fillStyle = '#999';
-        ctx.fillText(`~${node.tokens}t`, textX, textY + 7 / this.scale);
-
-        // Category badge (right side)
-        const catLabel = node.category.length > 8 ? node.category.substring(0, 7) + '…' : node.category;
-        const badgeFS = Math.max(7, 8.5 / this.scale);
-        ctx.font = `${badgeFS}px 'Inter', sans-serif`;
-        const badgeW = ctx.measureText(catLabel).width + 6 / this.scale;
-        const badgeX = x + nw - badgeW - 4 / this.scale;
-        const badgeY = y + 4 / this.scale;
-        ctx.fillStyle = _hexWithAlpha(baseColor, 0.3);
-        _roundRect(ctx, badgeX, badgeY, badgeW, 12 / this.scale, 2 / this.scale);
-        ctx.fill();
-        ctx.fillStyle = baseColor;
-        ctx.textBaseline = 'top';
-        ctx.fillText(catLabel, badgeX + 3 / this.scale, badgeY + 1.5 / this.scale);
-
-        // Flag icons (top-right area)
-        let flagX = x + nw - 6 / this.scale;
-        const flagY = y + nh - 13 / this.scale;
-        ctx.font = `${10 / this.scale}px sans-serif`;
-        ctx.textBaseline = 'alphabetic';
-
-        if (node.entry.preventRecursion) {
-            ctx.fillText('🛑', flagX - 12 / this.scale, flagY);
-            flagX -= 14 / this.scale;
-        }
-        if ((node.entry.probability ?? 100) < 100) {
-            ctx.fillText('🎲', flagX - 12 / this.scale, flagY);
-            flagX -= 14 / this.scale;
-        }
-        if (node.pinned) {
-            ctx.fillText('📌', x + 2 / this.scale, flagY);
-        }
         if (isDisabled) {
-            // Strikethrough overlay
-            ctx.strokeStyle = 'rgba(255,80,80,0.5)';
+            ctx.strokeStyle = 'rgba(255,80,80,0.4)';
             ctx.lineWidth = 1 / this.scale;
             ctx.beginPath();
             ctx.moveTo(x + 4 / this.scale, y + nh / 2);
@@ -1220,7 +1234,6 @@ class LoreGraphV2 {
             ctx.stroke();
         }
 
-        ctx.globalAlpha = 1;
         ctx.restore();
     }
 
@@ -2227,7 +2240,7 @@ ${!readOnly ? `
             this.dragNode.vy = 0;
             this.isDragging = true;
             this._hideTooltip(); // hide while dragging
-            this._markDirty();
+            this._markDirty(true); // node moved → edge cache dirty
         } else if (this.isLassoing) {
             const rect = this.canvas.getBoundingClientRect();
             const world = this._screenToWorld(e.clientX - rect.left, e.clientY - rect.top);
@@ -2377,6 +2390,7 @@ ${!readOnly ? `
         if (neighborUids.size > 1) {
             this.matchedUids = neighborUids;
         }
+        this._edgeCacheDirty = true; // edge visibility changed
     }
 
     // ─── Touch Events ─────────────────────────────────────────────────────────
@@ -2459,7 +2473,7 @@ ${!readOnly ? `
             this.dragNode.vy = 0;
             this.isDragging = true;
             clearTimeout(this.longPressTimer);
-            this._markDirty();
+            this._markDirty(true); // node moved → edge cache dirty
         } else if (this.isPanning) {
             this.vpX = touch.clientX - this.panStartX;
             this.vpY = touch.clientY - this.panStartY;
@@ -2655,9 +2669,14 @@ function _buildEdgesFromEntries(entries, nodes, isMultiBook) {
     // 2000-5000 token content; 800 chars missed keywords appearing mid-entry.
     // OOM risk is still bounded by the MAX_EDGES=400 cap on total output edges.
     const CONTENT_SCAN_LEN = 2000;
+    // Pre-compute lowercased keys per entry (avoids re-filtering inside O(N²) loop)
+    const entryKeys = new Map();
+    for (const e of entries) {
+        const keys = (e.keys || []).filter(k => k.length > 2).map(k => k.toLowerCase());
+        entryKeys.set(e.uid, keys);
+    }
     for (const entryA of entries) {
         if (edges.length >= MAX_EDGES) break;
-        // Truncate content to avoid scanning huge strings 100× per entry
         const contentA = (entryA.content || '').slice(0, CONTENT_SCAN_LEN).toLowerCase();
         const uidA = entryA._world ? `world_${entryA.uid}` : entryA.uid;
 
@@ -2665,9 +2684,8 @@ function _buildEdgesFromEntries(entries, nodes, isMultiBook) {
             if (edges.length >= MAX_EDGES) break;
             if (entryA.uid === entryB.uid) continue;
             const uidB = entryB._world ? `world_${entryB.uid}` : entryB.uid;
-            // Fix 3: filter keys outside inner search (avoid recomputing per every B for same A)
-            const keysB = (entryB.keys || []).filter(k => k.length > 2);
-            const matchedKey = keysB.find(k => contentA.includes(k.toLowerCase()));
+            const keysB = entryKeys.get(entryB.uid) || [];
+            const matchedKey = keysB.find(k => contentA.includes(k));
             if (!matchedKey) continue;
 
             // Determine edge type

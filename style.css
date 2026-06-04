@@ -1861,6 +1861,39 @@ html {
   margin-right: 2px;
 }
 
+/* Tool Activity Badge */
+.ccs-tool-activity {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 10px;
+  border-radius: 100px;
+  background: var(--ccs-accent-glow);
+  border: 1px solid var(--ccs-accent-dim);
+  color: var(--ccs-accent-hover);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.2px;
+  margin-left: auto;
+  animation: ccs-tool-slide-in 0.2s ease-out;
+  white-space: nowrap;
+}
+.ccs-tool-activity i {
+  font-size: 9px;
+  animation: ccs-tool-pulse 1.5s ease-in-out infinite;
+}
+.ccs-tool-activity-label {
+  font-family: var(--ccs-font-mono);
+}
+@keyframes ccs-tool-pulse {
+  0%, 100% { opacity: 0.6; }
+  50% { opacity: 1; }
+}
+@keyframes ccs-tool-slide-in {
+  from { opacity: 0; transform: translateX(12px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+
 
 /* ═══════════════════════════════════════════════════════════════════════════
    15. RESPONSIVE — MOBILE (< 768px)
