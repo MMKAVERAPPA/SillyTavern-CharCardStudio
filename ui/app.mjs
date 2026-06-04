@@ -367,8 +367,9 @@ function _renderConceptTab() {
         return;
     }
 
-    const progress = calculateProgress(pillars);
-    const sub = getSubProgress(pillars);
+    const activePillars = pillars.filter(p => p.id !== 'system_prompt');
+    const progress = calculateProgress(activePillars);
+    const sub = getSubProgress(activePillars);
     if (countEl) countEl.textContent = `${progress.done}/${progress.total - progress.skipped}`;
 
     const STATUS_ICONS = {
@@ -378,8 +379,8 @@ function _renderConceptTab() {
         pending: '<i class="fa-regular fa-circle" style="color: var(--ccs-text-secondary)"></i>',
     };
 
-    const structural = pillars.filter(p => p.category === 'structural');
-    const world = pillars.filter(p => p.category === 'world');
+    const structural = activePillars.filter(p => p.category === 'structural');
+    const world = activePillars.filter(p => p.category === 'world');
 
     let html = '';
 

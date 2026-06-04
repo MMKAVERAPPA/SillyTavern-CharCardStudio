@@ -547,3 +547,85 @@ async function _clearAllSessions() {
         showToast(`Failed: ${err.message}`, 'error');
     }
 }
+
+// ─── Memory UI ─────────────────────────────────────────────────────────────
+
+async function _syncMemoryUI() {
+    const session = getSession();
+    if (!session) {
+        if (el('ccs_memory_global_list')) el('ccs_memory_global_list').innerHTML = '<p class="ccs-empty-state">No session loaded</p>';
+        if (el('ccs_memory_char_list')) el('ccs_memory_char_list').innerHTML = '<p class="ccs-empty-state">No session loaded</p>';
+        if (el('ccs_memory_learnings_list')) el('ccs_memory_learnings_list').innerHTML = '<p class="ccs-empty-state">No session loaded</p>';
+        return;
+    }
+
+    const mem = await getAllMemory(session);
+
+    function buildListHtml(entries, type) {
+        if (!entries || entries.length === 0) return '<p class="ccs-empty-state">No rules yet.</p>';
+        return entries.map(e => `
+            <div class="ccs-memory-item">
+                <span class="ccs-memory-content">${e.content}</span>
+                <button class="ccs-icon-btn ccs-memory-delete-btn" data-type="${type}" data-id="${e.id}" title="Remove rule">
+                    <i class="fa-solid fa-trash"></i>
+                </button>
+            </div>
+        `).join('');
+    }
+
+    const gList = el('ccs_memory_global_list');
+    if (gList) gList.innerHTML = buildListHtml(mem.global, 'global_rule');
+
+    const cList = el('ccs_memory_char_list');
+    if (cList) cList.innerHTML = buildListHtml(mem.character, 'session_rule');
+
+    const lList = el('ccs_memory_learnings_list');
+    if (lList) lList.innerHTML = buildListHtml(mem.learnings, 'learning');
+}
+
+function _bindMemoryEvents() {
+    // Add Global Rule
+    const gAdd = el('ccs_memory_global_add');
+    if (gAdd) {
+        gAdd.addEventListener('click', async () => {
+            const input = el('ccs_memory_global_input');
+            const val = input.value.trim();
+            if (!val) return;
+            gAdd.disabled = true;
+            await addMemoryRule('global_rule', val, 'user');
+            input.value = '';
+            await _syncMemoryUI();
+            gAdd.disabled = false;
+        });
+    }
+
+    // Add Character Rule
+    const cAdd = el('ccs_memory_char_add');
+    if (cAdd) {
+        cAdd.addEventListener('click', async () => {
+            const input = el('ccs_memory_char_input');
+            const val = input.value.trim();
+            if (!val) return;
+            cAdd.disabled = true;
+            await addMemoryRule('session_rule', val, 'user');
+            input.value = '';
+            await _syncMemoryUI();
+            cAdd.disabled = false;
+        });
+    }
+
+    // Handle Deletes via delegation
+    const memoryPanel = document.querySelector('[data-settings-panel="memory"]');
+    if (memoryPanel) {
+        memoryPanel.addEventListener('click', async (e) => {
+            const btn = e.target.closest('.ccs-memory-delete-btn');
+            if (btn) {
+                const type = btn.dataset.type;
+                const id = btn.dataset.id;
+                btn.disabled = true;
+                await removeMemoryRule(type, id);
+                await _syncMemoryUI();
+            }
+        });
+    }
+}
