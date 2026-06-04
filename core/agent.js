@@ -187,6 +187,14 @@ async function _agentLoop(userText, session, signal, callbacks) {
     // Handle empty response
     if (!responseText.trim()) {
       console.warn('[CCS] Empty response from LLM');
+      
+      // If we already have prose accumulated from a previous iteration (e.g. before a tool call),
+      // an empty response simply means the AI is done. Break safely.
+      if (finalResponseText.trim()) {
+        log('[CCS] Empty response received, but we have accumulated prose. Stopping iteration safely.');
+        break;
+      }
+
       if (iteration < MAX_ITERATIONS - 1) {
         messages.push({
           role: 'user',
@@ -506,22 +514,30 @@ async function _callLLM(messages, signal) {
   const mainProfileId = getMainProfileId();
   let result;
 
-  if (mainProfileId) {
-    // Route through the user's chosen main connection profile
-    log('[CCS] Using main API profile:', mainProfileId);
-    result = await generateChat(messages, {
-      name: 'ccs-agent',
-      profileId: mainProfileId,
-      signal,
-      returnObject: true,
-    });
-  } else {
-    // Default: ST's active connection via generateRaw
-    result = await generateText(messages, {
-      name: 'ccs-agent',
-      signal,
-      returnObject: true,
-    });
+  try {
+    if (mainProfileId) {
+      // Route through the user's chosen main connection profile
+      log('[CCS] Using main API profile:', mainProfileId);
+      result = await generateChat(messages, {
+        name: 'ccs-agent',
+        profileId: mainProfileId,
+        signal,
+        returnObject: true,
+      });
+    } else {
+      // Default: ST's active connection via generateRaw
+      result = await generateText(messages, {
+        name: 'ccs-agent',
+        signal,
+        returnObject: true,
+      });
+    }
+  } catch (err) {
+    if (err && err.message && (err.message.includes('No message generated') || err.message.includes('No text returned'))) {
+      log('[CCS] LLM returned empty response / No message generated. Returning gracefully.');
+      return { text: '', reasoning: '' };
+    }
+    throw err;
   }
 
   let text = result.text || '';
