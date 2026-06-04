@@ -12,7 +12,6 @@ export const STRUCTURAL_PILLARS = [
     { id: 'description',      name: 'Description',        weight: 2,   field: 'description',         category: 'structural' },
     { id: 'first_mes',        name: 'First Message',      weight: 2,   field: 'first_mes',           category: 'structural' },
     { id: 'personality',      name: 'Personality',         weight: 2,   field: 'personality',         category: 'structural' },
-    { id: 'system_prompt',    name: 'System Prompt',       weight: 1,   field: 'system_prompt',       category: 'structural' },
     { id: 'scenario',         name: 'Scenario',            weight: 1,   field: 'scenario',            category: 'structural' },
     { id: 'mes_example',      name: 'Example Messages',    weight: 1,   field: 'mes_example',         category: 'structural' },
     { id: 'creator_notes',    name: 'Creator Notes',       weight: 0.5, field: 'creator_notes',       category: 'structural' },

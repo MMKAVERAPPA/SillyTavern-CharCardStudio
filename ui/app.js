@@ -862,10 +862,10 @@ function _renderCardTab() {
         scenario: 'Scenario',
         firstMessage: 'First Message',
         mesExamples: 'Example Messages',
-        system: 'System Prompt',
         creatorNotes: 'Creator Notes',
         charDepthPrompt: 'Character Note',
         alternateGreetings: 'Alt. Greetings',
+        tags: 'Tags',
     };
 
     // Inline Context Tooltips (housekeeping) — hover over a field label to see its purpose.
@@ -875,19 +875,30 @@ function _renderCardTab() {
         scenario:           'Permanent world context: setting, time period, important lore. NOT for the opening scene location — that belongs in First Message only.',
         firstMessage:       'The heart of the card. Written from {{char}} perspective ONLY. Never describe {{user}}\u2019s actions. Use the Flipped Scenario Technique. End open-endedly.',
         mesExamples:        'Show HOW {{char}} talks, not just what. Cover 2+ emotional situations. Include one exchange about appearance. Use <START> / {{user}}: / {{char}}: format.',
-        system:             'DO NOT auto-generate. Belongs to the user\u2019s roleplay setup in ST settings, not the card. Only write if user explicitly requests it. Keep under 100 tokens.',
         creatorNotes:       'Visible only to the card creator. Use for internal notes, trigger warnings, usage tips, or version info. Not sent to the AI in normal roleplay.',
         charDepthPrompt:    'Character Note (Depth 4, System role). For ST: PList goes here. For JanitorAI: PList goes at the bottom of Scenario instead — NOT here.',
         alternateGreetings: 'Each greeting = a completely different opening scenario. First greeting is the universal default. Additional greetings expand replay value dramatically.',
+        tags:               'Comma-separated tags for categorization on character sharing sites (e.g. fantasy, dominant, fluff).',
     };
 
     let totalTokens = 0;
 
     const rows = Object.entries(FIELD_LABELS).map(([key, label]) => {
-        const value = Array.isArray(fields[key])
-            ? fields[key].join('\n---\n')
-            : (fields[key] || '');
-        const preview = value.trim().substring(0, 80).replace(/\n/g, ' ');
+        let value = '';
+        if (key === 'tags' && Array.isArray(fields[key])) {
+            value = fields[key].join(', ');
+        } else {
+            value = Array.isArray(fields[key])
+                ? fields[key].join('\n---\n')
+                : (fields[key] || '');
+        }
+        
+        let preview = value.trim().substring(0, 80).replace(/\n/g, ' ');
+        if (key === 'tags' && value.trim().length > 0) {
+            // Render tags as small badges in the preview
+            preview = value.split(',').map(t => `<span class="ccs-badge ccs-badge--secondary">${escapeHtml(t.trim())}</span>`).join(' ');
+        }
+        
         const hasContent = value.trim().length > 0;
 
         // Token count (cached real count or sync estimate)
@@ -897,9 +908,9 @@ function _renderCardTab() {
         // Check manual edit detection
         const ccsFieldMap = {
             description: 'description', personality: 'personality', scenario: 'scenario',
-            firstMessage: 'first_mes', mesExamples: 'mes_example', system: 'system_prompt',
+            firstMessage: 'first_mes', mesExamples: 'mes_example',
             creatorNotes: 'creator_notes', charDepthPrompt: 'character_note',
-            alternateGreetings: 'alternate_greetings',
+            alternateGreetings: 'alternate_greetings', tags: 'tags',
         };
         const ccsKey = ccsFieldMap[key];
         const storedHash = session?.fieldHashes?.[ccsKey];
@@ -929,7 +940,7 @@ function _renderCardTab() {
                         ${hasContent ? '<span class="ccs-field-toggle fa-solid fa-chevron-down"></span>' : ''}
                     </div>
                 </div>
-                ${hasContent ? `<p class="ccs-field-preview">${escapeHtml(preview)}${value.length > 80 ? '…' : ''}</p>` : ''}
+                ${hasContent ? `<p class="ccs-field-preview">${key === 'tags' ? preview : escapeHtml(preview)}${value.length > 80 && key !== 'tags' ? '…' : ''}</p>` : ''}
                 ${hasContent ? `<div class="ccs-field-detail" style="display: none;"><pre class="ccs-field-full-content">${escapeHtml(value)}</pre></div>` : ''}
                 
                 <!-- Inline edit textarea panel -->

@@ -15,6 +15,7 @@ import {
 } from '../core/session.js';
 import { showToast } from './toast.js';
 import { getCtx } from '../index.js';
+import { getAllMemory, addMemoryRule, removeMemoryRule } from '../core/session-memory.js';
 
 // ─── State ──────────────────────────────────────────────────────────────────
 
@@ -44,6 +45,7 @@ export async function openSettings() {
 
     _syncSettingsUI();
     _updateSessionInfo();
+    _syncMemoryUI();
     _updateStorageInfo();
     await _populateApiDropdowns();
     _wireRunChecksButton();
@@ -123,6 +125,8 @@ function _bindEvents() {
             if (e.target === overlay) closeSettings();
         });
     }
+    
+    _bindMemoryEvents();
 
     // Tab switching
     const tabContainer = document.querySelector('.ccs-settings-tabs');

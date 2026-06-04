@@ -108,9 +108,7 @@ export function renderStagedDraftMessage(draft) {
 }
 
 function _buildDraftCardHtml(draft) {
-    const preview = draft.content.length > 400
-        ? draft.content.substring(0, 400) + '...'
-        : draft.content;
+    const preview = draft.content;
 
     const hasVersions = draft.versions && draft.versions.length > 1;
     const versionIdx = draft.activeVersion ?? 0;

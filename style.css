@@ -5455,3 +5455,54 @@ html {
     font-size: 11px;
   }
 }
+
+/* Scrollable Draft Content */
+.ccs-draft-content {
+  max-height: 350px;
+  overflow-y: auto;
+}
+.ccs-draft-content pre {
+  white-space: pre-wrap;
+  word-wrap: break-word;
+}
+
+/* ─── Memory UI ────────────────────────────────────────────────────────── */
+.ccs-memory-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.ccs-memory-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px;
+  background: var(--ccs-bg-surface);
+  border: 1px solid var(--ccs-border);
+  border-radius: 6px;
+  font-size: 0.9rem;
+}
+
+.ccs-memory-content {
+  flex: 1;
+  margin-right: 12px;
+  word-break: break-word;
+}
+
+.ccs-memory-add-wrap {
+  display: flex;
+  gap: 8px;
+}
+
+.ccs-memory-input {
+  flex: 1;
+}
+
+.ccs-memory-delete-btn {
+  color: var(--ccs-text-muted);
+}
+.ccs-memory-delete-btn:hover {
+  color: var(--ccs-error);
+}
