@@ -804,7 +804,9 @@ export async function applyDraftToCard(draftId) {
       body = JSON.stringify({
         avatar: char.avatar,
         data: {
+          ...char.data,
           extensions: {
+            ...(char.data?.extensions || {}),
             depth_prompt: {
               prompt: draft.content,
               depth: 4,
@@ -821,7 +823,8 @@ export async function applyDraftToCard(draftId) {
       updated[idx] = draft.content;
       body = JSON.stringify({
         avatar: char.avatar,
-        data: { alternate_greetings: updated }
+        alternate_greetings: updated,
+        data: { ...char.data, alternate_greetings: updated }
       });
     } else if (draft.field === 'tags') {
       // Tags: array of strings
@@ -830,13 +833,15 @@ export async function applyDraftToCard(draftId) {
         : draft.content;
       body = JSON.stringify({
         avatar: char.avatar,
-        data: { tags }
+        tags,
+        data: { ...char.data, tags }
       });
     } else {
       // Standard flat fields
       body = JSON.stringify({
         avatar: char.avatar,
-        data: { [mergeKey]: draft.content }
+        [mergeKey]: draft.content,
+        data: { ...char.data, [mergeKey]: draft.content }
       });
     }
 
@@ -959,7 +964,9 @@ export async function saveFieldDirect(fieldName, content, greetingIndex = null) 
       body = JSON.stringify({
         avatar: char.avatar,
         data: {
+          ...char.data,
           extensions: {
+            ...(char.data?.extensions || {}),
             depth_prompt: {
               prompt: content,
               depth: 4,
@@ -979,7 +986,8 @@ export async function saveFieldDirect(fieldName, content, greetingIndex = null) 
       }
       body = JSON.stringify({
         avatar: char.avatar,
-        data: { alternate_greetings: updated }
+        alternate_greetings: updated,
+        data: { ...char.data, alternate_greetings: updated }
       });
     } else if (fieldName === 'tags') {
       const tags = typeof content === 'string'
@@ -987,12 +995,14 @@ export async function saveFieldDirect(fieldName, content, greetingIndex = null) 
         : content;
       body = JSON.stringify({
         avatar: char.avatar,
-        data: { tags }
+        tags,
+        data: { ...char.data, tags }
       });
     } else {
       body = JSON.stringify({
         avatar: char.avatar,
-        data: { [mergeKey]: content }
+        [mergeKey]: content,
+        data: { ...char.data, [mergeKey]: content }
       });
     }
 

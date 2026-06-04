@@ -259,10 +259,16 @@ export function syncPillarsWithCard() {
         const hasContent = Array.isArray(value) ? value.length > 0 : (value?.trim()?.length > 0);
         const pillar = session.pillarStates.find(p => p.field === ccsField);
 
-        if (pillar && hasContent && pillar.status === 'pending') {
-            pillar.status = 'done';
-            pillar.summary = 'Pre-existing content detected';
-            changed = true;
+        if (pillar) {
+            if (hasContent && pillar.status === 'pending') {
+                pillar.status = 'done';
+                pillar.summary = 'Pre-existing content detected';
+                changed = true;
+            } else if (!hasContent && pillar.status === 'done') {
+                pillar.status = 'pending';
+                pillar.summary = null;
+                changed = true;
+            }
         }
     }
 
