@@ -106,9 +106,12 @@ export async function generateText(prompt, options = {}) {
             responseLength: maxTokens,
             prefill,
             jsonSchema,
+            signal: controller.signal,
         });
 
-        return typeof result === 'string' ? result.trim() : String(result ?? '').trim();
+        const text = typeof result === 'string' ? result.trim() : String(result ?? '').trim();
+        if (options.returnObject) return { text, reasoning: '' };
+        return text;
     } catch (err) {
         if (isAbortError(err)) {
             throw new DOMException(`Generation "${name}" was cancelled`, 'AbortError');
@@ -228,20 +231,32 @@ export async function generateChat(messages, options = {}) {
             signal: controller.signal,
         });
 
+        let rawText = '';
+        let rawReasoning = '';
+
         // Handle non-streaming: direct value
-        if (typeof result === 'string') return result.trim();
-        if (result?.text) return result.text.trim();
-        if (result?.content) return result.content.trim();
-        if (result?.message?.content) return result.message.content.trim();
+        if (typeof result === 'string') rawText = result;
+        else if (result?.text) rawText = result.text;
+        else if (result?.content) rawText = result.content;
+        else if (result?.message?.content) {
+            rawText = result.message.content;
+            if (result.message.reasoning) rawReasoning = result.message.reasoning;
+        }
+
+        if (rawText !== '' || !isGenerator(result)) {
+            const text = rawText.trim();
+            if (options.returnObject) return { text, reasoning: rawReasoning.trim() };
+            return text;
+        }
 
         // Handle streaming: async generator
-        const isGenerator = (
+        const isGeneratorFunc = (
             typeof result === 'function' ||
             (result != null && typeof result[Symbol.asyncIterator] === 'function') ||
             (result != null && typeof result.next === 'function')
         );
 
-        if (isGenerator) {
+        if (isGeneratorFunc) {
             const gen = typeof result === 'function' ? result() : result;
             let text = '';
 
@@ -259,11 +274,18 @@ export async function generateChat(messages, options = {}) {
                     text += chunk.content;
                 }
 
+                if (chunk?.reasoning !== undefined) {
+                    rawReasoning += chunk.reasoning;
+                } else if (chunk?.message?.reasoning) {
+                    rawReasoning += chunk.message.reasoning;
+                }
+
                 if (onToken) {
                     try { onToken(text); } catch (_) { /* don't let callback errors kill generation */ }
                 }
             }
 
+            if (options.returnObject) return { text: text.trim(), reasoning: rawReasoning.trim() };
             return text.trim();
         }
 
@@ -338,13 +360,18 @@ export function cancelGeneration(jobId) {
  */
 export function cancelAllGenerations() {
     const count = activeJobs.size;
-    if (count === 0) return 0;
 
     console.log(`[CCS] Cancelling all ${count} active generation(s)`);
     for (const [jobId, job] of activeJobs) {
         job.controller.abort(new DOMException(`Job "${job.name}" cancelled (cancel all)`, 'AbortError'));
     }
     activeJobs.clear();
+
+    // Fallback: invoke SillyTavern's global StopGeneration to ensure API drops
+    if (typeof window.StopGeneration === 'function') {
+        try { window.StopGeneration(); } catch (e) { /* ignore */ }
+    }
+
     return count;
 }
 

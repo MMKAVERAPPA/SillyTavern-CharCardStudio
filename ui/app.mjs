@@ -18,6 +18,7 @@ import { adaptPanelForMode, getWelcomeForMode, getChipsForMode, isModeBlocked } 
 import { showToast } from './toast.js';
 import { openSettings } from './settings-modal.js';
 import { saveFieldDirect } from '../core/tools.js';
+import { renderMarkdown } from './chat.js';
 import { getFieldHistory, buildFieldDiffHtml } from '../core/field-history.js';
 import { sendMessage, triggerAIReview } from './chat.js';
 import { openPromptInspector } from './prompt-inspector.js';
@@ -449,7 +450,7 @@ function _renderConceptTab() {
                 <span class="ccs-brief-word-count">${session.conceptBrief.split(/\s+/).length} words</span>
             </summary>
             <div class="ccs-brief-content">
-                <div class="ccs-brief-text">${escapeHtml(session.conceptBrief)}</div>
+                <div class="ccs-brief-text">${renderMarkdown(session.conceptBrief)}</div>
                 <div class="ccs-brief-annotation-wrap">
                     <label class="ccs-brief-annotation-label">
                         <i class="fa-solid fa-pen-to-square"></i> Your annotations

@@ -492,32 +492,35 @@ async function _callLLM(messages, signal) {
   log('[CCS] Calling LLM with', messages.length, 'messages');
 
   const mainProfileId = getMainProfileId();
-  let text;
+  let result;
 
   if (mainProfileId) {
     // Route through the user's chosen main connection profile
     log('[CCS] Using main API profile:', mainProfileId);
-    text = await generateChat(messages, {
+    result = await generateChat(messages, {
       name: 'ccs-agent',
       profileId: mainProfileId,
       signal,
+      returnObject: true,
     });
   } else {
     // Default: ST's active connection via generateRaw
-    text = await generateText(messages, {
+    result = await generateText(messages, {
       name: 'ccs-agent',
       signal,
+      returnObject: true,
     });
   }
 
-  let reasoning = '';
+  let text = result.text || '';
+  let reasoning = result.reasoning || '';
 
-  // Extract reasoning from <think> tags if present
+  // Fallback: Extract reasoning from <think> tags if present in the text
   const thinkMatch = text.match(/<think>([\s\S]*?)<\/think>/);
   if (thinkMatch) {
-    reasoning = thinkMatch[1].trim();
+    reasoning = (reasoning ? reasoning + '\n' : '') + thinkMatch[1].trim();
     text = text.replace(/<think>[\s\S]*?<\/think>/, '').trim();
-    log('[CCS] Extracted <think> reasoning:', reasoning.length, 'chars');
+    log('[CCS] Extracted <think> reasoning:', thinkMatch[1].trim().length, 'chars');
   }
 
   return { text, reasoning };

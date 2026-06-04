@@ -57,14 +57,10 @@ function _tick() {
     const jobs = getActiveJobs();           // Main + background registered jobs
     const bgStatus = getCheckStatus();      // Background queue checks
 
-    // Count: main generation jobs (named 'ccs-agent') + background check queue
-    const agentJobs = jobs.filter(j => j.name === 'ccs-agent' || j.name === 'agent-response');
-    const utilJobs  = jobs.filter(j => j.name !== 'ccs-agent' && j.name !== 'agent-response');
     const bgPending = bgStatus.pending + (bgStatus.processing ? 1 : 0);
+    const totalVisible = jobs.length + bgPending;
 
-    const totalVisible = utilJobs.length + bgPending;
-
-    _updatePill(totalVisible, utilJobs, bgPending);
+    _updatePill(totalVisible, jobs, bgPending);
 }
 
 // ─── Pill UI ─────────────────────────────────────────────────────────────────
@@ -129,6 +125,7 @@ function _renderTaskList(utilJobs, bgPending) {
 
 function _prettifyJobName(name) {
     const map = {
+        'ccs-agent': 'Agent Generation',
         'ccs-auto-summarize': 'Auto-summarize',
         'ccs-conflict-check': 'Conflict check',
         'ccs-token-check': 'Token check',
@@ -186,7 +183,6 @@ function _wireCancelButtons() {
 function _getCurrentCounts() {
     const jobs = getActiveJobs();
     const bgStatus = getCheckStatus();
-    const utilJobs  = jobs.filter(j => j.name !== 'ccs-agent' && j.name !== 'agent-response');
     const bgPending = bgStatus.pending + (bgStatus.processing ? 1 : 0);
-    return { utilJobs, bgPending };
+    return { utilJobs: jobs, bgPending };
 }

@@ -244,7 +244,7 @@ export function updateRenderedMessage(messageId, updates) {
 
     if (updates.content !== undefined) {
         const contentEl = msgEl.querySelector('.ccs-message-content');
-        if (contentEl) contentEl.innerHTML = _renderMarkdown(updates.content);
+        if (contentEl) contentEl.innerHTML = renderMarkdown(updates.content);
     }
     if (updates.status !== undefined) {
         msgEl.dataset.status = updates.status;
@@ -306,7 +306,7 @@ function _createMessageElement(message) {
             ${!isUser && !isSystem ? '<div class="ccs-message-avatar"><i class="fa-solid fa-wand-magic-sparkles"></i></div>' : ''}
             <div class="ccs-message-body">
                 ${reasoningHtml}
-                <div class="ccs-message-content">${_renderMarkdown(message.content)}</div>
+                <div class="ccs-message-content">${renderMarkdown(message.content)}</div>
                 <div class="ccs-message-meta">
                     <span class="ccs-message-time">${_formatTime(message.timestamp || message.createdAt)}</span>
                     ${message.tokenCount ? `<span class="ccs-message-tokens">${message.tokenCount}t</span>` : ''}
@@ -353,7 +353,7 @@ function _getConverter() {
     return _showdownConverter;
 }
 
-function _renderMarkdown(text) {
+export function renderMarkdown(text) {
     if (!text) return '';
 
     const converter = _getConverter();
@@ -607,7 +607,7 @@ async function _handleMessageAction(action, messageId) {
     switch (action) {
         case 'delete': {
             removeMessage(messageId);
-            removeRenderedMessage(messageId);
+            renderMessages();
             break;
         }
         case 'copy': {

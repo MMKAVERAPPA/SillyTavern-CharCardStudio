@@ -632,7 +632,10 @@ export function removeMessage(messageId) {
     if (!currentSession) return false;
     const idx = currentSession.messages.findIndex(m => m.id === messageId);
     if (idx === -1) return false;
-    currentSession.messages.splice(idx, 1);
+    
+    // Delete this message and all subsequent messages
+    currentSession.messages.splice(idx);
+    
     saveSession();
     notifyListeners();
     return true;
