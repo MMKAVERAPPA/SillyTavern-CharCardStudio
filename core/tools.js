@@ -1,14 +1,14 @@
 /**
- * CharCardStudio v4.0.0 — Tool Implementations
- * 
- * All 10 tools that the agent can call. Each tool receives parameters
+ * CharCardStudio v5.0.0 — Tool Implementations
+ *
+ * All 13 tools that the agent can call. Each tool receives parameters
  * and returns a result string that gets injected back into the conversation.
- * 
+ *
  * Write operations are STAGED — they create drafts that the user must approve.
  */
 
 import { getSession, updateSession, hashString } from './session.js';
-import { getCtx } from '../index.js';
+import { getCtx } from './st-context.js'; // Bug E: was '../index.js' — broke circular chain
 import { updatePillar, addWorldPillar, markPillarDoneByField, calculateProgress } from './pillars.js';
 import { getLorebookEntries, createLorebookEntry, updateLorebookEntry, deleteLorebookEntry, getLorebookTokenBudget } from './lorebook.js';
 import { enqueueCheck } from './background.js';
@@ -49,21 +49,170 @@ const VALID_FIELDS = new Set(Object.keys(CCS_TO_MERGE));
 // ─── Tool Registry ──────────────────────────────────────────────────────────
 
 const TOOLS = {
-  ccs_write_field:      toolWriteField,
-  ccs_read_field:       toolReadField,
-  ccs_update_pillar:    toolUpdatePillar,
-  ccs_create_lore_entry:toolCreateLoreEntry,
-  ccs_read_lore_entries:toolReadLoreEntries,
-  ccs_update_lore_entry:toolUpdateLoreEntry,
-  ccs_delete_lore_entry:toolDeleteLoreEntry,
-  ccs_resolve_conflict: toolResolveConflict,
-  ccs_update_memory:    toolUpdateMemory,
-  ccs_audit_card:       toolAuditCard,
-  ccs_submit_review:    toolSubmitReview,
+  ccs_write_field:       toolWriteField,
+  ccs_read_field:        toolReadField,
+  ccs_update_pillar:     toolUpdatePillar,
+  ccs_batch_pillars:     toolBatchPillars,
+  ccs_switch_phase:      toolSwitchPhase,
+  ccs_create_lore_entry: toolCreateLoreEntry,
+  ccs_read_lore_entries: toolReadLoreEntries,
+  ccs_update_lore_entry: toolUpdateLoreEntry,
+  ccs_delete_lore_entry: toolDeleteLoreEntry,
+  ccs_resolve_conflict:  toolResolveConflict,
+  ccs_update_memory:     toolUpdateMemory,
+  ccs_audit_card:        toolAuditCard,
+  ccs_submit_review:     toolSubmitReview,
+  ccs_set_card_type:     toolSetCardType,
+  ccs_set_platform:      toolSetPlatform,
+  ccs_write_brief:       toolWriteBrief,
+  ccs_read_brief:        toolReadBrief,
+  ccs_write_lore_plan:   toolWriteLorePlan,
+  ccs_read_lore_plan:    toolReadLorePlan,
+  ccs_optimize_tokens:        toolOptimizeTokens,
+  ccs_semantic_search:        toolSemanticSearch,
+  ccs_read_lore_graph:        toolReadLoreGraph,
+  ccs_suggest_lore_connections: toolSuggestLoreConnections,
+  ccs_generate_avatar_prompt:   toolGenerateAvatarPrompt,
+};
+
+// ─── Tool Parameter Validation & Coercion ───────────────────────────────────
+
+/**
+ * Type coercion rules per tool.
+ * Models frequently output strings where booleans / numbers / arrays are expected.
+ * Coercions run BEFORE the tool handler so handlers always receive clean types.
+ *
+ * ST constraint note: SillyTavern's native registerFunctionTool (with JSON Schema)
+ * only works for main-chat generation, NOT for generateRaw. CCS uses generateRaw
+ * for its agent loop, so this manual coercion layer is the correct approach.
+ */
+const TOOL_COERCIONS = {
+  ccs_write_field: {
+    required: ['field', 'content'],
+    coerce: {
+      content: v => String(v ?? ''),
+      greeting_index: v => (v !== undefined ? Number(v) || 0 : undefined),
+    },
+  },
+  ccs_read_field: {
+    coerce: {
+      // Accept "description,personality" or "all" as a string, or ["all"] as array
+      fields: v => Array.isArray(v) ? v : (typeof v === 'string' ? v.split(',').map(s => s.trim()).filter(Boolean) : ['all']),
+    },
+  },
+  ccs_update_pillar: {
+    required: ['pillar_id', 'status'],
+    coerce: {
+      status: v => String(v || 'pending'),
+    },
+  },
+  ccs_batch_pillars: {
+    required: ['updates'],
+    coerce: {
+      updates: v => Array.isArray(v) ? v : [],
+    },
+  },
+  ccs_create_lore_entry: {
+    required: ['name', 'content', 'keys'],
+    coerce: {
+      // "Iron Circle, iron circles" → ["Iron Circle", "iron circles"]
+      keys: v => Array.isArray(v) ? v.filter(Boolean) : (typeof v === 'string' ? v.split(',').map(s => s.trim()).filter(Boolean) : []),
+      // Same for secondary_keys — optional, default empty
+      secondary_keys: v => !v ? [] : (Array.isArray(v) ? v.filter(Boolean) : v.split(',').map(s => s.trim()).filter(Boolean)),
+      // "true" string → true boolean
+      constant: v => v === true || v === 'true',
+      prevent_recursion: v => v === true || v === 'true',
+      // "100" string → 100 number
+      order: v => (v !== undefined && v !== null) ? (Number(v) || 100) : 100,
+      depth: v => (v !== undefined && v !== null) ? (Number(v) || 4) : 4,
+      position: v => ['before_char', 'after_char'].includes(v) ? v : 'after_char',
+    },
+  },
+  ccs_update_lore_entry: {
+    required: ['uid'],
+    coerce: {
+      uid: v => String(v ?? ''),
+      // Coerce keys if provided — guard against non-string/non-array (e.g. a number)
+      keys: v => (v === undefined || v === null) ? undefined
+        : Array.isArray(v) ? v
+        : String(v).split(',').map(s => s.trim()).filter(Boolean),
+    },
+  },
+  ccs_delete_lore_entry: {
+    required: ['uid'],
+    coerce: { uid: v => String(v ?? '') },
+  },
+  ccs_update_memory: {
+    required: ['type', 'content'],
+    coerce: {
+      type: v => String(v || 'learning'),
+      action: v => ['add', 'remove'].includes(v) ? v : 'add',
+    },
+  },
+  ccs_optimize_tokens: {
+    required: ['field'],
+    coerce: {
+      target_tokens: v => (v !== undefined && v !== null) ? (Number(v) || null) : null,
+      original_tokens: v => (v !== undefined && v !== null) ? (Number(v) || null) : null,
+    },
+  },
+  ccs_resolve_conflict: {
+    required: ['conflict_id', 'resolution'],
+    coerce: {
+      conflict_id: v => String(v ?? ''),
+      resolution: v => ['fix', 'ignore', 'defer'].includes(v) ? v : 'fix',
+    },
+  },
+  ccs_submit_review: {
+    required: ['overall_rating'],
+    coerce: {
+      overall_rating: v => Math.max(1, Math.min(5, Number(v) || 3)),
+      categories: v => Array.isArray(v) ? v : [],
+      strengths: v => Array.isArray(v) ? v : (typeof v === 'string' ? [v] : []),
+      weaknesses: v => Array.isArray(v) ? v : (typeof v === 'string' ? [v] : []),
+      suggestions: v => Array.isArray(v) ? v : (typeof v === 'string' ? [v] : []),
+    },
+  },
 };
 
 /**
+ * Validate and coerce tool parameters before execution.
+ * Returns coerced params or throws with a descriptive message if required params are missing.
+ * @param {string} toolName
+ * @param {object} params
+ * @returns {object} Coerced params
+ * @throws {Error} If a required param is missing after coercion
+ */
+function validateAndCoerce(toolName, params) {
+  const schema = TOOL_COERCIONS[toolName];
+  if (!schema) return params; // No schema → pass through as-is
+
+  const result = { ...params };
+
+  // Apply coercions first (before required check, so coercion can normalise empty values)
+  for (const [key, coerceFn] of Object.entries(schema.coerce || {})) {
+    try {
+      const coerced = coerceFn(result[key]);
+      if (coerced !== undefined) result[key] = coerced;
+    } catch (_) { /* coercion failure is non-fatal; original value kept */ }
+  }
+
+  // Check required params AFTER coercion
+  for (const req of (schema.required || [])) {
+    const val = result[req];
+    const isEmpty = val === undefined || val === null || val === '' ||
+      (Array.isArray(val) && val.length === 0);
+    if (isEmpty) {
+      throw new Error(`Required parameter "${req}" is missing or empty for tool ${toolName}.`);
+    }
+  }
+
+  return result;
+}
+
+/**
  * Execute a tool call by name.
+ * Parameters are coerced to the correct types before the handler runs.
  * @param {{ name: string, parameters: object }} call
  * @returns {Promise<{ result: string, draft?: object }>}
  */
@@ -80,7 +229,9 @@ export async function executeToolCall(call) {
     return { result: `Error: Unknown tool "${call.name}". Available: ${Object.keys(TOOLS).join(', ')}` };
   }
   try {
-    return await handler(call.parameters || {});
+    // Validate & coerce parameters before running the handler
+    const coercedParams = validateAndCoerce(call.name, call.parameters || {});
+    return await handler(coercedParams);
   } catch (err) {
     console.error(`[CCS] Tool ${call.name} error:`, err);
     return { result: `Error executing ${call.name}: ${err.message}` };
@@ -161,8 +312,14 @@ async function toolWriteField(params) {
     status: draft.status,
   });
 
+  // Self-check prompt (GAP 6): nudge the model to verify quality before moving on.
+  // This costs no extra API call — it's part of the tool result the model sees next turn.
+  const selfCheck = `Before continuing: quickly verify (1) voice matches Concept Brief, ` +
+    `(2) no info repeated from already-written fields, (3) token count is within budget. ` +
+    `If any check fails, call ccs_write_field again with improvements. Otherwise, tell the user this field is ready for review.`;
+
   return {
-    result: `Draft created for "${field}" (${draft.tokenCount || '?'} tokens${versionLabel ? ', ' + versionLabel : ''}). Waiting for user approval.`,
+    result: `Draft staged for "${field}" (${draft.tokenCount || '?'}t${versionLabel ? ', ' + versionLabel : ''}). ${selfCheck}`,
     draft,
   };
 }
@@ -240,6 +397,99 @@ async function toolUpdatePillar(params) {
   return { result: result.error || 'Error updating pillar.' };
 }
 
+// ─── Tool 3b: Batch Update Pillars ─────────────────────────────────────────
+
+/**
+ * Update multiple concept pillars in a single call.
+ * Preferred over N separate ccs_update_pillar calls — each update goes through
+ * independently (partial success design).
+ * @param {{ updates: Array<{pillar_id: string, status: string, summary?: string}> }} params
+ */
+async function toolBatchPillars(params) {
+  // Normalise: accept { updates: [...] } or a direct array as params itself
+  let updates = params.updates;
+  if (!updates && Array.isArray(params)) updates = params;
+
+  if (!Array.isArray(updates) || updates.length === 0) {
+    return { result: 'Error: updates must be a non-empty array of {pillar_id, status, summary?} objects.' };
+  }
+
+  const succeeded = [];
+  const failed = [];
+
+  for (const upd of updates) {
+    if (!upd.pillar_id || !upd.status) {
+      failed.push(`(missing pillar_id or status)`);
+      continue;
+    }
+    try {
+      const result = updatePillar(upd.pillar_id, upd.status, upd.summary);
+      if (result.success) {
+        succeeded.push(`"${result.pillar.name}" → ${upd.status}`);
+      } else if (result.error?.includes('not found')) {
+        // Auto-create as world pillar if not found (mutates in-place, no save yet)
+        const pillar = addWorldPillar(upd.pillar_id, upd.summary);
+        if (pillar) {
+          pillar.status = upd.status;
+          succeeded.push(`"${pillar.name}" (created) → ${upd.status}`);
+        } else {
+          failed.push(`"${upd.pillar_id}" — could not create`);
+        }
+      } else {
+        failed.push(`"${upd.pillar_id}" — ${result.error}`);
+      }
+    } catch (err) {
+      failed.push(`"${upd.pillar_id}" — ${err.message}`);
+    }
+  }
+
+  // Single persist + UI update after all mutations are done
+  const session = getSession();
+  await updateSession({ pillarStates: session.pillarStates });
+  const progress = calculateProgress(session.pillarStates);
+  document.dispatchEvent(new CustomEvent('ccs:card-updated'));
+
+  const lines = [];
+  if (succeeded.length > 0) lines.push(`Updated ${succeeded.length}: ${succeeded.join(', ')}`);
+  if (failed.length > 0) lines.push(`Failed ${failed.length}: ${failed.join(', ')}`);
+  lines.push(`Progress: ${progress.done}/${progress.total - progress.skipped} (${progress.percent}%)`);
+
+  return { result: lines.join('\n') };
+}
+
+// ─── Tool 3c: Switch Phase ──────────────────────────────────────────────────
+
+/**
+ * Switch the active studio phase. Takes effect immediately — future turns
+ * will use the new phase's prompt and tool definitions.
+ * @param {{ phase: string, reason?: string }} params
+ */
+async function toolSwitchPhase(params) {
+  const { phase, reason } = params;
+  const VALID_PHASES = ['ideate', 'build', 'lore', 'audit'];
+
+  if (!phase || !VALID_PHASES.includes(phase)) {
+    return { result: `Error: phase must be one of: ${VALID_PHASES.join(', ')}` };
+  }
+
+  const PHASE_LABELS = {
+    ideate: 'Ideate — brainstorm and character DNA',
+    build:  'Build — generate card field content',
+    lore:   'Lore — create and manage lorebook entries',
+    audit:  'Audit — review card quality and structure',
+  };
+
+  await updateSession({ phase });
+
+  // Notify UI to update the active phase pill in the context bar
+  document.dispatchEvent(new CustomEvent('ccs:phase-changed', { detail: { phase } }));
+
+  const reasonNote = reason ? ` (${reason})` : '';
+  return {
+    result: `Phase switched to: ${PHASE_LABELS[phase]}${reasonNote}. New phase tools are now active. Continue with your request.`,
+  };
+}
+
 // ─── Tool 4: Create Lore Entry (Staged) ─────────────────────────────────────
 
 async function toolCreateLoreEntry(params) {
@@ -288,8 +538,7 @@ async function toolCreateLoreEntry(params) {
 
 async function toolReadLoreEntries(params) {
   try {
-    const entries = await getLorebookEntries();
-    
+    const { entries } = await getLorebookEntries(); // Bug A fix: getLorebookEntries returns { entries, bookName }
     if (!entries || entries.length === 0) {
       return { result: 'No lorebook entries found for this character.' };
     }
@@ -411,9 +660,41 @@ async function toolUpdateMemory(params) {
 // ─── Tool 10: Audit Card ───────────────────────────────────────────────────
 
 async function toolAuditCard(params) {
+  const focus = params?.focus || 'full';
+
+  // 1. Read all card fields for the LLM to analyze qualitatively
   const readResult = await toolReadField({ fields: ['all'] });
-  return { 
-    result: `Card audit data:\n${readResult.result}\n\n[Analyze the above fields and provide your assessment.]` 
+
+  // 2. Run static coherence audit (no API call — local analysis)
+  let staticAuditBlock = '';
+  try {
+    const { runCoherenceAudit } = await import('./coherence-audit.js');
+    const report = await runCoherenceAudit();
+    if (report) {
+      const { issues, stats, score } = report;
+      const severityOrder = { error: 0, warning: 1, info: 2 };
+      const sorted = [...issues].sort((a, b) => severityOrder[a.severity] - severityOrder[b.severity]);
+      const issueLines = sorted.slice(0, 20).map(i => `  [${i.severity.toUpperCase()}] ${i.message}`);
+      staticAuditBlock =
+        `\n\n━━━ STATIC COHERENCE AUDIT (${score}/100) ━━━` +
+        `\nFields populated: ${stats.totalFields} | Total tokens: ~${stats.totalTokens}t | Lore entries: ${stats.loreEntries}` +
+        `\nErrors: ${stats.errors}  Warnings: ${stats.warnings}  Info: ${stats.infos}` +
+        (issueLines.length > 0
+          ? '\nIssues found:\n' + issueLines.join('\n')
+          : '\nNo structural issues found.') +
+        '\n━━━';
+    }
+  } catch (e) {
+    staticAuditBlock = '\n\n[Static coherence audit unavailable]';
+    console.warn('[CCS] Coherence audit failed in toolAuditCard:', e.message);
+  }
+
+  const focusNote = focus !== 'full'
+    ? `\n\nAudit focus: ${focus}. Focus your qualitative analysis on this aspect.`
+    : '';
+
+  return {
+    result: `Card field content:\n${readResult.result}${staticAuditBlock}${focusNote}\n\n[Analyze the above and provide your qualitative assessment per the Audit phase instructions.]`,
   };
 }
 
@@ -831,13 +1112,586 @@ async function toolSubmitReview(params) {
 
   await updateSession({ aiReview: reviewData });
   
-  // Re-render the app UI to show the scorecard
+  // Bug C fix: renderApp is not exported from app.js. Dispatch the ccs:card-updated
+  // event instead — bindAppEvents() already listens to this and triggers re-renders.
   try {
-    const { renderApp } = await import('../ui/app.js');
-    renderApp();
+    document.dispatchEvent(new CustomEvent('ccs:card-updated'));
   } catch (e) {
-    console.warn('[CCS] Failed to refresh UI after review submit:', e);
+    console.warn('[CCS] Failed to dispatch card-updated after review submit:', e);
   }
 
   return { result: `Success: Review scorecard saved and displayed in the Concept panel.` };
+}
+
+// ─── Tool 12: Set Card Type ──────────────────────────────────────────────────
+
+/**
+ * Record the identified card type into session state.
+ * Called during ideation when the card type is identified.
+ */
+async function toolSetCardType(params) {
+  const { card_type, description } = params;
+  const VALID_TYPES = ['A', 'B', 'C', 'D', 'E'];
+
+  if (!card_type || !VALID_TYPES.includes(String(card_type).toUpperCase())) {
+    return { result: `Error: card_type must be one of: ${VALID_TYPES.join(', ')}` };
+  }
+
+  const type = String(card_type).toUpperCase();
+  const TYPE_NAMES = {
+    A: 'Single Character',
+    B: 'Multi-Character Cast',
+    C: 'Scenario / World Card',
+    D: 'NPC Support Card',
+    E: 'Universe / Campaign',
+  };
+
+  await updateSession({
+    cardType: type,
+    cardTypeDescription: description || TYPE_NAMES[type],
+  });
+
+  return { result: `Success: Card type set to Type ${type} — ${TYPE_NAMES[type]}. ${description ? `Note: ${description}` : ''}` };
+}
+
+// ─── Tool 13: Set Platform ───────────────────────────────────────────────────
+
+/**
+ * Record the target platform (SillyTavern or JanitorAI) into session state.
+ * Called during ideation when the platform is identified.
+ */
+async function toolSetPlatform(params) {
+  const { platform, note } = params;
+  const VALID_PLATFORMS = ['sillyTavern', 'janitorai'];
+
+  if (!platform || !VALID_PLATFORMS.includes(platform)) {
+    return { result: `Error: platform must be one of: ${VALID_PLATFORMS.join(', ')}` };
+  }
+
+  await updateSession({
+    targetPlatform: platform,
+    platformNote: note || null,
+  });
+
+  const label = platform === 'sillyTavern' ? 'SillyTavern' : 'JanitorAI';
+  return { result: `Success: Target platform set to ${label}.${note ? ` Note: ${note}` : ''} Platform-specific rules and token budgets will now apply during Build phase.` };
+}
+
+// ─── Tool 14: Write Concept Brief ─────────────────────────────────────────
+
+/**
+ * Write or update the concept brief — a living markdown document the AI
+ * maintains during the Ideate phase. Stored in session.conceptBrief.
+ */
+async function toolWriteBrief(params) {
+  const { content, mode = 'replace' } = params;
+
+  if (!content || typeof content !== 'string') {
+    return { result: 'Error: content parameter is required.' };
+  }
+
+  const session = getSession();
+  let newBrief;
+
+  if (mode === 'append' && session?.conceptBrief) {
+    newBrief = session.conceptBrief + '\n\n' + content;
+  } else {
+    newBrief = content;
+  }
+
+  await updateSession({ conceptBrief: newBrief });
+
+  // Bug C fix: renderApp is not exported from app.js. Use ccs:card-updated event.
+  try {
+    document.dispatchEvent(new CustomEvent('ccs:card-updated'));
+  } catch (e) {
+    console.warn('[CCS] Failed to dispatch card-updated after brief update:', e);
+  }
+
+  const wordCount = newBrief.split(/\s+/).length;
+  return { result: `Success: Concept Brief updated (${wordCount} words). The Brief panel is now visible in the Concept Tab.` };
+}
+
+// ─── Tool 15: Read Concept Brief ─────────────────────────────────────────
+
+/**
+ * Read the current concept brief back for context.
+ */
+async function toolReadBrief() {
+  const session = getSession();
+  const brief = session?.conceptBrief;
+
+  if (!brief) {
+    return { result: 'No Concept Brief exists yet. Use ccs_write_brief to create one.' };
+  }
+
+  return { result: `Concept Brief (${brief.split(/\s+/).length} words):\n\n${brief}` };
+}
+
+// ─── Tool 15b: Write Lore Plan ─────────────────────────────────────────────
+
+/**
+ * Write or update the lore plan — the AI's living plan for what lorebook entries
+ * to create, stored in session.lorePlan. Injected into the Lore phase context.
+ * Structured as a markdown doc with sections:
+ *   ## Overview, ## Lorebook, ## Priority Plan, ## Created, ## Notes
+ */
+async function toolWriteLorePlan(params) {
+  const { content, mode = 'replace' } = params;
+
+  if (!content || typeof content !== 'string') {
+    return { result: 'Error: content parameter is required.' };
+  }
+
+  const session = getSession();
+  let newPlan;
+
+  if (mode === 'append' && session?.lorePlan) {
+    newPlan = session.lorePlan + '\n\n' + content;
+  } else {
+    newPlan = content;
+  }
+
+  await updateSession({ lorePlan: newPlan });
+
+  try {
+    document.dispatchEvent(new CustomEvent('ccs:card-updated'));
+  } catch (e) {
+    console.warn('[CCS] Failed to dispatch card-updated after lore plan update:', e);
+  }
+
+  const wordCount = newPlan.split(/\s+/).length;
+  return { result: `Success: Lore Plan saved (${wordCount} words). It will appear in your context on every Lore phase turn.` };
+}
+
+// ─── Tool 15c: Read Lore Plan ──────────────────────────────────────────────
+
+/**
+ * Read the current lore plan back for context.
+ */
+async function toolReadLorePlan() {
+  const session = getSession();
+  const plan = session?.lorePlan;
+
+  if (!plan) {
+    return { result: 'No Lore Plan exists yet. Use ccs_write_lore_plan to create one after doing the gap analysis.' };
+  }
+
+  return { result: `Lore Plan (${plan.split(/\s+/).length} words):\n\n${plan}` };
+}
+
+// ─── Tool 16: Optimize Tokens ───────────────────────────────────────────
+
+/**
+ * Stage a token-optimized rewrite of a card field.
+ * The AI generates the compressed content and passes it here;
+ * this tool stages it as a draft (same as ccs_write_field) with a token summary.
+ */
+async function toolOptimizeTokens(params) {
+  const { field, optimized_content, target_tokens, original_tokens } = params;
+
+  if (!field || !optimized_content) {
+    return { result: 'Error: field and optimized_content are required.' };
+  }
+
+  // Delegate to the staged write system — same approval flow as regular writes
+  const writeResult = await toolWriteField({ field, content: optimized_content });
+
+  if (writeResult.result.startsWith('Error')) {
+    return writeResult;
+  }
+
+  const newTokens = Math.round(optimized_content.split(/\s+/).length * 0.75); // rough estimate
+  const saved = (original_tokens || 0) - (target_tokens || newTokens);
+  const savedStr = saved > 0 ? ` (saved ~${saved}t)` : '';
+
+  return {
+    result: `Success: Optimized ${field} staged for approval${savedStr}. Review the draft in the Card Tab — click Apply when ready.`,
+    draft: writeResult.draft,
+  };
+}
+
+// ─── Tool 17: Semantic Search ───────────────────────────────────────────────
+
+/**
+ * Pure-JS semantic search across all card fields and lorebook entries.
+ * No API call needed — this is a local substring/keyword search.
+ * Returns matching excerpts with field/entry context.
+ */
+async function toolSemanticSearch(params) {
+  const { query, max_results = 10 } = params;
+
+  if (!query || typeof query !== 'string') {
+    return { result: 'Error: query parameter is required.' };
+  }
+
+  const ctx = getCtx();
+  const results = [];
+  const terms = query.toLowerCase().split(/\s+/).filter(t => t.length > 2);
+
+  if (terms.length === 0) {
+    return { result: 'Error: query must contain at least one term longer than 2 characters.' };
+  }
+
+  // Helper: score a text block against all query terms
+  const scoreText = (text) => {
+    if (!text) return 0;
+    const lower = text.toLowerCase();
+    return terms.reduce((sum, term) => {
+      const idx = lower.indexOf(term);
+      return idx >= 0 ? sum + 1 : sum;
+    }, 0);
+  };
+
+  // Helper: extract excerpt around first match
+  const excerpt = (text, maxLen = 200) => {
+    if (!text) return '';
+    const lower = text.toLowerCase();
+    let bestIdx = -1;
+    for (const term of terms) {
+      const idx = lower.indexOf(term);
+      if (idx >= 0 && (bestIdx < 0 || idx < bestIdx)) bestIdx = idx;
+    }
+    if (bestIdx < 0) return text.slice(0, maxLen);
+    const start = Math.max(0, bestIdx - 60);
+    const end = Math.min(text.length, bestIdx + maxLen - 60);
+    return (start > 0 ? '…' : '') + text.slice(start, end).trim() + (end < text.length ? '…' : '');
+  };
+
+  // ── Search card fields ────────────────────────────────────────────────────
+  try {
+    const fields = ctx?.getCharacterCardFields?.();
+    if (fields) {
+      const fieldMap = {
+        description: fields.description,
+        personality: fields.personality,
+        scenario: fields.scenario,
+        first_mes: fields.firstMessage,
+        mes_example: fields.mesExamples,
+        system_prompt: fields.system,
+        creator_notes: fields.creatorNotes,
+        character_note: fields.charDepthPrompt,
+      };
+
+      for (const [field, text] of Object.entries(fieldMap)) {
+        const content = Array.isArray(text) ? text.join('\n') : (text || '');
+        const score = scoreText(content);
+        if (score > 0) {
+          results.push({ type: 'field', id: field, score, excerpt: excerpt(content) });
+        }
+      }
+
+      // Alt greetings
+      if (Array.isArray(fields.alternateGreetings)) {
+        fields.alternateGreetings.forEach((g, i) => {
+          const score = scoreText(g);
+          if (score > 0) results.push({ type: 'field', id: `alt_greeting_${i + 1}`, score, excerpt: excerpt(g) });
+        });
+      }
+    }
+  } catch (e) {
+    console.warn('[CCS] Semantic search: card field read failed:', e.message);
+  }
+
+  // ── Search lorebook entries ───────────────────────────────────────────────
+  try {
+    const session = getSession();
+    if (session?.lorebookName) {
+      const { entries } = await getLorebookEntries(false); // Bug A fix: was passing object as forceRefresh arg
+      for (const entry of (entries || [])) {
+        const combined = [entry.name, entry.content, ...(entry.keys || [])].join(' ');
+        const score = scoreText(combined);
+        if (score > 0) {
+          results.push({
+            type: 'lore',
+            id: entry.uid || entry.name,
+            name: entry.name,
+            category: entry.category,
+            score,
+            excerpt: excerpt(entry.content),
+          });
+        }
+      }
+    }
+  } catch (e) {
+    console.warn('[CCS] Semantic search: lorebook read failed:', e.message);
+  }
+
+  // ── Sort and format results ───────────────────────────────────────────────
+  results.sort((a, b) => b.score - a.score);
+  const topResults = results.slice(0, max_results);
+
+  if (topResults.length === 0) {
+    return { result: `No matches found for: "${query}"` };
+  }
+
+  const lines = [`Search results for "${query}" (${topResults.length} match${topResults.length !== 1 ? 'es' : ''}):`, ''];
+  for (const r of topResults) {
+    if (r.type === 'field') {
+      lines.push(`[FIELD: ${r.id}] — ${r.excerpt}`);
+    } else {
+      const cat = r.category ? ` [${r.category}]` : '';
+      lines.push(`[LORE: ${r.name}${cat}] — ${r.excerpt}`);
+    }
+  }
+
+  return { result: lines.join('\n') };
+}
+
+// ─── Tool 19: Read Lore Graph ─────────────────────────────────────────────────
+
+/**
+ * Return the current lorebook's graph topology as a readable summary.
+ * Used by the AI to reason about connectivity before suggesting improvements.
+ */
+async function toolReadLoreGraph() {
+  try {
+    const { getLoreGraphData } = await import('../ui/lore-graph-v2.js');
+    const { entries } = await getLorebookEntries(false); // Bug A fix: destructure return value
+    if (!entries || entries.length === 0) {
+      return { result: 'No lorebook entries found. Select a lorebook first.' };
+    }
+    const graphData = getLoreGraphData(entries);
+    const summary = [
+      `Lore Graph Topology (${graphData.stats.totalEntries} entries, ${graphData.edges.length} edges):`,
+      ``,
+      `Stats:`,
+      `  Total entries: ${graphData.stats.totalEntries}`,
+      `  Total edges (activation links): ${graphData.edges.length}`,
+      `  Orphaned entries (no connections): ${graphData.stats.orphanedCount}`,
+      `  Circular chains detected: ${graphData.stats.circularChainCount}`,
+      `  Total token weight: ~${graphData.stats.totalTokens}t`,
+      `  Most connected entry: ${graphData.stats.mostConnected ? `"${graphData.stats.mostConnected.name}" (${graphData.stats.mostConnected.edgeCount} edges)` : 'N/A'}`,
+      ``,
+      `Orphaned entries:`,
+      ...(graphData.orphaned.length > 0
+        ? graphData.orphaned.map(uid => {
+          const e = graphData.entries.find(en => en.uid === uid);
+          return `  - "${e?.name || uid}" [${e?.category || '?'}] (~${e?.tokens || 0}t) — no keyword connections`;
+        })
+        : ['  None']),
+      ``,
+      `Circular chains:`,
+      ...(graphData.circularChains.length > 0
+        ? graphData.circularChains.map((chain, i) => `  ${i + 1}. ${chain.join(' → ')}`)
+        : ['  None']),
+      ``,
+      `Entry list (name | category | keys | tokens | in/out edges):`,
+      ...graphData.entries.map(e => {
+        const outgoing = graphData.edges.filter(ed => ed.from === e.uid).length;
+        const incoming = graphData.edges.filter(ed => ed.to === e.uid).length;
+        const flags = [
+          e.constant ? 'CONSTANT' : null,
+          !e.enabled ? 'DISABLED' : null,
+          (e.flags?.probability ?? 100) < 100 ? `${e.flags.probability}%` : null,
+        ].filter(Boolean);
+        return `  [${e.category}] "${e.name}" | keys: ${e.keys.join(', ') || 'none'} | ~${e.tokens}t | in:${incoming} out:${outgoing}${flags.length ? ' | ' + flags.join(', ') : ''}`;
+      }),
+    ];
+    return { result: summary.join('\n') };
+  } catch (e) {
+    return { result: `Error reading lore graph: ${e.message}` };
+  }
+}
+
+// ─── Tool 20: Suggest Lore Connections ──────────────────────────────────────────
+
+/**
+ * Pure-JS analysis of lorebook connectivity. Returns concrete suggestions.
+ */
+async function toolSuggestLoreConnections() {
+  try {
+    const { getLoreGraphData } = await import('../ui/lore-graph-v2.js');
+    const { entries } = await getLorebookEntries(false); // Bug A fix: destructure return value
+    if (!entries || entries.length === 0) {
+      return { result: 'No lorebook entries found. Select a lorebook first.' };
+    }
+    const graphData = getLoreGraphData(entries);
+    const suggestions = [];
+
+    // 1. Orphaned entries
+    for (const uid of graphData.orphaned) {
+      const orphan = graphData.entries.find(e => e.uid === uid);
+      if (!orphan) continue;
+      if (orphan.keys.length === 0) {
+        suggestions.push(`⚠ Entry "${orphan.name}" [${orphan.category}] has NO keywords. It will never activate. Add at least one trigger keyword.`);
+      } else {
+        const potentialLinkers = entries.filter(e => {
+          if (e.uid === uid) return false;
+          const content = (e.content || '').toLowerCase();
+          return orphan.keys.some(k => content.includes(k.toLowerCase()));
+        });
+        if (potentialLinkers.length > 0) {
+          suggestions.push(`🔗 Entry "${orphan.name}" appears referenced in "${potentialLinkers[0].name || 'another entry'}" but has no inbound edges. Check that the keyword spelling matches.`);
+        } else {
+          suggestions.push(`🏝 Entry "${orphan.name}" [${orphan.category}] is isolated (keys: ${orphan.keys.join(', ')}). Add its keywords to a related hub entry to pull it into the activation network.`);
+        }
+      }
+    }
+
+    // 2. Circular chains
+    for (const chain of graphData.circularChains) {
+      suggestions.push(`🔄 Circular activation chain detected: ${chain.join(' → ')}. Consider enabling "Prevent further recursion" on the last entry to avoid runaway activation.`);
+    }
+
+    // 3. Heavy entries (>250t)
+    const heavyEntries = graphData.entries.filter(e => e.tokens > 250 && e.enabled);
+    for (const e of heavyEntries) {
+      suggestions.push(`🏋 Entry "${e.name}" [${e.category}] is heavy (~${e.tokens}t). If constant, this costs tokens on every message. Consider splitting it or making it conditional.`);
+    }
+
+    // 4. No keys and not constant
+    const noKeyEntries = graphData.entries.filter(e => e.keys.length === 0 && !e.constant && e.enabled);
+    for (const e of noKeyEntries) {
+      suggestions.push(`❓ Entry "${e.name}" [${e.category}] is not constant and has no keywords — it will never activate. Add trigger keywords or make it constant.`);
+    }
+
+    // 5. Hub nodes with prevent-further-recursion (would block many chains)
+    const outgoingCounts = {};
+    for (const edge of graphData.edges) {
+      outgoingCounts[edge.from] = (outgoingCounts[edge.from] || 0) + 1;
+    }
+    const blockingHubs = graphData.entries.filter(e => (outgoingCounts[e.uid] || 0) >= 4 && e.flags?.preventFurtherRecursion);
+    for (const e of blockingHubs) {
+      suggestions.push(`⛔ Entry "${e.name}" has ${outgoingCounts[e.uid]} outgoing connections but "Prevent further recursion" is on — it blocks all cascade activations from it. Is this intentional?`);
+    }
+
+    if (suggestions.length === 0) {
+      return { result: 'The lorebook graph looks well-connected! No major structural issues found.\n\nAll entries have keywords, no orphans, and no circular chains.' };
+    }
+
+    return { result: [
+      `Lore Connection Analysis — ${suggestions.length} suggestion${suggestions.length !== 1 ? 's' : ''}:`,
+      '',
+      ...suggestions.map((s, i) => `${i + 1}. ${s}`),
+      '',
+      'Tip: Open the Lore Graph overlay (🗺️ button in the Lore tab) to see these connections visualized interactively.',
+    ].join('\n') };
+  } catch (e) {
+    return { result: `Error analyzing lore connections: ${e.message}` };
+  }
+}
+
+// ─── Tool 19: Generate Avatar Prompt ────────────────────────────────────────
+
+/**
+ * Reads the current card's description, personality, and concept brief,
+ * then constructs an optimised image-generation prompt (positive + negative)
+ * and stages it in the chat as an interactive avatar-prompt card.
+ *
+ * The user can then edit the prompt or click "Generate Avatar" to trigger ST's
+ * `/sd` slash command. No image is generated automatically.
+ *
+ * @param {{ style?: string, emphasis?: string, extra_tags?: string[] }} params
+ */
+async function toolGenerateAvatarPrompt(params) {
+  const {
+    style = 'cinematic',
+    emphasis = 'bust',
+    extra_tags = [],
+  } = params;
+
+  const session = getSession();
+  if (!session) return { result: 'Error: No active session.' };
+
+  // ── 1. Gather character data ──────────────────────────────────────────────
+  // Bug B fix: session.cardFields doesn't exist. Read from ST context instead
+  // (same pattern used by toolReadField, toolWriteField, etc.)
+  const _ctx = getCtx();
+  const _cardFields = _ctx?.getCharacterCardFields?.() || {};
+  const description   = _cardFields.description || '';
+  const personality   = _cardFields.personality || '';
+  const brief         = session?.conceptBrief || '';
+  const charName      = session?.characterName || 'the character';
+
+  // ── 2. Build framing tags from style / emphasis ───────────────────────────
+  const STYLE_TAGS = {
+    cinematic:  'cinematic portrait, dramatic lighting, film grain, shallow depth of field, professional photography',
+    anime:      'anime style, cel shaded, clean lineart, vibrant colors, studio quality',
+    painterly:  'oil painting, detailed brushwork, classical art style, rich textures, gallery quality',
+    realistic:  'photorealistic, ultra detailed, hyperrealistic, 8k resolution, RAW photo',
+  };
+  const EMPHASIS_TAGS = {
+    face:      'close-up portrait, face focus, detailed eyes',
+    bust:      'bust shot, upper body, detailed face',
+    full_body: 'full body, standing, detailed outfit and background',
+  };
+
+  const styleTags    = STYLE_TAGS[style]    || STYLE_TAGS.cinematic;
+  const emphasisTags = EMPHASIS_TAGS[emphasis] || EMPHASIS_TAGS.bust;
+
+  // ── 3. Extract visual traits from the description text ────────────────────
+  // Pull out common visual descriptors using simple heuristics.
+  // The AI will have written these in the description — we just extract them.
+  const visualText = [description, personality, brief].join(' ').substring(0, 2000);
+
+  // Common appearance keywords to look for (extend as needed)
+  const TRAIT_PATTERNS = [
+    /(?:has?|with)\s+([\w\-]+(?:\s+[\w]+)?\s+(?:hair|eyes?|skin|complexion|build|height|body|figure|ears?|tail|horns?|wings?|fur))/gi,
+    /([\w\-]+\s+(?:hair|eyes?|skin))/gi,
+    /(?:is|appears?|looks?)\s+([\w\-]+(?:\s+[\w]+)?)/gi,
+    /wearing\s+([^,\.]+)/gi,
+    /dressed\s+in\s+([^,\.]+)/gi,
+  ];
+
+  const traits = new Set();
+  for (const pattern of TRAIT_PATTERNS) {
+    let m;
+    pattern.lastIndex = 0;
+    while ((m = pattern.exec(visualText)) !== null) {
+      const trait = m[1].trim().toLowerCase().replace(/\s+/g, ' ');
+      if (trait.length >= 3 && trait.length <= 40) traits.add(trait);
+      if (traits.size >= 12) break;
+    }
+  }
+
+  const extractedTraits = [...traits].slice(0, 10).join(', ');
+
+  // ── 4. Assemble positive prompt ───────────────────────────────────────────
+  const positiveParts = [
+    extractedTraits,
+    styleTags,
+    emphasisTags,
+    'highly detailed',
+    'masterpiece',
+    ...(extra_tags || []),
+  ].filter(Boolean);
+
+  const positivePrompt = positiveParts.join(', ');
+
+  // ── 5. Standard negative prompt ───────────────────────────────────────────
+  const negativePrompt = [
+    'deformed', 'bad anatomy', 'extra limbs', 'missing limbs',
+    'blurry', 'low quality', 'lowres', 'watermark', 'signature',
+    'text', 'error', 'cropped', 'out of frame', 'ugly', 'bad hands',
+    'extra fingers', 'mutation', 'mutated',
+  ].join(', ');
+
+  // ── 6. Stage the avatar prompt card in the chat ───────────────────────────
+  const avatarPrompt = { positivePrompt, negativePrompt, style, emphasis, charName };
+
+  try {
+    const { renderAvatarPromptCard } = await import('../ui/chat.js');
+    renderAvatarPromptCard(avatarPrompt);
+  } catch (e) {
+    console.error('[CCS] Failed to render avatar prompt card:', e);
+    // Fallback: return the prompts as text
+    return {
+      result: [
+        `🖼️ **Avatar Prompt Ready for ${charName}**`,
+        '',
+        `**Style:** ${style} | **Emphasis:** ${emphasis}`,
+        '',
+        `**Positive:** ${positivePrompt}`,
+        '',
+        `**Negative:** ${negativePrompt}`,
+        '',
+        '_Open the Lore Graph → Avatar tab, or paste the positive prompt into ST\'s /sd command to generate._',
+      ].join('\n'),
+    };
+  }
+
+  return {
+    result: `Avatar prompt card rendered in the chat for **${charName}**. The user can now edit the prompts or click "Generate Avatar" to create the image.`,
+  };
 }

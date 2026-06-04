@@ -88,7 +88,9 @@ export async function openPromptInspector() {
         </div>
     </div>`;
 
-    document.body.appendChild(overlay);
+    // Inject inside #ccs_window (same stacking context fix as settings modal)
+    const container = document.getElementById('ccs_window') || document.body;
+    container.appendChild(overlay);
 
     // ── Wire events ────────────────────────────────────────────────────────
 

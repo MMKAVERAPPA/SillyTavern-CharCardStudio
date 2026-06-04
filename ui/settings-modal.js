@@ -1,5 +1,5 @@
 /**
- * CharCardStudio v4.0.0 — ui/settings-modal.js
+ * CharCardStudio v5.0.0 — ui/settings-modal.js
  * Settings modal: open/close, tab switching, export/import sessions, clear data.
  */
 
@@ -85,7 +85,11 @@ async function _injectTemplate() {
     }
 
     if (html) {
-        document.body.insertAdjacentHTML('beforeend', html);
+        // Inject inside #ccs_window so position:fixed children are scoped to the CCS
+        // stacking context — this fixes the modal being clipped off-screen on mobile
+        // when ST's body has transforms or overflow:hidden applied.
+        const container = el('ccs_window') || document.body;
+        container.insertAdjacentHTML('beforeend', html);
     }
 }
 
@@ -177,6 +181,22 @@ function _bindEvents() {
     // Clear all sessions
     const clearAllBtn = el('ccs_clear_all');
     if (clearAllBtn) clearAllBtn.addEventListener('click', _clearAllSessions);
+
+    // Theme sync toggle
+    const themeSyncEl = el('ccs_setting_theme_sync');
+    if (themeSyncEl) {
+        themeSyncEl.addEventListener('change', () => {
+            const enabled = themeSyncEl.checked;
+            try {
+                const ctx = getCtx();
+                if (ctx?.extensionSettings?.CharCardStudio) {
+                    ctx.extensionSettings.CharCardStudio.themeSync = enabled;
+                    ctx.saveSettingsDebounced?.();
+                }
+            } catch (_) { /* ok */ }
+            showToast(`Theme sync ${enabled ? 'enabled' : 'disabled'}`, 'info', 2000);
+        });
+    }
 }
 
 // ─── Sync UI State ──────────────────────────────────────────────────────────
@@ -192,6 +212,16 @@ function _syncSettingsUI() {
     if (utilityApiEl) {
         const savedId = getUtilityProfileId();
         utilityApiEl.value = savedId || '';
+    }
+
+    // Sync theme sync toggle
+    const themeSyncEl = el('ccs_setting_theme_sync');
+    if (themeSyncEl) {
+        try {
+            const ctx = getCtx();
+            const themeSync = ctx?.extensionSettings?.CharCardStudio?.themeSync;
+            themeSyncEl.checked = themeSync !== false; // default true
+        } catch (_) { themeSyncEl.checked = true; }
     }
 }
 

@@ -182,14 +182,19 @@ export function addWorldPillar(name, summary) {
     if (!session.pillarStates) session.pillarStates = initializePillars();
 
     const id = `world_${name.toLowerCase().replace(/[^a-z0-9]+/g, '_').substring(0, 30)}`;
+    // Strip trailing underscores from slug
+    const cleanId = id.replace(/_+$/, '');
 
-    // Prevent duplicates
-    if (session.pillarStates.find(p => p.id === id)) {
-        return session.pillarStates.find(p => p.id === id);
-    }
+    // Prevent duplicates: check by generated id AND by normalized name
+    const normalizedName = name.toLowerCase().replace(/[^a-z0-9]/g, '');
+    const existing = session.pillarStates.find(p =>
+        p.id === cleanId ||
+        p.name.toLowerCase().replace(/[^a-z0-9]/g, '') === normalizedName
+    );
+    if (existing) return existing;
 
     const pillar = {
-        id,
+        id: cleanId,
         name,
         weight: 1,
         field: null,

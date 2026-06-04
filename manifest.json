@@ -5,9 +5,8 @@
     "optional": [],
     "dependencies": [],
     "js": "index.js",
-    "css": "style.css",
     "author": "DeathGamerSolo",
-    "version": "4.1.0",
+    "version": "5.2.1",
     "homePage": "https://github.com/MMKAVERAPPA/CharCardStudio",
     "auto_update": true,
     "minimum_client_version": "1.12.0"

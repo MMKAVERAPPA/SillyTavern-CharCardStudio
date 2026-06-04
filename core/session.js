@@ -14,7 +14,7 @@
 
 // ─── Constants ──────────────────────────────────────────────────────────────
 
-const CURRENT_VERSION = 3;
+const CURRENT_VERSION = 5;
 const SAVE_DEBOUNCE_MS = 3000;
 const STORE_NAME = 'SillyTavern_CharCardStudio';
 const KEY_PREFIX = 'session_';
@@ -127,7 +127,7 @@ const changeListeners = new Set();
  * @property {string} characterAvatar  - ST character avatar filename (unique key)
  * @property {string} characterName    - Display name
  * @property {'studio'|'janitor'|'html'|'imageprompt'} mode
- * @property {'ideate'|'build'|'lore'} phase
+ * @property {'ideate'|'build'|'lore'|'audit'} phase
  * @property {'prose'|'plist'} cardFormat
  * @property {Message[]} messages
  * @property {PillarState[]} pillarStates
@@ -139,6 +139,7 @@ const changeListeners = new Set();
  * @property {number} createdAt
  * @property {number} updatedAt
  * @property {string} autoSummary      - Auto-generated context summary
+ * @property {string|null} lorePlan    - Markdown lore plan written by AI in Lore phase
  */
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
@@ -182,6 +183,14 @@ function createDefaultSession(avatar, name = '') {
         mode: 'studio',
         phase: 'ideate',
         cardFormat: 'prose',
+        cardType: null,              // Identified card type: 'A'|'B'|'C'|'D'|'E' or null
+        cardTypeDescription: null,   // Human-readable card type description
+        targetPlatform: 'sillyTavern', // 'sillyTavern' or 'janitorai'
+        platformNote: null,          // Optional notes about platform-specific constraints
+        conceptBrief: null,          // Markdown brief written by AI during ideation
+        briefAnnotation: '',         // User annotations added to the brief
+        lorePlan: null,              // Markdown lore plan written by AI in Lore phase
+        personalityMatrix: null,     // { introvert, logical, chaotic, aggressive, serious, secretive }
         messages: [],
         pillarStates: [],
         stagedDrafts: [],
@@ -262,8 +271,24 @@ function migrateSession(data) {
         console.log('[CCS] Migrated session to v3 (lorebookName, scratchpad):', session.characterAvatar);
     }
 
-    // Future migrations go here:
-    // if (session.version < 4) { ... session.version = 4; }
+    // Version 3 → 4: Add card type and platform tracking
+    if (session.version < 4) {
+        session.cardType = session.cardType ?? null;
+        session.cardTypeDescription = session.cardTypeDescription ?? null;
+        session.targetPlatform = session.targetPlatform ?? 'sillyTavern';
+        session.platformNote = session.platformNote ?? null;
+        session.version = 4;
+        console.log('[CCS] Migrated session to v4 (cardType, targetPlatform):', session.characterAvatar);
+    }
+
+    // Version 4 → 5: Add concept brief and personality matrix
+    if (session.version < 5) {
+        session.conceptBrief = session.conceptBrief ?? null;
+        session.briefAnnotation = session.briefAnnotation ?? '';
+        session.personalityMatrix = session.personalityMatrix ?? null;
+        session.version = 5;
+        console.log('[CCS] Migrated session to v5 (conceptBrief, personalityMatrix):', session.characterAvatar);
+    }
 
     return session;
 }
@@ -414,6 +439,11 @@ export function saveSession(force = false) {
     }, SAVE_DEBOUNCE_MS);
 }
 
+// Bug 12: cap stored messages to avoid unbounded session growth.
+// modeHistories duplicates messages[] per mode — cap those too.
+const MAX_STORED_MESSAGES = 200;
+const MAX_MODE_HISTORY = 100;
+
 /**
  * Internal: persist current session to localforage immediately.
  * @returns {Promise<void>}
@@ -423,7 +453,29 @@ async function _saveNow() {
 
     try {
         const key = sessionKey(currentSession.characterAvatar);
-        await store.setItem(key, JSON.parse(JSON.stringify(currentSession)));
+
+        // Bug 12: trim messages and modeHistories before cloning to prevent
+        // unbounded JSON size growth (blocks main thread on every save).
+        const toSave = JSON.parse(JSON.stringify({
+            ...currentSession,
+            // Keep only the most recent N messages in the active window
+            messages: currentSession.messages.length > MAX_STORED_MESSAGES
+                ? currentSession.messages.slice(-MAX_STORED_MESSAGES)
+                : currentSession.messages,
+            // Cap each mode's history independently
+            modeHistories: currentSession.modeHistories
+                ? Object.fromEntries(
+                    Object.entries(currentSession.modeHistories).map(([mode, msgs]) => [
+                        mode,
+                        Array.isArray(msgs) && msgs.length > MAX_MODE_HISTORY
+                            ? msgs.slice(-MAX_MODE_HISTORY)
+                            : msgs,
+                    ])
+                )
+                : currentSession.modeHistories,
+        }));
+
+        await store.setItem(key, toSave);
         // console.debug('[CCS] Session saved:', key);
     } catch (err) {
         console.error('[CCS] Failed to save session:', err);

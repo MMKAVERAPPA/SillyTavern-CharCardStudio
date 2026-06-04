@@ -240,6 +240,20 @@ export function calculateStarRating(session, cardFields) {
   const standardPresent = standardFields.filter(has).length;
   const optionalPresent = optionalFields.filter(has).length;
 
+  // Bug G fix: run validateField ONCE per field and cache results.
+  // calculateStarRating is called on every card tab render — the old code called
+  // validateField twice on description/first_mes/personality (once in the base-score
+  // block and again in the modifiers block), doubling the regex work.
+  const format = session?.cardFormat || 'prose';
+  const _validationCache = new Map();
+  const getValidation = (stKey, ccsKey) => {
+    if (!_validationCache.has(ccsKey)) {
+      const val = cardFields[stKey];
+      _validationCache.set(ccsKey, val ? validateField(ccsKey, String(val), format) : null);
+    }
+    return _validationCache.get(ccsKey);
+  };
+
   // Base score calculation
   if (corePresent === 0) {
     baseScore = 1;
@@ -254,17 +268,13 @@ export function calculateStarRating(session, cardFields) {
     baseScore = 4;
 
     // Check for quality (no placeholder, no validation issues)
-    const format = session?.cardFormat || 'prose';
     let hasIssues = false;
     for (const [stKey, ccsKey] of [
       ['description', 'description'], ['firstMessage', 'first_mes'],
       ['personality', 'personality'], ['system', 'system_prompt'],
     ]) {
-      const val = cardFields[stKey];
-      if (val) {
-        const result = validateField(ccsKey, String(val), format);
-        if (!result.valid) hasIssues = true;
-      }
+      const result = getValidation(stKey, ccsKey);
+      if (result && !result.valid) hasIssues = true;
     }
     if (!hasIssues) baseScore = 5;
   }
@@ -294,17 +304,11 @@ export function calculateStarRating(session, cardFields) {
     modifiers.push(`-${penalty} conflicts (${activeConflicts} active)`);
   }
 
-  // -1.0 per validation failure in core fields
-  const format = session?.cardFormat || 'prose';
+  // -1.0 per validation failure in core fields (uses cache — no extra validateField calls)
   let coreFailures = 0;
   for (const [stKey, ccsKey] of [['description', 'description'], ['firstMessage', 'first_mes'], ['personality', 'personality']]) {
-    const val = cardFields[stKey];
-    if (val) {
-      const result = validateField(ccsKey, String(val), format);
-      if (!result.valid) {
-        coreFailures++;
-      }
-    }
+    const result = getValidation(stKey, ccsKey);
+    if (result && !result.valid) coreFailures++;
   }
   if (coreFailures > 0) {
     baseScore -= coreFailures;

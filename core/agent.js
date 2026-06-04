@@ -14,9 +14,14 @@ import { parseToolCalls, stripToolCallBlocks } from './tools-fallback.js';
 import { executeToolCall } from './tools.js';
 import { buildSystemPrompt, TOOL_REMINDER } from '../prompts/phase-instructions.js';
 
+const DEBUG = false;
+const log = (...args) => DEBUG && console.log(...args);
+
 const MAX_ITERATIONS = 8;
 const MAX_HISTORY_MESSAGES = 30;
 const TOOL_RESULT_TRIM_THRESHOLD = 200;
+const KEEP_RECENT = 15;          // messages kept when summarizing history
+const SUMMARIZE_CHAR_THRESHOLD = 40000; // ~10,500 tokens — triggers summarization
 
 // ─── Public API ─────────────────────────────────────────────────────────────
 
@@ -26,20 +31,20 @@ const TOOL_RESULT_TRIM_THRESHOLD = 200;
  */
 export function initAgent(setOnSendCallback) {
   setOnSendCallback(handleUserMessage);
-  console.log('[CCS] Agent initialized — onSend callback registered.');
+  log('[CCS] Agent initialized — onSend callback registered.');
 }
 
 /**
  * Handle a user message — runs the full agent loop.
  * This is the callback registered with ui/chat.js.
  * @param {string} text - User's message text
- * @param {object} callbacks - { appendAssistantMessage, renderDraft, setTyping }
+ * @param {object} callbacks - { appendAssistantMessage, renderDraft, setTyping, setToolStatus, clearToolStatus }
  */
 export async function handleUserMessage(text, callbacks) {
-  const { appendAssistantMessage, renderDraft, setTyping } = callbacks;
+  const { appendAssistantMessage, renderDraft, setTyping, setToolStatus, clearToolStatus } = callbacks;
   
-  console.log('[CCS] handleUserMessage called:', text.substring(0, 80));
-  console.log('[CCS] Callbacks received:', {
+  log('[CCS] handleUserMessage called:', text.substring(0, 80));
+  log('[CCS] Callbacks received:', {
     hasAppendMsg: typeof appendAssistantMessage === 'function',
     hasRenderDraft: typeof renderDraft === 'function',
     hasSetTyping: typeof setTyping === 'function',
@@ -63,7 +68,7 @@ export async function handleUserMessage(text, callbacks) {
     });
   } catch (err) {
     if (err.name === 'AbortError' || err.message?.includes('abort') || err.message?.includes('cancel')) {
-      console.log('[CCS] Generation cancelled by user.');
+      log('[CCS] Generation cancelled by user.');
       appendAssistantMessage('*Generation cancelled.*');
     } else {
       console.error('[CCS] Agent error:', err);
@@ -71,49 +76,80 @@ export async function handleUserMessage(text, callbacks) {
     }
   } finally {
     setTyping(false);
-    console.log('[CCS] Agent turn complete.');
+    log('[CCS] Agent turn complete.');
   }
 }
 
 // ─── Agent Loop ─────────────────────────────────────────────────────────────
 
 async function _agentLoop(userText, session, signal, callbacks) {
-  const { appendAssistantMessage, renderDraft, setTyping } = callbacks;
+  const { appendAssistantMessage, renderDraft, setTyping, setToolStatus, clearToolStatus } = callbacks;
 
-  // Build system prompt
+  // Build the full system prompt once (stable prefix + dynamic suffix).
+  // On subsequent tool-call iterations we rebuild ONLY the dynamic suffix
+  // (session context, brief, lorebook, memory) to maximise prompt cache hits.
   const systemPrompt = await buildSystemPrompt(session);
-  console.log('[CCS] System prompt built:', systemPrompt.length, 'chars');
+  log('[CCS] System prompt built:', systemPrompt.length, 'chars');
+
+  // Cache the stable prefix length so we can splice a fresh dynamic suffix later.
+  // We detect it via the ━━━ SESSION CONTEXT ━━━ separator.
+  const dynSepMarker = '\n\n━━━ SESSION CONTEXT ━━━';
+  const prefixEnd = systemPrompt.indexOf(dynSepMarker);
+  const stablePrefix = prefixEnd >= 0 ? systemPrompt.slice(0, prefixEnd) : systemPrompt;
 
   // Assemble message history for the LLM
-  // Note: The user message is already in session.messages (added by chat.js before calling us)
   const messages = _buildMessageArray(systemPrompt, session);
-  console.log('[CCS] Message array built:', messages.length, 'messages');
+  log('[CCS] Message array built:', messages.length, 'messages');
 
   let lastReasoning = '';
   let finalResponseText = '';
+  let toolIterationCount = 0; // track how many tool-call rounds we've done
+  const recentCallSigs = []; // GAP 8: stuck-loop detection — last N call signatures
+  const toolsUsedThisTurn = []; // GAP 7: tool metadata for session message
 
   for (let iteration = 0; iteration < MAX_ITERATIONS; iteration++) {
     if (signal.aborted) throw new DOMException('Aborted', 'AbortError');
 
-    console.log(`[CCS] === Iteration ${iteration + 1}/${MAX_ITERATIONS} ===`);
+    log(`[CCS] === Iteration ${iteration + 1}/${MAX_ITERATIONS} ===`);
 
-    // Update typing label with iteration info
+    // On iterations 2+: refresh only the dynamic suffix of the system prompt.
+    // The stable prefix (identity, field knowledge, phase, tools) is unchanged.
     if (iteration > 0) {
       setTyping(true, `Working... (step ${iteration + 1})`);
+      try {
+        const freshDynamic = await buildSystemPrompt(session, { dynamicOnly: true });
+        // freshDynamic starts with "\n━━━ SESSION CONTEXT ━━━...".
+        // Add an extra \n so the reconstructed prompt matches the original
+        // stablePrefix + '\n' + '\n━━━ SESSION CONTEXT...' = two newlines = blank line separator.
+        messages[0] = { role: 'system', content: stablePrefix + '\n' + freshDynamic };
+        log('[CCS] Refreshed dynamic suffix, total prompt:', messages[0].content.length, 'chars');
+      } catch (err) {
+        console.warn('[CCS] Failed to refresh dynamic suffix:', err.message);
+      }
     }
 
     // Trim old tool results before sending to LLM to reduce token bloat
     const trimmedMessages = _trimToolHistory(messages);
+
+    // GAP 3: Estimate context size from char count (generateRaw doesn't return token counts).
+    // Trigger early background summarization if context is getting large.
+    const contextCharCount = trimmedMessages.reduce((sum, m) => sum + (m.content?.length || 0), 0);
+    log(`[CCS] Context estimate: ~${Math.round(contextCharCount / 3.8)} tokens (${contextCharCount} chars)`);
+    if (iteration === 0 && contextCharCount > 50000) {
+      const history = getSession()?.messages || [];
+      log('[CCS] Large context detected — triggering background summarization');
+      _autoSummarize(history, KEEP_RECENT).catch(() => {});
+    }
 
     // Call the LLM
     const response = await _callLLM(trimmedMessages, signal);
 
     // Check abort after LLM returns
     if (signal.aborted) {
-      console.log(`[CCS] Generation aborted by user after LLM call at iteration ${iteration + 1}`);
+      log(`[CCS] Generation aborted by user after LLM call at iteration ${iteration + 1}`);
       break;
     }
-    console.log('[CCS] LLM response received:', {
+    log('[CCS] LLM response received:', {
       textLength: response.text?.length || 0,
       hasReasoning: !!response.reasoning,
       textPreview: (response.text || '').substring(0, 120),
@@ -144,7 +180,7 @@ async function _agentLoop(userText, session, signal, callbacks) {
 
     // Parse for tool calls
     const { toolCalls, prose } = parseToolCalls(responseText);
-    console.log('[CCS] Parse result:', {
+    log('[CCS] Parse result:', {
       toolCallCount: toolCalls.length,
       tools: toolCalls.map(t => t.name),
       proseLength: prose.length,
@@ -152,7 +188,7 @@ async function _agentLoop(userText, session, signal, callbacks) {
 
     if (toolCalls.length === 0) {
       // No tool calls — this is the final prose response
-      console.log('[CCS] No tool calls — final prose response.');
+      log('[CCS] No tool calls — final prose response.');
       finalResponseText = responseText;
       break;
     }
@@ -162,38 +198,67 @@ async function _agentLoop(userText, session, signal, callbacks) {
 
     const toolResultParts = [];
     for (const call of toolCalls) {
-      console.log(`[CCS] Executing tool: ${call.name}`, JSON.stringify(call.parameters).substring(0, 200));
-      const { result, draft } = await executeToolCall(call);
-      console.log(`[CCS] Tool ${call.name} result:`, result.substring(0, 150));
+      log(`[CCS] Executing tool: ${call.name}`, JSON.stringify(call.parameters).substring(0, 200));
 
-      toolResultParts.push(`[Tool Result for ${call.name}]:\n${result}`);
+      // GAP 8: Stuck-loop detection — break if the exact same call has been made 3+ times
+      const sig = `${call.name}:${JSON.stringify(call.parameters)}`;
+      const sigCount = recentCallSigs.filter(s => s === sig).length;
+      if (sigCount >= 2) {
+        log(`[CCS] Stuck-loop detected: ${call.name} called identically ${sigCount + 1} times — breaking`);
+        toolResultParts.push(
+          `[System: Tool "${call.name}" was called with identical parameters ${sigCount + 1} times in a row. ` +
+          `Stopping this repeated call. Please proceed with your response using the information already obtained.`
+        );
+        continue;
+      }
+      recentCallSigs.push(sig);
+      if (recentCallSigs.length > 12) recentCallSigs.shift(); // keep bounded
+
+      // Show tool activity in context bar
+      if (setToolStatus) setToolStatus(call.name);
+      setTyping(true, `Running ${call.name}...`);
+
+      const { result, draft } = await executeToolCall(call);
+      log(`[CCS] Tool ${call.name} result:`, result.substring(0, 150));
+
+      // GAP 7: Track tool names used this turn for session metadata
+      toolsUsedThisTurn.push(call.name);
+
+      // Clear tool badge after execution
+      if (clearToolStatus) clearToolStatus();
+
+      toolResultParts.push(`[Tool: ${call.name}]\n${result}`);
 
       // Check abort after each tool execution
       if (signal.aborted) {
-        console.log(`[CCS] Generation aborted by user during tool execution at iteration ${iteration + 1}`);
+        log(`[CCS] Generation aborted by user during tool execution at iteration ${iteration + 1}`);
         break;
       }
 
       // If this produced a draft, notify the UI
       if (draft) {
-        console.log(`[CCS] 🎯 Draft produced! id=${draft.id} field=${draft.field} tokens=${draft.tokenCount}`);
+        log(`[CCS] 🎯 Draft produced! id=${draft.id} field=${draft.field} tokens=${draft.tokenCount}`);
         try {
           renderDraft(draft);
-          console.log('[CCS] renderDraft callback called successfully.');
+          log('[CCS] renderDraft callback called successfully.');
         } catch (renderErr) {
           console.error('[CCS] renderDraft FAILED:', renderErr);
         }
       } else {
-        console.log(`[CCS] Tool ${call.name} returned no draft.`);
+        log(`[CCS] Tool ${call.name} returned no draft.`);
       }
     }
 
     // If we were aborted mid-tool-execution, break out
     if (signal.aborted) break;
 
-    // Add combined tool results as a single user message
-    let toolResultMessage = toolResultParts.join('\n\n');
-    if (iteration < MAX_ITERATIONS - 2) {
+    toolIterationCount++;
+
+    // GAP 2: Structured tool result block — clear delimiter prevents model from
+    // misinterpreting tool results as user messages in the conversation history.
+    // Only inject TOOL_REMINDER on the first tool iteration.
+    let toolResultMessage = `━━━ TOOL RESULTS ━━━\n${toolResultParts.join('\n\n')}\n━━━ END RESULTS ━━━`;
+    if (toolIterationCount === 1) {
       toolResultMessage += '\n\n' + TOOL_REMINDER;
     }
     messages.push({ role: 'user', content: toolResultMessage });
@@ -206,11 +271,16 @@ async function _agentLoop(userText, session, signal, callbacks) {
 
   // Clean final response
   const cleanResponse = stripToolCallBlocks(finalResponseText).trim();
-  console.log('[CCS] Final response:', cleanResponse.length, 'chars, reasoning:', !!lastReasoning);
+  log('[CCS] Final response:', cleanResponse.length, 'chars, reasoning:', !!lastReasoning);
 
   if (cleanResponse) {
     const meta = {};
     if (lastReasoning) meta.reasoning = lastReasoning;
+    // GAP 7: Store which tools were used this turn — non-intrusive metadata for session history
+    if (toolsUsedThisTurn.length > 0) {
+      meta.toolsUsed = [...new Set(toolsUsedThisTurn)]; // deduplicated
+      meta.toolRounds = toolIterationCount;
+    }
 
     const assistantMsg = {
       role: 'assistant',
@@ -219,10 +289,10 @@ async function _agentLoop(userText, session, signal, callbacks) {
       meta,
     };
     addMessage(assistantMsg);
-    console.log('[CCS] Message added to session:', assistantMsg.id || '(auto-id)');
+    log('[CCS] Message added to session:', assistantMsg.id || '(auto-id)');
     
     appendAssistantMessage(cleanResponse, meta);
-    console.log('[CCS] appendAssistantMessage callback called.');
+    log('[CCS] appendAssistantMessage callback called.');
   } else {
     console.warn('[CCS] No final response to display (cleanResponse empty).');
   }
@@ -235,11 +305,14 @@ function _buildMessageArray(systemPrompt, session) {
 
   const history = getSession()?.messages || [];
 
-  // Auto-summarization: if history exceeds threshold, inject summary + keep recent
-  const SUMMARIZE_THRESHOLD = 30;
-  const KEEP_RECENT = 15;
+  // GAP 9: Use character-count (not message-count) to decide when to summarise.
+  // message-count is a crude proxy — a 15-msg session with full ccs_read_field
+  // results can dwarf a 30-msg session of short replies.
+  // ~40,000 chars ≈ 10,500 tokens (chars / 3.8).
+  const totalHistoryChars = history.reduce((sum, m) => sum + (m.content?.length || 0), 0);
+  const shouldSummarize = totalHistoryChars > SUMMARIZE_CHAR_THRESHOLD;
 
-  if (history.length > SUMMARIZE_THRESHOLD && session?.autoSummary) {
+  if (shouldSummarize && session?.autoSummary) {
     // Inject stored summary as context
     messages.push({
       role: 'user',
@@ -260,9 +333,11 @@ function _buildMessageArray(systemPrompt, session) {
     }
   }
 
-  // Trigger auto-summarization in the background if needed
-  const unsummarizedCount = history.length - KEEP_RECENT - (session?.autoSummaryCount || 0);
-  if (history.length > SUMMARIZE_THRESHOLD && (!session?.autoSummary || unsummarizedCount >= 10)) {
+  // Trigger background summarization when:
+  // (a) history is large enough, AND
+  // (b) no summary exists yet, OR >= 8,000 new chars since last summary
+  const charsSinceLastSummary = totalHistoryChars - (session?.autoSummaryCharCount || 0);
+  if (shouldSummarize && (!session?.autoSummary || charsSinceLastSummary >= 8000)) {
     _autoSummarize(history, KEEP_RECENT).catch(err =>
       console.warn('[CCS] Auto-summarize failed:', err.message)
     );
@@ -282,12 +357,19 @@ async function _autoSummarize(history, keepRecent) {
   const oldMessages = history.slice(0, -keepRecent);
   let contentToSummarize = '';
   const lastSummary = session.autoSummary || '';
-  const lastCount = session.autoSummaryCount || 0;
 
   if (lastSummary) {
+    // Incremental: summarize previous summary + new unseen messages
     contentToSummarize += `Previous Summary: ${lastSummary}\n\n`;
-    const newPruned = history.slice(lastCount, -keepRecent);
-    const condensedNew = newPruned
+    const lastCharCount = session.autoSummaryCharCount || 0;
+    // Approximate: find messages whose cumulative chars exceed the last saved count
+    let cumChars = 0;
+    const newMessages = [];
+    for (const m of history.slice(0, -keepRecent)) {
+      cumChars += (m.content?.length || 0);
+      if (cumChars > lastCharCount) newMessages.push(m);
+    }
+    const condensedNew = newMessages
       .filter(m => m.role === 'user' || m.role === 'ai' || m.role === 'assistant')
       .map(m => `${m.role === 'user' ? 'User' : 'AI'}: ${m.content.substring(0, 200)}`)
       .join('\n');
@@ -312,11 +394,13 @@ async function _autoSummarize(history, keepRecent) {
     );
 
     if (summary && summary.trim()) {
+      // Save autoSummaryCharCount: total chars processed so far (history minus keepRecent)
+      const processedChars = history.slice(0, -keepRecent).reduce((sum, m) => sum + (m.content?.length || 0), 0);
       await updateSession({
         autoSummary: summary.trim(),
-        autoSummaryCount: history.length - keepRecent
+        autoSummaryCharCount: processedChars,
       });
-      console.log('[CCS] Incremental auto-summary saved:', summary.substring(0, 100));
+      log('[CCS] Incremental auto-summary saved:', summary.substring(0, 100));
     }
   } catch (err) {
     console.warn('[CCS] Auto-summarize error:', err.message);
@@ -339,14 +423,16 @@ async function _autoSummarize(history, keepRecent) {
  * - Assistant messages: always keep in full (they contain the AI's reasoning)
  * - Tool result messages: truncate OLD ones to 200 chars; keep the LATEST in full
  * 
- * Tool results are identified by content starting with '[Tool Result for'.
+ * Tool results are identified by content starting with '━━━ TOOL RESULTS' (new format)
+ * or '[Tool Result for' (old format — kept for backward compat with existing sessions).
  * This works on a COPY — the original messages array is not mutated.
  */
 function _trimToolHistory(messages) {
-  // Find all tool result indices
+  // Find all tool result indices — match both new structured format and legacy format
   const toolResultIndices = [];
   for (let i = 0; i < messages.length; i++) {
-    if (messages[i].role === 'user' && messages[i].content?.startsWith('[Tool Result for')) {
+    const c = messages[i].content;
+    if (messages[i].role === 'user' && (c?.startsWith('━━━ TOOL RESULTS') || c?.startsWith('[Tool Result for'))) {
       toolResultIndices.push(i);
     }
   }
@@ -373,7 +459,7 @@ function _trimToolHistory(messages) {
   });
 
   if (totalCharsRemoved > 0) {
-    console.log(`[CCS] Trimmed tool history: ${messages.length} messages, removed ~${totalCharsRemoved} chars from ${toolResultIndices.length - 1} old tool result(s)`);
+    log(`[CCS] Trimmed tool history: ${messages.length} messages, removed ~${totalCharsRemoved} chars from ${toolResultIndices.length - 1} old tool result(s)`);
   }
 
   return trimmed;
@@ -393,7 +479,7 @@ function _trimToolHistory(messages) {
  * embed reasoning in the content field).
  */
 async function _callLLM(messages, signal) {
-  console.log('[CCS] Calling LLM with', messages.length, 'messages');
+  log('[CCS] Calling LLM with', messages.length, 'messages');
   
   let text = await generateText(messages, {
     name: 'ccs-agent',
@@ -407,7 +493,7 @@ async function _callLLM(messages, signal) {
   if (thinkMatch) {
     reasoning = thinkMatch[1].trim();
     text = text.replace(/<think>[\s\S]*?<\/think>/, '').trim();
-    console.log('[CCS] Extracted <think> reasoning:', reasoning.length, 'chars');
+    log('[CCS] Extracted <think> reasoning:', reasoning.length, 'chars');
   }
 
   return { text, reasoning };

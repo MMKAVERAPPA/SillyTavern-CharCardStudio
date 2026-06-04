@@ -304,6 +304,7 @@ html {
 /* Messages Container */
 .ccs-messages {
   flex: 1;
+  min-height: 0;
   overflow-y: auto;
   overflow-x: hidden;
   padding: 16px;
@@ -1106,6 +1107,23 @@ html {
   color: var(--ccs-warning);
 }
 
+/* Inline Context Tooltip icon (housekeeping) */
+.ccs-field-tip-icon {
+  font-size: 10px;
+  opacity: 0.3;
+  cursor: help;
+  margin-left: 2px;
+  transition: opacity 0.15s;
+  vertical-align: middle;
+}
+.ccs-field-row:hover .ccs-field-tip-icon {
+  opacity: 0.6;
+}
+.ccs-field-label[title]:hover .ccs-field-tip-icon {
+  opacity: 0.9;
+  color: var(--ccs-accent);
+}
+
 /* ═══════════════════════════════════════════════════════════════════════════
    8. LOREBOOK ENTRIES (Lore Tab)
    ═══════════════════════════════════════════════════════════════════════════ */
@@ -1843,6 +1861,39 @@ html {
   margin-right: 2px;
 }
 
+/* Tool Activity Badge */
+.ccs-tool-activity {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 10px;
+  border-radius: 100px;
+  background: var(--ccs-accent-glow);
+  border: 1px solid var(--ccs-accent-dim);
+  color: var(--ccs-accent-hover);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.2px;
+  margin-left: auto;
+  animation: ccs-tool-slide-in 0.2s ease-out;
+  white-space: nowrap;
+}
+.ccs-tool-activity i {
+  font-size: 9px;
+  animation: ccs-tool-pulse 1.5s ease-in-out infinite;
+}
+.ccs-tool-activity-label {
+  font-family: var(--ccs-font-mono);
+}
+@keyframes ccs-tool-pulse {
+  0%, 100% { opacity: 0.6; }
+  50% { opacity: 1; }
+}
+@keyframes ccs-tool-slide-in {
+  from { opacity: 0; transform: translateX(12px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+
 
 /* ═══════════════════════════════════════════════════════════════════════════
    15. RESPONSIVE — MOBILE (< 768px)
@@ -1951,6 +2002,102 @@ html {
   .ccs-toast {
     min-width: unset;
     max-width: none;
+  }
+
+  /* ─── Settings Modal: bottom-sheet on mobile ───────────────────────────── */
+  /* The base .ccs-settings-overlay is already position:absolute (scoped to   */
+  /* #ccs_window). On mobile, anchor to the bottom and go full-width.         */
+  .ccs-settings-overlay {
+    top: 0 !important;
+    left: 0 !important;
+    right: 0 !important;
+    bottom: 0 !important;
+    align-items: flex-end !important;
+    justify-content: center !important;
+    padding: 0 !important;
+  }
+
+  .ccs-settings-modal {
+    width: 100% !important;
+    max-width: 100% !important;
+    /* 90dvh accounts for mobile browser chrome (address bar, navigation bar). */
+    /* Without an explicit height, the flex column has no reference to scroll  */
+    /* against, causing the modal content to overflow above the screen.        */
+    max-height: 90dvh !important;
+    height: 90dvh !important;
+    border-radius: 20px 20px 0 0 !important;
+    animation: ccs-slide-up-sheet 0.28s cubic-bezier(0.34, 1.0, 0.64, 1) !important;
+    padding-bottom: env(safe-area-inset-bottom, 0px) !important;
+  }
+
+  @keyframes ccs-slide-up-sheet {
+    from { transform: translateY(60%); opacity: 0.5; }
+    to   { transform: translateY(0);   opacity: 1; }
+  }
+
+  /* Compact settings tab bar on small screens: hide text, keep icons */
+  .ccs-settings-tabs {
+    justify-content: space-around;
+  }
+  .ccs-settings-tab-btn span {
+    display: none;
+  }
+  .ccs-settings-tab-btn {
+    flex: 1;
+    padding: 12px 6px;
+    font-size: 14px;
+  }
+
+  /* Settings body: touch-friendly scrolling */
+  .ccs-settings-body {
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior: contain;
+  }
+
+  /* ─── Inspector / Audit Modal: bottom-sheet on mobile ─────────────────── */
+  .ccs-inspector-overlay {
+    position: absolute !important;
+    top: 0 !important;
+    left: 0 !important;
+    right: 0 !important;
+    bottom: 0 !important;
+    align-items: flex-end !important;
+    padding: 0 !important;
+  }
+
+  .ccs-inspector-modal {
+    width: 100% !important;
+    max-height: 92dvh !important;
+    border-radius: 20px 20px 0 0 !important;
+    animation: ccs-slide-up-sheet 0.28s cubic-bezier(0.34, 1.0, 0.64, 1) !important;
+    padding-bottom: env(safe-area-inset-bottom, 0px) !important;
+  }
+
+  /* ─── Inline Ask AI toolbar: dock above mobile tab bar ────────────────── */
+  .ccs-inline-toolbar {
+    position: fixed !important;
+    left: 12px !important;
+    right: 12px !important;
+    bottom: calc(var(--ccs-mobile-tabs-h) + 8px) !important;
+    top: auto !important;
+    transform: none !important;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 4px;
+    padding: 8px;
+  }
+}
+
+/* Custom instruction popup: dock above the docked toolbar on mobile */
+@media (max-width: 768px) {
+  .ccs-inline-custom-popup {
+    position: fixed !important;
+    left: 12px !important;
+    right: 12px !important;
+    bottom: calc(var(--ccs-mobile-tabs-h) + 60px) !important;
+    top: auto !important;
+    min-width: unset !important;
+    width: auto !important;
   }
 }
 
@@ -2075,7 +2222,11 @@ html {
    ═══════════════════════════════════════════════════════════════════════════ */
 
 .ccs-settings-overlay {
-  position: fixed;
+  /* Always use position:absolute inside #ccs_window (which is position:fixed).
+   * Using position:fixed here would cause the overlay to escape the CCS stacking
+   * context on mobile when ST's body has a CSS transform applied — the modal
+   * would render at wrong coordinates and be impossible to close or scroll. */
+  position: absolute;
   top: 0;
   left: 0;
   right: 0;
@@ -2166,6 +2317,7 @@ html {
 
 .ccs-settings-body {
   flex: 1;
+  min-height: 0;
   overflow-y: auto;
   padding: 0;
 }
@@ -2967,6 +3119,7 @@ html {
 
 .ccs-inspector-body {
   flex: 1;
+  min-height: 0;
   overflow-y: auto;
   overscroll-behavior: contain;
 }
@@ -3278,3 +3431,1869 @@ html {
 .ccs-scorecard-advice-content li {
   margin-bottom: 4px;
 }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   SCORECARD — FIX BUTTONS & REDO (Priority 1.3)
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+.ccs-scorecard-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  position: relative;
+}
+
+.ccs-scorecard-fix-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border: none;
+  border-radius: var(--ccs-radius-sm);
+  background: transparent;
+  cursor: pointer;
+  font-size: 13px;
+  opacity: 0;
+  transition: opacity var(--ccs-transition), background var(--ccs-transition);
+  flex-shrink: 0;
+  padding: 0;
+  line-height: 1;
+}
+
+.ccs-scorecard-item:hover .ccs-scorecard-fix-btn {
+  opacity: 1;
+}
+
+.ccs-scorecard-fix-btn:hover {
+  background: var(--ccs-warning-dim);
+}
+
+.ccs-scorecard-fix-btn:active {
+  transform: scale(0.9);
+}
+
+.ccs-scorecard-regen-btn {
+  margin-left: auto;
+  flex-shrink: 0;
+  font-size: 11px;
+  padding: 3px 8px;
+  opacity: 0.7;
+  transition: opacity var(--ccs-transition);
+}
+
+.ccs-scorecard-regen-btn:hover {
+  opacity: 1;
+}
+
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   TOKEN BUDGET VISUALIZER (Priority 1.2)
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+.ccs-token-budget-bar-wrap {
+  margin: 0 0 12px;
+  padding: 10px 12px;
+  background: var(--ccs-bg-primary);
+  border: 1px solid var(--ccs-border);
+  border-radius: var(--ccs-radius);
+}
+
+.ccs-token-budget-bar-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.ccs-token-budget-title {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--ccs-text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.ccs-token-budget-title i {
+  font-size: 11px;
+}
+
+.ccs-token-budget-total {
+  font-size: 12px;
+  font-weight: 700;
+  transition: color var(--ccs-transition);
+}
+
+.ccs-token-budget-bar {
+  display: flex;
+  height: 8px;
+  border-radius: 4px;
+  overflow: hidden;
+  background: rgba(255, 255, 255, 0.06);
+  gap: 2px;
+  margin-bottom: 6px;
+}
+
+.ccs-token-budget-segment {
+  height: 100%;
+  border-radius: 4px;
+  transition: width 0.4s ease;
+  min-width: 2px;
+  cursor: help;
+}
+
+.ccs-token-budget-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 12px;
+}
+
+.ccs-token-budget-key {
+  font-size: 10px;
+  color: var(--ccs-text-muted);
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.ccs-token-budget-key::before {
+  content: '';
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+  background: var(--seg-color, var(--ccs-accent));
+  flex-shrink: 0;
+}
+
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   THEME SYNC — CSS BRIDGE (Priority 1.4)
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* When theme sync is enabled, the JS will set data-ccs-theme on the overlay.
+   These fallbacks apply when theme sync is active — ST color vars override CCS defaults. */
+
+[data-ccs-theme] .ccs-app {
+  /* Background will be driven by --ccs-bg-primary which is overridden by JS */
+  transition: background 0.3s ease, color 0.3s ease;
+}
+
+[data-ccs-theme] .ccs-topbar {
+  transition: background 0.3s ease;
+}
+
+[data-ccs-theme] .ccs-right-panel {
+  transition: background 0.3s ease;
+}
+
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   LORE CATEGORY FOLDERS (Priority 2.5)
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+.ccs-lore-folder {
+  margin-bottom: 4px;
+  border: 1px solid var(--ccs-border);
+  border-radius: var(--ccs-radius);
+  overflow: hidden;
+}
+
+.ccs-lore-folder-header {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 8px 10px;
+  cursor: pointer;
+  background: var(--ccs-bg-secondary);
+  user-select: none;
+  list-style: none;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--ccs-text-primary);
+  transition: background var(--ccs-transition);
+}
+
+.ccs-lore-folder-header:hover {
+  background: var(--ccs-bg-tertiary);
+}
+
+.ccs-lore-folder[open] > .ccs-lore-folder-header::before {
+  content: "▾";
+  font-size: 10px;
+  color: var(--ccs-text-muted);
+}
+
+.ccs-lore-folder:not([open]) > .ccs-lore-folder-header::before {
+  content: "▸";
+  font-size: 10px;
+  color: var(--ccs-text-muted);
+}
+
+.ccs-lore-folder-icon { font-size: 14px; flex-shrink: 0; }
+.ccs-lore-folder-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ccs-lore-folder-tokens { font-size: 10px; color: var(--ccs-text-muted); margin-left: auto; flex-shrink: 0; }
+
+.ccs-lore-folder-entries {
+  padding: 4px 6px 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.ccs-lore-folder-entries .ccs-lore-entry { margin-left: 4px; }
+
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   CONCEPT BRIEF PANEL (Priority 2.1)
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+.ccs-brief-panel {
+  margin-bottom: 12px;
+  border: 1px solid var(--ccs-border);
+  border-radius: var(--ccs-radius);
+  overflow: hidden;
+}
+
+.ccs-brief-summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 12px;
+  cursor: pointer;
+  background: var(--ccs-bg-secondary);
+  user-select: none;
+  list-style: none;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--ccs-text-primary);
+  transition: background var(--ccs-transition);
+}
+
+.ccs-brief-summary:hover { background: var(--ccs-bg-tertiary); }
+.ccs-brief-word-count { margin-left: auto; font-size: 10px; font-weight: 400; color: var(--ccs-text-muted); }
+
+.ccs-brief-content {
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.ccs-brief-text {
+  font-size: 0.78rem;
+  line-height: 1.6;
+  color: var(--ccs-text-secondary);
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 200px;
+  overflow-y: auto;
+  padding: 8px 10px;
+  background: var(--ccs-bg-primary);
+  border-radius: var(--ccs-radius-sm);
+  border: 1px solid var(--ccs-border);
+}
+
+.ccs-brief-annotation-wrap { display: flex; flex-direction: column; gap: 4px; }
+
+.ccs-brief-annotation-label {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--ccs-text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  cursor: default;
+}
+
+.ccs-brief-annotation-hint {
+  font-weight: 400;
+  font-size: 10px;
+  text-transform: none;
+  color: var(--ccs-accent);
+  opacity: 0.7;
+  letter-spacing: 0;
+}
+
+.ccs-brief-annotation {
+  width: 100%;
+  resize: vertical;
+  min-height: 60px;
+  padding: 7px 9px;
+  background: var(--ccs-bg-input);
+  border: 1px solid var(--ccs-border);
+  border-radius: var(--ccs-radius-sm);
+  color: var(--ccs-text-primary);
+  font-size: 0.78rem;
+  line-height: 1.5;
+  font-family: inherit;
+  transition: border var(--ccs-transition);
+  box-sizing: border-box;
+}
+
+.ccs-brief-annotation:focus { outline: none; border-color: var(--ccs-accent); }
+
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   SESSION CONTEXT BADGES
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+.ccs-session-ctx-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   PRIORITY 3.1 — VISUAL LORE GRAPH
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* Lore tab view toggle buttons */
+.ccs-lb-info-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.ccs-lb-view-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: 1px solid var(--ccs-border);
+  border-radius: var(--ccs-radius-sm);
+  background: transparent;
+  color: var(--ccs-text-muted);
+  cursor: pointer;
+  font-size: 12px;
+  transition: all var(--ccs-transition);
+}
+.ccs-lb-view-btn:hover {
+  background: var(--ccs-bg-hover);
+  color: var(--ccs-text-primary);
+  border-color: var(--ccs-border-strong);
+}
+.ccs-lb-view-btn.active {
+  background: var(--ccs-accent-glow);
+  border-color: var(--ccs-accent);
+  color: var(--ccs-accent-hover);
+}
+
+/* Graph container */
+.ccs-lore-graph-container {
+  width: 100%;
+  height: 400px;
+  min-height: 300px;
+  border: 1px solid var(--ccs-border);
+  border-radius: var(--ccs-radius);
+  overflow: hidden;
+  background: var(--ccs-bg-primary);
+  position: relative;
+  margin-top: 8px;
+  cursor: grab;
+}
+.ccs-lore-graph-container:active {
+  cursor: grabbing;
+}
+
+.ccs-lore-graph-svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+/* Graph edges */
+.ccs-graph-edge {
+  stroke: var(--ccs-border-strong);
+  stroke-width: 1.2;
+  stroke-opacity: 0.6;
+  transition: stroke-opacity 0.2s;
+}
+
+.ccs-graph-arrow-path {
+  fill: var(--ccs-border-strong);
+  fill-opacity: 0.7;
+}
+
+/* Graph nodes */
+.ccs-graph-node {
+  cursor: pointer;
+  transition: filter 0.2s;
+}
+.ccs-graph-node:hover {
+  filter: brightness(1.3) drop-shadow(0 0 6px rgba(255,255,255,0.2));
+}
+.ccs-graph-node--dragging {
+  cursor: grabbing;
+  filter: brightness(1.4) drop-shadow(0 0 8px var(--ccs-accent));
+}
+
+.ccs-graph-node-circle {
+  transition: stroke-width 0.2s, filter 0.2s;
+}
+.ccs-graph-node-circle.ccs-graph-node--selected {
+  stroke: #fff !important;
+  stroke-width: 3 !important;
+  filter: drop-shadow(0 0 8px rgba(255,255,255,0.6));
+}
+
+.ccs-graph-node-label {
+  font-size: 9px;
+  fill: var(--ccs-text-secondary);
+  pointer-events: none;
+  font-family: inherit;
+  user-select: none;
+}
+
+.ccs-graph-orphan-badge {
+  fill: var(--ccs-warning);
+  pointer-events: none;
+  font-size: 10px;
+}
+
+.ccs-graph-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  color: var(--ccs-text-muted);
+  font-size: 13px;
+}
+
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   PRIORITY 3.2 — PERSONALITY RADAR CHART
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+.ccs-radar-panel {
+  border: 1px solid var(--ccs-border);
+  border-radius: var(--ccs-radius);
+  background: var(--ccs-bg-primary);
+  margin-bottom: 12px;
+  overflow: hidden;
+}
+
+.ccs-radar-summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ccs-text-primary);
+  list-style: none;
+  user-select: none;
+  transition: background var(--ccs-transition);
+}
+.ccs-radar-summary::-webkit-details-marker { display: none; }
+.ccs-radar-summary:hover { background: var(--ccs-bg-hover); }
+.ccs-radar-summary i { color: var(--ccs-accent); font-size: 12px; }
+
+.ccs-radar-summary-hint {
+  margin-left: auto;
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--ccs-text-muted);
+  max-width: 160px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ccs-radar-body {
+  padding: 12px 16px 16px;
+  border-top: 1px solid var(--ccs-border);
+}
+
+.ccs-radar-container {
+  width: 100%;
+  aspect-ratio: 1;
+  max-width: 260px;
+  min-height: 220px;
+  margin: 0 auto 12px;
+  user-select: none;
+  touch-action: none;
+}
+
+.ccs-radar-svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+
+.ccs-radar-polygon {
+  transition: none; /* No transition — we update positions in rAF */
+}
+
+.ccs-radar-axis-label {
+  font-size: 8.5px;
+  fill: var(--ccs-text-secondary);
+  pointer-events: none;
+  font-family: inherit;
+}
+.ccs-radar-axis-label--opposite {
+  fill: var(--ccs-text-muted);
+  font-size: 7.5px;
+}
+
+.ccs-radar-handle {
+  fill: var(--ccs-accent);
+  stroke: rgba(255, 255, 255, 0.7);
+  stroke-width: 1.5;
+  cursor: grab;
+  transition: r 0.15s ease, fill 0.15s ease;
+}
+.ccs-radar-handle:hover {
+  fill: var(--ccs-accent-hover);
+  r: 9;
+}
+.ccs-radar-handle--dragging {
+  fill: var(--ccs-accent-hover);
+  cursor: grabbing;
+  filter: drop-shadow(0 0 5px var(--ccs-accent));
+}
+
+.ccs-radar-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   PRIORITY 3.3 — INLINE ASK AI FLOATING TOOLBAR
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* Utility: hidden class (toggled by JS) */
+.ccs-hidden { display: none !important; }
+
+.ccs-inline-toolbar {
+  position: fixed;
+  z-index: 99999;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 4px 6px;
+  background: var(--ccs-bg-secondary);
+  border: 1px solid var(--ccs-border-strong);
+  border-radius: 100px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(124, 92, 191, 0.15);
+  backdrop-filter: blur(12px);
+  animation: ccs-toolbar-appear 0.15s ease;
+  pointer-events: all;
+}
+
+.ccs-inline-toolbar--visible {
+  display: flex !important;
+}
+
+@keyframes ccs-toolbar-appear {
+  from { opacity: 0; transform: translateY(6px) scale(0.96); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+.ccs-inline-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 10px;
+  border: none;
+  border-radius: 100px;
+  background: transparent;
+  color: var(--ccs-text-secondary);
+  font-size: 11.5px;
+  font-family: inherit;
+  cursor: pointer;
+  transition: all var(--ccs-transition);
+  white-space: nowrap;
+}
+.ccs-inline-btn:hover {
+  background: var(--ccs-accent-glow);
+  color: var(--ccs-accent-hover);
+}
+.ccs-inline-btn i {
+  font-size: 10px;
+}
+.ccs-inline-btn--close {
+  color: var(--ccs-text-muted);
+  padding: 5px 7px;
+}
+.ccs-inline-btn--close:hover {
+  background: var(--ccs-error-dim);
+  color: var(--ccs-error);
+}
+
+.ccs-inline-sep {
+  width: 1px;
+  height: 18px;
+  background: var(--ccs-border);
+  margin: 0 2px;
+  flex-shrink: 0;
+}
+
+/* Custom instruction popup (appears below the toolbar) */
+.ccs-inline-custom-popup {
+  position: fixed;
+  z-index: 99998;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  background: var(--ccs-bg-secondary);
+  border: 1px solid var(--ccs-border-strong);
+  border-radius: var(--ccs-radius);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+  backdrop-filter: blur(12px);
+  min-width: 280px;
+  /* Position is set by JS to align with toolbar */
+  top: 50px;
+  left: 50px;
+  animation: ccs-toolbar-appear 0.12s ease;
+}
+
+.ccs-inline-custom-input {
+  flex: 1;
+  background: var(--ccs-bg-input);
+  border: 1px solid var(--ccs-border);
+  border-radius: var(--ccs-radius-sm);
+  color: var(--ccs-text-primary);
+  padding: 5px 10px;
+  font-size: 12px;
+  font-family: inherit;
+  outline: none;
+  transition: border-color var(--ccs-transition);
+}
+.ccs-inline-custom-input:focus {
+  border-color: var(--ccs-accent);
+}
+
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   PRIORITY 3.4 — SPLIT-SCREEN WIDE MODE
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* Active icon button state (used for Wide Mode toggle indicator) */
+.ccs-icon-btn--active {
+  color: var(--ccs-accent-hover) !important;
+  background: var(--ccs-accent-glow) !important;
+}
+.ccs-icon-btn--active:hover {
+  background: rgba(124, 92, 191, 0.35) !important;
+}
+
+/* Wide mode layout — desktop only (won't apply on mobile) */
+@media (min-width: 769px) {
+  .ccs-app.ccs-wide-mode {
+    max-width: 100%;
+  }
+
+  /* In wide mode, the main area becomes two fixed columns side by side */
+  .ccs-app.ccs-wide-mode .ccs-main {
+    flex-direction: row;
+  }
+
+  /* Chat panel: fixed at 40% width, doesn't grow/shrink */
+  .ccs-app.ccs-wide-mode .ccs-chat-panel {
+    flex: 0 0 40%;
+    max-width: 40%;
+    border-right: 2px solid var(--ccs-accent-dim);
+  }
+
+  /* Right panel: takes remaining 60% */
+  .ccs-app.ccs-wide-mode .ccs-right-panel {
+    flex: 1;
+    min-width: 0;
+  }
+
+  /* In wide mode, the tab content area is always visible */
+  .ccs-app.ccs-wide-mode .ccs-tab-panel {
+    /* Tab switching still works, just both panels coexist */
+  }
+
+  /* Slightly smaller font in panels to fit more content */
+  .ccs-app.ccs-wide-mode .ccs-tab-panel {
+    font-size: 13px;
+  }
+
+  /* Visual divider accent between panels in wide mode */
+  .ccs-app.ccs-wide-mode .ccs-topbar {
+    border-bottom-color: var(--ccs-accent);
+  }
+}
+
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   PRIORITY 4.1 — ADVANCED LORE GRAPH (Canvas Overlay)
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* Full-screen overlay */
+.ccs-graph-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 500;
+  display: flex;
+  flex-direction: column;
+  background: #0a0a12;
+  opacity: 0;
+  transition: opacity 0.2s ease;
+  overflow: hidden;
+}
+.ccs-graph-overlay--open {
+  opacity: 1;
+}
+
+/* Inner wrapper fills the overlay */
+.ccs-graph-inner {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+}
+
+/* ── Canvas area (fills remaining space below toolbar+stats) ── */
+.ccs-graph-canvas-area {
+  position: relative;  /* positioning context for canvas + overlays */
+  flex: 1 1 0;         /* fill all space below the toolbar and stats bar */
+  min-height: 0;       /* required for flex children to shrink */
+  overflow: hidden;
+}
+
+/* ── Toolbar ── */
+.ccs-graph-toolbar {
+  position: relative; /* Fix 1: establish stacking context so z-index works */
+  z-index: 10;        /* Fix 1: float above the canvas (canvas z-index:0) */
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 6px 10px;
+  background: rgba(14, 14, 26, 0.95);
+  border-bottom: 1px solid rgba(255,255,255,0.06);
+  flex-shrink: 0;
+  backdrop-filter: blur(10px);
+  flex-wrap: wrap;
+}
+
+.ccs-graph-back-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 12px;
+  background: rgba(255,255,255,0.05);
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 100px;
+  color: #ccc;
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 0.15s;
+  font-family: inherit;
+}
+.ccs-graph-back-btn:hover {
+  background: rgba(255,255,255,0.1);
+  color: #fff;
+}
+
+.ccs-graph-tool-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  color: #888;
+  font-size: 13px;
+  cursor: pointer;
+  transition: all 0.15s;
+  font-family: inherit;
+}
+.ccs-graph-tool-btn:hover {
+  background: rgba(255,255,255,0.07);
+  color: #ddd;
+  border-color: rgba(255,255,255,0.08);
+}
+.ccs-graph-tool-btn--active {
+  background: rgba(124, 92, 191, 0.2) !important;
+  color: #a78bfa !important;
+  border-color: rgba(124, 92, 191, 0.4) !important;
+}
+
+.ccs-graph-toolbar-sep {
+  width: 1px;
+  height: 24px;
+  background: rgba(255,255,255,0.07);
+  margin: 0 4px;
+}
+.ccs-graph-toolbar-spacer {
+  flex: 1;
+}
+
+.ccs-graph-zoom-label {
+  font-size: 11px;
+  color: #666;
+  min-width: 36px;
+  text-align: center;
+  font-family: 'JetBrains Mono', monospace, sans-serif;
+}
+
+/* ── Stats bar ── */
+.ccs-graph-stats {
+  position: relative; /* Fix 1: above canvas */
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 4px 14px;
+  background: rgba(10, 10, 20, 0.8);
+  border-bottom: 1px solid rgba(255,255,255,0.04);
+  font-size: 11px;
+  color: #555;
+  flex-shrink: 0;
+  flex-wrap: wrap;
+}
+.ccs-graph-stats-sep {
+  color: #333;
+}
+
+/* ── Floating panels (search, simulator) ── */
+.ccs-graph-panel {
+  position: absolute;
+  top: 80px;
+  left: 12px;
+  width: 300px;
+  max-width: calc(100vw - 24px);
+  background: rgba(14, 14, 26, 0.97);
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 10px;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.6);
+  backdrop-filter: blur(16px);
+  z-index: 20;
+  padding: 0;
+  overflow: hidden;
+  animation: ccs-panel-in 0.15s ease;
+}
+
+@keyframes ccs-panel-in {
+  from { opacity: 0; transform: translateY(-6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.ccs-graph-panel-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #aaa;
+  border-bottom: 1px solid rgba(255,255,255,0.07);
+  background: rgba(255,255,255,0.03);
+}
+.ccs-graph-panel-header i { color: var(--ccs-accent, #7c5cbf); }
+.ccs-graph-panel-close {
+  margin-left: auto;
+  background: none;
+  border: none;
+  color: #555;
+  cursor: pointer;
+  font-size: 13px;
+  padding: 2px 4px;
+  border-radius: 4px;
+  transition: color 0.15s;
+}
+.ccs-graph-panel-close:hover { color: #ef4444; }
+
+/* Search panel specifics */
+.ccs-graph-search-input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 8px 12px;
+  background: rgba(255,255,255,0.04);
+  border: none;
+  border-bottom: 1px solid rgba(255,255,255,0.07);
+  color: #e0e0e0;
+  font-size: 13px;
+  font-family: inherit;
+  outline: none;
+  transition: background 0.15s;
+}
+.ccs-graph-search-input:focus {
+  background: rgba(255,255,255,0.07);
+}
+.ccs-graph-search-input::placeholder { color: #444; }
+
+.ccs-graph-filter-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  padding: 8px 10px;
+  border-bottom: 1px solid rgba(255,255,255,0.05);
+}
+
+.ccs-graph-filter-chip {
+  padding: 3px 9px;
+  background: rgba(255,255,255,0.04);
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 100px;
+  color: #666;
+  font-size: 10.5px;
+  cursor: pointer;
+  transition: all 0.15s;
+  font-family: inherit;
+}
+.ccs-graph-filter-chip:hover {
+  background: rgba(255,255,255,0.08);
+  color: #aaa;
+}
+.ccs-graph-filter-chip--active {
+  background: rgba(124, 92, 191, 0.2) !important;
+  border-color: rgba(124, 92, 191, 0.5) !important;
+  color: #a78bfa !important;
+}
+
+.ccs-graph-search-result {
+  padding: 6px 12px 8px;
+  font-size: 11px;
+  color: #555;
+  min-height: 20px;
+}
+
+/* Simulator panel */
+.ccs-graph-sim-panel {
+  width: 340px;
+}
+.ccs-graph-sim-input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 8px 12px;
+  background: rgba(255,255,255,0.04);
+  border: none;
+  border-bottom: 1px solid rgba(255,255,255,0.07);
+  color: #e0e0e0;
+  font-size: 12px;
+  font-family: inherit;
+  outline: none;
+  resize: vertical;
+}
+.ccs-graph-sim-input::placeholder { color: #444; }
+.ccs-graph-sim-options {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  padding: 8px 10px 0;
+}
+.ccs-graph-sim-label {
+  display: flex;
+  flex-direction: column;
+  font-size: 10px;
+  color: #555;
+  gap: 3px;
+}
+.ccs-graph-sim-select {
+  background: rgba(255,255,255,0.06);
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 4px;
+  color: #ccc;
+  font-size: 11px;
+  padding: 3px 5px;
+  font-family: inherit;
+  cursor: pointer;
+}
+.ccs-graph-sim-result {
+  max-height: 280px;
+  overflow-y: auto;
+  padding: 6px 10px 10px;
+}
+
+.ccs-sim-pass {
+  margin-top: 8px;
+}
+.ccs-sim-pass-label {
+  font-size: 10.5px;
+  font-weight: 600;
+  color: #666;
+  margin-bottom: 4px;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+.ccs-sim-entry {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 3px 6px;
+  background: rgba(255,255,255,0.03);
+  border-radius: 4px;
+  margin-bottom: 2px;
+}
+.ccs-sim-entry-name {
+  font-size: 11.5px;
+  color: #ccc;
+}
+.ccs-sim-entry-info {
+  font-size: 10.5px;
+  color: #666;
+}
+.ccs-sim-empty {
+  font-size: 12px;
+  color: #444;
+  text-align: center;
+  padding: 12px 0;
+}
+.ccs-sim-summary {
+  margin-top: 8px;
+  padding: 6px 8px;
+  background: rgba(34, 197, 94, 0.1);
+  border: 1px solid rgba(34, 197, 94, 0.2);
+  border-radius: 6px;
+  font-size: 11px;
+  color: #4ade80;
+}
+.ccs-sim-summary--over {
+  background: rgba(239, 68, 68, 0.1);
+  border-color: rgba(239, 68, 68, 0.2);
+  color: #f87171;
+}
+.ccs-sim-warning {
+  margin-top: 6px;
+  padding: 5px 8px;
+  background: rgba(245, 158, 11, 0.1);
+  border: 1px solid rgba(245, 158, 11, 0.2);
+  border-radius: 6px;
+  font-size: 11px;
+  color: #fbbf24;
+}
+
+/* ── Node Editor Panel ── */
+.ccs-graph-editor-panel {
+  position: absolute;
+  top: 80px;
+  right: 12px;
+  width: 280px;
+  max-width: calc(100vw - 24px);
+  max-height: calc(100% - 100px);
+  background: rgba(14, 14, 26, 0.98);
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 10px;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.6);
+  backdrop-filter: blur(16px);
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  animation: ccs-panel-in 0.15s ease;
+}
+.ccs-graph-editor-body {
+  padding: 12px;
+  overflow-y: auto;
+  flex: 1;
+  min-height: 0;
+}
+
+.ccs-editor-field {
+  margin-bottom: 10px;
+}
+.ccs-editor-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 10.5px;
+  color: #666;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-bottom: 4px;
+}
+.ccs-editor-tokens {
+  font-size: 10px;
+  color: #a78bfa;
+  margin-left: auto;
+  font-style: normal;
+  text-transform: none;
+}
+.ccs-editor-input,
+.ccs-editor-textarea {
+  width: 100%;
+  box-sizing: border-box;
+  background: rgba(255,255,255,0.05);
+  border: 1px solid rgba(255,255,255,0.09);
+  border-radius: 5px;
+  color: #ddd;
+  font-size: 12px;
+  padding: 5px 8px;
+  font-family: inherit;
+  outline: none;
+  transition: border-color 0.15s;
+}
+.ccs-editor-input:focus,
+.ccs-editor-textarea:focus {
+  border-color: rgba(124, 92, 191, 0.5);
+}
+.ccs-editor-textarea {
+  resize: vertical;
+  min-height: 80px;
+}
+.ccs-editor-row {
+  display: flex;
+  gap: 8px;
+}
+.ccs-editor-row .ccs-editor-field {
+  flex: 1;
+}
+.ccs-editor-checks {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  margin-bottom: 10px;
+}
+.ccs-editor-check {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 11.5px;
+  color: #aaa;
+  cursor: pointer;
+}
+.ccs-editor-check input[type="checkbox"] {
+  accent-color: var(--ccs-accent, #7c5cbf);
+}
+.ccs-editor-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 12px;
+}
+.ccs-editor-actions .ccs-btn {
+  flex: 1;
+}
+
+/* ── Context Menu ── */
+.ccs-graph-ctx-menu {
+  position: fixed;
+  z-index: 600;
+  min-width: 170px;
+  background: rgba(18, 18, 30, 0.98);
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.7);
+  padding: 4px;
+  backdrop-filter: blur(16px);
+  animation: ccs-panel-in 0.12s ease;
+}
+.ccs-graph-ctx-item {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  padding: 7px 11px;
+  background: none;
+  border: none;
+  border-radius: 5px;
+  color: #bbb;
+  font-size: 12.5px;
+  font-family: inherit;
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.1s, color 0.1s;
+}
+.ccs-graph-ctx-item:hover {
+  background: rgba(255,255,255,0.06);
+  color: #eee;
+}
+.ccs-graph-ctx-item--danger:hover {
+  background: rgba(239, 68, 68, 0.12);
+  color: #f87171;
+}
+.ccs-graph-ctx-item i {
+  width: 14px;
+  text-align: center;
+  font-size: 11px;
+}
+.ccs-graph-ctx-sep {
+  height: 1px;
+  background: rgba(255,255,255,0.06);
+  margin: 3px 6px;
+}
+
+/* ── Canvas ── */
+.ccs-graph-canvas {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+  z-index: 1; /* Fix 1: sits above background but below toolbar (z-index:10) */
+}
+.ccs-graph-canvas:active {
+  cursor: grabbing;
+}
+
+/* ── Minimap ── */
+.ccs-graph-minimap {
+  position: absolute;
+  bottom: 14px;
+  right: 14px;
+  width: 130px;
+  height: 85px;
+  border-radius: 8px;
+  box-shadow: 0 2px 12px rgba(0,0,0,0.5);
+  pointer-events: none;
+  z-index: 10;
+  border: 1px solid rgba(255,255,255,0.08);
+}
+
+/* ── Legend ── */
+.ccs-graph-legend {
+  position: absolute;
+  bottom: 14px;
+  left: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  background: rgba(10, 10, 18, 0.8);
+  border: 1px solid rgba(255,255,255,0.07);
+  border-radius: 8px;
+  padding: 8px 10px;
+  z-index: 10;
+  pointer-events: none;
+  backdrop-filter: blur(8px);
+}
+.ccs-graph-legend-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 10px;
+  color: #555;
+}
+.ccs-graph-legend-edge {
+  display: inline-block;
+  width: 18px;
+  height: 2px;
+  border-radius: 1px;
+  flex-shrink: 0;
+}
+.ccs-graph-legend-dashed {
+  background: repeating-linear-gradient(90deg, currentColor 0, currentColor 4px, transparent 4px, transparent 7px) !important;
+}
+
+/* ── Graph button in lore tab ── */
+.ccs-lb-graph-overlay-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 12px;
+  background: rgba(124, 92, 191, 0.12);
+  border: 1px solid rgba(124, 92, 191, 0.25);
+  border-radius: 100px;
+  color: #a78bfa;
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 0.15s;
+  font-family: inherit;
+}
+.ccs-lb-graph-overlay-btn:hover {
+  background: rgba(124, 92, 191, 0.22);
+  border-color: rgba(124, 92, 191, 0.45);
+}
+
+/* ── Mobile adjustments for graph overlay ── */
+@media (max-width: 768px) {
+  .ccs-graph-back-label { display: none; }
+  .ccs-graph-minimap { display: none; }
+  .ccs-graph-legend {
+    display: none; /* hide legend on mobile — too cramped */
+  }
+  .ccs-graph-panel {
+    bottom: 0;
+    top: auto;
+    left: 0;
+    right: 0;
+    width: 100%;
+    max-width: 100%;
+    border-radius: 14px 14px 0 0;
+    max-height: 55vh;
+    animation: ccs-bottom-sheet-in 0.2s ease;
+  }
+  .ccs-graph-editor-panel {
+    bottom: 0;
+    top: auto;
+    right: 0;
+    left: 0;
+    width: 100%;
+    max-width: 100%;
+    border-radius: 14px 14px 0 0;
+    max-height: 65vh;
+    animation: ccs-bottom-sheet-in 0.2s ease;
+  }
+  @keyframes ccs-bottom-sheet-in {
+    from { transform: translateY(40px); opacity: 0; }
+    to   { transform: translateY(0); opacity: 1; }
+  }
+  .ccs-graph-toolbar {
+    gap: 1px;
+    padding: 5px 6px;
+  }
+  .ccs-graph-tool-btn {
+    width: 28px;
+    height: 28px;
+    font-size: 12px;
+  }
+  /* Mobile: panels as bottom sheets */
+  .ccs-graph-panel {
+    bottom: 0 !important;
+    top: auto !important;
+    right: 0 !important;
+    left: 0 !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    border-radius: 14px 14px 0 0 !important;
+    max-height: 55vh;
+    overflow-y: auto;
+  }
+  /* Mobile: smaller chips */
+  .ccs-graph-cat-chips {
+    padding: 4px 8px;
+    gap: 4px;
+  }
+  .ccs-graph-cat-chip {
+    font-size: 10px;
+    padding: 3px 8px;
+  }
+  /* Mobile: hide less critical stats */
+  .ccs-graph-stats .ccs-graph-budget-track,
+  #ccs_graph_stat_budget {
+    display: none;
+  }
+}
+
+/* ─── Category Filter Chips ──────────────────────────────────────────────── */
+.ccs-graph-cat-chips {
+  display: flex;
+  gap: 6px;
+  padding: 6px 12px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
+}
+.ccs-graph-cat-chips::-webkit-scrollbar { display: none; }
+
+.ccs-graph-cat-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 10px;
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 20px;
+  background: rgba(255,255,255,0.04);
+  color: rgba(255,255,255,0.7);
+  font-size: 11px;
+  font-family: inherit;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 0.15s;
+  flex-shrink: 0;
+}
+.ccs-graph-cat-chip:hover {
+  background: rgba(255,255,255,0.08);
+  color: #fff;
+}
+.ccs-graph-cat-chip--active {
+  background: color-mix(in srgb, var(--chip-color, #888) 25%, transparent);
+  border-color: var(--chip-color, #888);
+  color: #fff;
+}
+.ccs-graph-cat-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.ccs-graph-cat-count {
+  opacity: 0.5;
+  font-size: 10px;
+}
+
+/* ─── Context Menu Submenu ───────────────────────────────────────────────── */
+.ccs-graph-ctx-submenu {
+  position: relative;
+}
+.ccs-graph-ctx-sub-trigger {
+  display: flex;
+  align-items: center;
+}
+.ccs-graph-ctx-sub-panel {
+  position: absolute;
+  left: 100%;
+  top: 0;
+  min-width: 160px;
+  max-height: 280px;
+  overflow-y: auto;
+  background: rgba(20,20,30,0.97);
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 8px;
+  padding: 4px;
+  backdrop-filter: blur(12px);
+  z-index: 100;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.4);
+}
+.ccs-graph-ctx-sub-panel .ccs-graph-ctx-item {
+  font-size: 12px;
+  padding: 5px 10px;
+  gap: 6px;
+}
+
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   🖼️  Avatar Prompt Card (Priority 4.2)
+   ───────────────────────────────────────────────────────────────────────────── */
+
+.ccs-avatar-card {
+  padding: 0 !important;
+  border-radius: var(--ccs-radius-lg) !important;
+  overflow: hidden !important;
+  box-shadow: var(--ccs-shadow), 0 0 30px rgba(124, 92, 191, 0.15) !important;
+}
+
+.ccs-avatar-prompt-card {
+  background: linear-gradient(135deg, var(--ccs-bg-secondary) 0%, var(--ccs-bg-primary) 100%);
+  border: 1px solid var(--ccs-border-strong);
+  border-radius: var(--ccs-radius-lg);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+/* Header */
+.ccs-avatar-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 18px 12px;
+  background: linear-gradient(90deg, rgba(124, 92, 191, 0.2), rgba(84, 209, 224, 0.08));
+  border-bottom: 1px solid var(--ccs-border);
+}
+
+.ccs-avatar-icon {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, var(--ccs-accent), var(--ccs-accent-hover));
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: white;
+  font-size: 13px;
+  flex-shrink: 0;
+  box-shadow: 0 2px 8px rgba(124, 92, 191, 0.4);
+}
+
+.ccs-avatar-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--ccs-text-primary);
+  flex: 1;
+}
+
+.ccs-avatar-meta {
+  font-size: 11px;
+  color: var(--ccs-text-muted);
+  font-style: italic;
+  max-width: 120px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Style/emphasis tags row */
+.ccs-avatar-tags {
+  display: flex;
+  gap: 8px;
+  padding: 10px 18px 0;
+  flex-wrap: wrap;
+}
+
+.ccs-avatar-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 10px;
+  border-radius: 20px;
+  background: rgba(124, 92, 191, 0.12);
+  border: 1px solid rgba(124, 92, 191, 0.25);
+  color: var(--ccs-accent-hover);
+  font-size: 11px;
+  font-weight: 500;
+}
+
+/* Prompt sections */
+.ccs-avatar-section {
+  padding: 12px 18px 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.ccs-avatar-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--ccs-text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.ccs-avatar-label i {
+  font-size: 10px;
+  color: var(--ccs-accent);
+}
+
+.ccs-avatar-textarea {
+  width: 100%;
+  padding: 10px 12px;
+  background: var(--ccs-bg-input, rgba(0, 0, 0, 0.2));
+  border: 1px solid var(--ccs-border);
+  border-radius: var(--ccs-radius);
+  color: var(--ccs-text-primary);
+  font-size: 12px;
+  font-family: var(--ccs-font-mono, 'Courier New', monospace);
+  line-height: 1.5;
+  resize: vertical;
+  transition: border-color var(--ccs-transition);
+  box-sizing: border-box;
+}
+
+.ccs-avatar-textarea:focus {
+  outline: none;
+  border-color: var(--ccs-accent);
+  box-shadow: 0 0 0 2px rgba(124, 92, 191, 0.15);
+}
+
+/* Style/emphasis selectors */
+.ccs-avatar-style-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 18px 0;
+  flex-wrap: wrap;
+}
+
+.ccs-avatar-select {
+  flex: 1;
+  min-width: 100px;
+  padding: 6px 10px;
+  background: var(--ccs-bg-input, rgba(0, 0, 0, 0.2));
+  border: 1px solid var(--ccs-border);
+  border-radius: var(--ccs-radius);
+  color: var(--ccs-text-primary);
+  font-size: 12px;
+  cursor: pointer;
+  transition: border-color var(--ccs-transition);
+}
+
+.ccs-avatar-select:focus {
+  outline: none;
+  border-color: var(--ccs-accent);
+}
+
+/* Action buttons row */
+.ccs-avatar-actions {
+  display: flex;
+  gap: 8px;
+  padding: 14px 18px;
+  flex-wrap: wrap;
+}
+
+/* Status bar */
+.ccs-avatar-status {
+  padding: 10px 18px;
+  font-size: 12px;
+  color: var(--ccs-text-secondary);
+  background: rgba(0, 0, 0, 0.15);
+  border-top: 1px solid var(--ccs-border);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  animation: ccs-fade-in 0.2s ease;
+}
+
+.ccs-avatar-status i {
+  color: var(--ccs-accent);
+}
+
+/* Mobile tweaks */
+@media (max-width: 768px) {
+  .ccs-avatar-header {
+    padding: 12px 14px 10px;
+  }
+
+  .ccs-avatar-tags,
+  .ccs-avatar-section,
+  .ccs-avatar-style-row,
+  .ccs-avatar-actions {
+    padding-left: 14px;
+    padding-right: 14px;
+  }
+
+  .ccs-avatar-style-row {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .ccs-avatar-select {
+    width: 100%;
+  }
+
+  .ccs-avatar-actions {
+    flex-direction: column;
+  }
+
+  .ccs-avatar-actions .ccs-btn {
+    width: 100%;
+    justify-content: center;
+  }
+}
+
+/* ── Lore Graph v2 — new feature styles ──────────────────────────────────── */
+
+/* Toolbar warning badge */
+.ccs-graph-tool-btn { position: relative; }
+.ccs-graph-tool-badge {
+  position: absolute;
+  top: 2px; right: 2px;
+  min-width: 16px; height: 16px;
+  background: #ef4444;
+  color: #fff;
+  font-size: 9px;
+  font-weight: 700;
+  border-radius: 8px;
+  display: flex; align-items: center; justify-content: center;
+  padding: 0 3px;
+  pointer-events: none;
+}
+.ccs-graph-tool-btn--warn { color: #f59e0b !important; }
+
+/* Clickable orphaned stat */
+#ccs_graph_stat_orphaned {
+  padding: 2px 6px;
+  border-radius: 4px;
+  transition: background 0.15s;
+}
+#ccs_graph_stat_orphaned:hover {
+  background: rgba(239,68,68,0.15);
+}
+
+/* Token budget bar inside stats */
+.ccs-graph-budget-track {
+  flex: 1;
+  height: 3px;
+  background: rgba(255,255,255,0.08);
+  border-radius: 2px;
+  margin: 0 6px;
+  overflow: hidden;
+  min-width: 60px;
+}
+.ccs-graph-budget-fill {
+  height: 100%;
+  width: 0%;
+  background: #22c55e;
+  border-radius: 2px;
+  transition: width 0.4s ease, background 0.4s ease;
+}
+
+/* Hover tooltip */
+.ccs-graph-tooltip {
+  position: absolute;
+  z-index: 9999;
+  background: rgba(10,10,20,0.96);
+  border: 1px solid rgba(255,255,255,0.12);
+  border-radius: 10px;
+  padding: 10px 12px;
+  max-width: 240px;
+  pointer-events: none;
+  backdrop-filter: blur(8px);
+  box-shadow: 0 8px 32px rgba(0,0,0,0.5);
+  font-size: 12px;
+  color: #ccc;
+  transition: opacity 0.12s ease;
+}
+.ccs-tt-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: #f0f0f0;
+  margin-bottom: 6px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ccs-tt-meta { margin-bottom: 6px; }
+.ccs-tt-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  line-height: 1.5;
+}
+.ccs-tt-label { color: #777; font-size: 11px; }
+.ccs-tt-section {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #555;
+  margin: 6px 0 3px;
+}
+.ccs-tt-keys { display: flex; flex-wrap: wrap; gap: 3px; margin-bottom: 5px; }
+.ccs-tt-key {
+  display: inline-block;
+  background: rgba(124,92,191,0.25);
+  border: 1px solid rgba(124,92,191,0.4);
+  color: #c4a7ff;
+  font-size: 10px;
+  padding: 1px 5px;
+  border-radius: 4px;
+}
+.ccs-tt-nokeys { color: #555; font-size: 11px; font-style: italic; }
+.ccs-tt-warning {
+  background: rgba(239,68,68,0.12);
+  border: 1px solid rgba(239,68,68,0.3);
+  border-radius: 6px;
+  padding: 4px 7px;
+  font-size: 11px;
+  color: #fca5a5;
+  margin-bottom: 5px;
+}
+.ccs-tt-trigger {
+  font-size: 11px;
+  color: #a0c4ff;
+  margin-bottom: 3px;
+  line-height: 1.4;
+}
+.ccs-tt-hint {
+  font-size: 10px;
+  color: #444;
+  border-top: 1px solid rgba(255,255,255,0.05);
+  padding-top: 4px;
+  margin-top: 4px;
+}
+
+/* Warnings panel */
+.ccs-graph-warn-panel { min-width: 260px; max-width: 320px; }
+.ccs-graph-warn-body {
+  padding: 8px;
+  overflow-y: auto;
+  max-height: 340px;
+}
+.ccs-warn-section {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #666;
+  margin: 8px 0 4px;
+  padding-bottom: 3px;
+  border-bottom: 1px solid rgba(255,255,255,0.05);
+}
+.ccs-warn-item {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  padding: 4px 0;
+  border-bottom: 1px solid rgba(255,255,255,0.04);
+  font-size: 12px;
+  flex-wrap: wrap;
+}
+.ccs-warn-item--dead { color: #fca5a5; }
+.ccs-warn-affected { color: #aaa; font-size: 11px; flex: 1; }
+.ccs-warn-tip {
+  font-size: 10px;
+  color: #ef4444;
+  margin-left: auto;
+  white-space: nowrap;
+}
+.ccs-warn-ok {
+  color: #4ade80;
+  font-size: 12px;
+  padding: 12px 8px;
+  text-align: center;
+}
+.ccs-warn-loading { color: #666; font-size: 12px; padding: 12px 8px; text-align: center; }
+
+/* Quick keyword editor panel */
+.ccs-graph-kw-panel { min-width: 240px; max-width: 300px; }
+.ccs-graph-kw-body { padding: 8px 10px 12px; }
+.ccs-kw-hint {
+  font-size: 11px;
+  color: #666;
+  margin: 0 0 8px;
+  line-height: 1.4;
+}
+.ccs-kw-status { min-height: 18px; font-size: 11px; margin: 4px 0; }
+.ccs-kw-actions {
+  display: flex;
+  gap: 6px;
+  margin-top: 8px;
+}
+.ccs-kw-actions .ccs-btn { flex: 1; justify-content: center; font-size: 12px; padding: 5px 10px; }
+
+/* Batch action bar */
+.ccs-graph-batch-bar {
+  position: absolute;
+  bottom: 14px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 120;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: rgba(12,10,28,0.94);
+  border: 1px solid rgba(124,92,191,0.4);
+  border-radius: 10px;
+  padding: 6px 12px;
+  backdrop-filter: blur(10px);
+  box-shadow: 0 4px 20px rgba(0,0,0,0.4);
+  animation: ccs-slide-up 0.2s ease;
+}
+@keyframes ccs-slide-up {
+  from { opacity: 0; transform: translateX(-50%) translateY(12px); }
+  to   { opacity: 1; transform: translateX(-50%) translateY(0); }
+}
+.ccs-batch-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: #a78bfa;
+  margin-right: 4px;
+  white-space: nowrap;
+}
+.ccs-batch-btn {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  background: rgba(255,255,255,0.06);
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 7px;
+  color: #ccc;
+  font-size: 12px;
+  padding: 4px 10px;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+  white-space: nowrap;
+}
+.ccs-batch-btn:hover { background: rgba(124,92,191,0.25); color: #fff; border-color: rgba(124,92,191,0.5); }
+.ccs-batch-btn--clear:hover { background: rgba(239,68,68,0.2); color: #fca5a5; border-color: rgba(239,68,68,0.3); }
+

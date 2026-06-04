@@ -19,7 +19,12 @@ import { validateField } from './validators.js';
 const _queue = [];
 let _isProcessing = false;
 let _abortController = null;
-let _debounceTimer = null;
+
+// Bug D fix: was a single shared _debounceTimer — any rapid sequence of
+// enqueueCheck calls (e.g. conflict+token+validation after one draft apply)
+// would cancel the previous timer, so only the last call ever fired.
+// Per-key map gives each (type,field) pair its own independent debounce.
+const _debounceTimers = new Map();
 
 /** Cache: fieldContentHash → check result (avoid re-checking unchanged content) */
 const _checkCache = new Map();
@@ -54,20 +59,20 @@ Return ONLY valid JSON:
 // ─── Public API ─────────────────────────────────────────────────────────────
 
 /**
- * Enqueue a background check with debounce.
+ * Enqueue a background check with per-key debounce.
  * @param {'conflict'|'token'|'validation'} type
  * @param {string} fieldName - The field that was just written/applied
  */
 export function enqueueCheck(type, fieldName) {
-  // Clear any pending debounce for the same field+type
-  if (_debounceTimer) {
-    clearTimeout(_debounceTimer);
-  }
+    // Bug D fix: use (type:fieldName) as the key so each distinct check type
+    // gets its own timer and cannot be cancelled by a sibling check type.
+    const key = `${type}:${fieldName}`;
+    if (_debounceTimers.has(key)) clearTimeout(_debounceTimers.get(key));
 
-  _debounceTimer = setTimeout(() => {
-    _debounceTimer = null;
-    _addToQueue(type, fieldName);
-  }, DEBOUNCE_MS);
+    _debounceTimers.set(key, setTimeout(() => {
+        _debounceTimers.delete(key);
+        _addToQueue(type, fieldName);
+    }, DEBOUNCE_MS));
 }
 
 /**
@@ -75,10 +80,9 @@ export function enqueueCheck(type, fieldName) {
  */
 export function cancelAllChecks() {
   _queue.length = 0;
-  if (_debounceTimer) {
-    clearTimeout(_debounceTimer);
-    _debounceTimer = null;
-  }
+  // Bug D: clear all per-key timers
+  for (const timer of _debounceTimers.values()) clearTimeout(timer);
+  _debounceTimers.clear();
   if (_abortController) {
     _abortController.abort();
     _abortController = null;

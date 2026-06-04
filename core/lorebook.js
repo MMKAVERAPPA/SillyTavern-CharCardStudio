@@ -412,25 +412,40 @@ export async function detectRecursion(entries) {
         if (triggered.length > 0) triggerMap.set(entry.uid, triggered);
     }
 
+    // Bug H fix: Replace recursive walkChain (exponential Set copies, stack-overflow
+    // risk on dense lorebooks) with an iterative DFS using an explicit work stack.
+    // Each stack frame is [uid, visitedSet, depth, pathArray].
+    const walkChainIterative = (startUid, startName) => {
+        let localMaxDepth = 0;
+        const stack = [[startUid, new Set(), 0, [startName]]];
+
+        while (stack.length > 0) {
+            const [uid, visited, depth, path] = stack.pop();
+
+            if (visited.has(uid)) {
+                warnings.push(`Circular recursion detected: ${path.join(' -> ')} -> loops to uid:${uid}`);
+                localMaxDepth = Math.max(localMaxDepth, depth);
+                continue;
+            }
+
+            const newVisited = new Set(visited);
+            newVisited.add(uid);
+            localMaxDepth = Math.max(localMaxDepth, depth);
+
+            for (const nextUid of (triggerMap.get(uid) || [])) {
+                const nextEntry = enabledEntries.find(e => e.uid === nextUid);
+                const nextName = nextEntry?.name || `uid:${nextUid}`;
+                stack.push([nextUid, newVisited, depth + 1, [...path, nextName]]);
+            }
+        }
+
+        return localMaxDepth;
+    };
+
     let maxDepth = 0;
 
-    function walkChain(uid, visited, depth, path) {
-        if (visited.has(uid)) {
-            warnings.push(`Circular recursion detected: ${path.join(' -> ')} -> loops to uid:${uid}`);
-            return depth;
-        }
-        visited.add(uid);
-        let localMax = depth;
-        for (const nextUid of (triggerMap.get(uid) || [])) {
-            const nextEntry = enabledEntries.find(e => e.uid === nextUid);
-            const nextName = nextEntry?.name || `uid:${nextUid}`;
-            localMax = Math.max(localMax, walkChain(nextUid, new Set(visited), depth + 1, [...path, nextName]));
-        }
-        return localMax;
-    }
-
     for (const entry of enabledEntries) {
-        const depth = walkChain(entry.uid, new Set(), 0, [entry.name || `uid:${entry.uid}`]);
+        const depth = walkChainIterative(entry.uid, entry.name || `uid:${entry.uid}`);
         if (depth > 1) {
             chains.push({ uid: entry.uid, name: entry.name || `uid:${entry.uid}`, depth });
             maxDepth = Math.max(maxDepth, depth);
