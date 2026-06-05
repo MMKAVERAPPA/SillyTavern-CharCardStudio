@@ -288,7 +288,6 @@ function _syncSettingsUI() {
     }
 }
 
-}
 
 /**
  * Populate both API profile dropdowns (main agent + background checks).
