@@ -573,7 +573,7 @@ async function toolReadLoreEntries(params) {
     }
 
     const lines = entries.map(e => {
-      const keyArr = Array.isArray(e.key) ? e.key : (e.key ? [e.key] : []);
+      const keyArr = Array.isArray(e.keys) ? e.keys : (e.keys ? [e.keys] : []);
       const keys = keyArr.join(', ') || 'none';
       const content = params.include_content !== false 
         ? `\n  Content: ${String(e.content).substring(0, 300)}` 
