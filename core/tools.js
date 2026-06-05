@@ -604,6 +604,8 @@ async function toolUpdateLoreEntry(params) {
   if (params.content !== undefined) draft.changes.content = params.content;
   if (params.keys !== undefined) draft.changes.keys = params.keys;
   if (params.name !== undefined) draft.changes.name = params.name;
+  if (params.category !== undefined) draft.changes.category = params.category;
+  if (params.group !== undefined) draft.changes.group = params.group;
 
   const loreDrafts = session.loreDrafts || [];
   loreDrafts.push(draft);
@@ -1089,19 +1091,37 @@ export async function applyLoreDraft(draftId) {
           depth: draft.depth,
           order: draft.order,
           preventRecursion: draft.preventRecursion,
+          group: draft.group,
         });
         if (!result.success) {
           console.error('[CCS] Lore create failed:', result.error);
           return false;
         }
+        if (draft.category) {
+          session.loreCategories = session.loreCategories || {};
+          session.loreCategories[result.uid] = draft.category;
+          await updateSession({ loreCategories: session.loreCategories });
+        }
         console.log(`[CCS] Lore entry created: "${draft.name}" (uid: ${result.uid})`);
         break;
       }
       case 'update': {
-        result = await updateLorebookEntry(draft.uid, draft.changes || {});
-        if (!result.success) {
-          console.error('[CCS] Lore update failed:', result.error);
-          return false;
+        const changesToApply = { ...draft.changes };
+        
+        if (changesToApply.category !== undefined) {
+          const cat = changesToApply.category;
+          delete changesToApply.category;
+          session.loreCategories = session.loreCategories || {};
+          session.loreCategories[draft.uid] = cat;
+          await updateSession({ loreCategories: session.loreCategories });
+        }
+        
+        if (Object.keys(changesToApply).length > 0) {
+          result = await updateLorebookEntry(draft.uid, changesToApply);
+          if (!result.success) {
+            console.error('[CCS] Lore update failed:', result.error);
+            return false;
+          }
         }
         console.log(`[CCS] Lore entry updated: uid ${draft.uid}`);
         break;

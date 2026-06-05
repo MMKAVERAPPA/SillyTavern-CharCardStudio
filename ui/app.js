@@ -1402,12 +1402,17 @@ async function _renderLoreTab() {
 
     // Staged drafts
     if (pendingDrafts.length) {
-        html += `<div class="ccs-lore-staged-section">
-            <h5 class="ccs-lore-section-title">⏳ Staged (${pendingDrafts.length})</h5>
+        html += `<details class="ccs-lore-folder ccs-lore-staged-section" open>
+            <summary class="ccs-lore-folder-header">
+                <span class="ccs-lore-folder-icon">⏳</span>
+                <span class="ccs-lore-folder-name">Staged Updates</span>
+                <span class="ccs-badge ccs-badge--warning">${pendingDrafts.length}</span>
+            </summary>
+            <div class="ccs-lore-folder-entries">
             ${pendingDrafts.map(d => `
                 <div class="ccs-lore-entry ccs-lore-entry--staged">
                     <div class="ccs-lore-entry-header">
-                        <span class="ccs-lore-entry-name">${escapeHtml(d.name || 'Unnamed')}</span>
+                        <span class="ccs-lore-entry-name">${escapeHtml(d.name || d.changes?.name || (d.uid !== undefined ? entries.find(e => String(e.uid) === String(d.uid))?.name : null) || 'Unnamed')}</span>
                         <span class="ccs-badge ccs-badge--warning">${d.type || 'create'}</span>
                         ${d.tokenCount ? `<span class="ccs-lore-entry-tokens">~${d.tokenCount}t</span>` : ''}
                     </div>
@@ -1415,7 +1420,8 @@ async function _renderLoreTab() {
                     ${d.content ? `<div class="ccs-lore-entry-preview">${escapeHtml(d.content.substring(0, 120))}${d.content.length > 120 ? '…' : ''}</div>` : ''}
                 </div>
             `).join('')}
-        </div>`;
+            </div>
+        </details>`;
     }
 
     // Existing entries — grouped by category (2.5)
@@ -1425,7 +1431,8 @@ async function _renderLoreTab() {
         const CATEGORY_ORDER = ['Geography', 'Factions', 'NPCs', 'Magic System', 'Items', 'History', 'Culture', 'Rules', 'Constant'];
         const grouped = {};
         for (const e of entries) {
-            const cat = (e.category || '').trim() || (e.constant ? 'Rules' : 'Uncategorized');
+            const sessionCategory = session?.loreCategories?.[e.uid];
+            const cat = (e.category || sessionCategory || '').trim() || (e.constant ? 'Rules' : 'Uncategorized');
             if (!grouped[cat]) grouped[cat] = [];
             grouped[cat].push(e);
         }
@@ -1536,12 +1543,17 @@ function _renderLoreTabFromCache() {
         stagedSection.remove();
     } else if (pendingDrafts.length > 0) {
         // Only full re-render staged section; existing entries DOM stays untouched
-        const stagedHtml = `<div class="ccs-lore-staged-section">
-            <h5 class="ccs-lore-section-title">⏳ Staged (${pendingDrafts.length})</h5>
+        const stagedHtml = `<details class="ccs-lore-folder ccs-lore-staged-section" open>
+            <summary class="ccs-lore-folder-header">
+                <span class="ccs-lore-folder-icon">⏳</span>
+                <span class="ccs-lore-folder-name">Staged Updates</span>
+                <span class="ccs-badge ccs-badge--warning">${pendingDrafts.length}</span>
+            </summary>
+            <div class="ccs-lore-folder-entries">
             ${pendingDrafts.map(d => `
                 <div class="ccs-lore-entry ccs-lore-entry--staged">
                     <div class="ccs-lore-entry-header">
-                        <span class="ccs-lore-entry-name">${escapeHtml(d.name || 'Unnamed')}</span>
+                        <span class="ccs-lore-entry-name">${escapeHtml(d.name || d.changes?.name || (d.uid !== undefined ? entries.find(e => String(e.uid) === String(d.uid))?.name : null) || 'Unnamed')}</span>
                         <span class="ccs-badge ccs-badge--warning">${d.type || 'create'}</span>
                         ${d.tokenCount ? `<span class="ccs-lore-entry-tokens">~${d.tokenCount}t</span>` : ''}
                     </div>
@@ -1549,7 +1561,8 @@ function _renderLoreTabFromCache() {
                     ${d.content ? `<div class="ccs-lore-entry-preview">${escapeHtml(d.content.substring(0, 120))}${d.content.length > 120 ? '…' : ''}</div>` : ''}
                 </div>
             `).join('')}
-        </div>`;
+            </div>
+        </details>`;
         if (stagedSection) {
             stagedSection.outerHTML = stagedHtml;
         } else {
