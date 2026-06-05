@@ -7,6 +7,7 @@ import {
     getAvailableProfiles,
     getUtilityProfileId, setUtilityProfileId,
     getMainProfileId, setMainProfileId,
+    getTokenLimits, setTokenLimits
 } from '../core/api-router.js';
 import { enqueueCheck } from '../core/background.js';
 import {
@@ -48,7 +49,6 @@ export async function openSettings() {
     _syncMemoryUI();
     _updateStorageInfo();
     await _populateApiDropdowns();
-    _wireRunChecksButton();
 
     const overlay = el('ccs_settings_overlay');
     if (overlay) {
@@ -177,6 +177,21 @@ function _bindEvents() {
         });
     }
 
+    // Token Limits
+    const tokenIds = ['desc_min', 'desc_ideal', 'desc_max', 'sys_ideal', 'sys_max'];
+    for (const tid of tokenIds) {
+        const inp = el(`ccs_setting_token_${tid}`);
+        if (inp) {
+            inp.addEventListener('change', () => {
+                const val = parseInt(inp.value, 10);
+                if (!isNaN(val)) {
+                    setTokenLimits({ [tid]: val });
+                    showToast(`Token limits updated`, 'info', 1000);
+                }
+            });
+        }
+    }
+
     // Format selector
     const formatEl = el('ccs_setting_format');
     if (formatEl) {
@@ -249,6 +264,13 @@ function _syncSettingsUI() {
         utilityApiEl.value = savedId || '';
     }
 
+    const limits = getTokenLimits();
+    if (el('ccs_setting_token_desc_min')) el('ccs_setting_token_desc_min').value = limits.desc_min;
+    if (el('ccs_setting_token_desc_ideal')) el('ccs_setting_token_desc_ideal').value = limits.desc_ideal;
+    if (el('ccs_setting_token_desc_max')) el('ccs_setting_token_desc_max').value = limits.desc_max;
+    if (el('ccs_setting_token_sys_ideal')) el('ccs_setting_token_sys_ideal').value = limits.sys_ideal;
+    if (el('ccs_setting_token_sys_max')) el('ccs_setting_token_sys_max').value = limits.sys_max;
+
     // Auto background checks toggle
     const autoChecksEl = el('ccs_setting_auto_checks');
     if (autoChecksEl) {
@@ -266,38 +288,6 @@ function _syncSettingsUI() {
     }
 }
 
-/**
- * Wire the "Run Checks" button in the Card tab header.
- * Queues conflict + token checks for all filled card fields.
- * Safe to call multiple times — idempotent via _ccsWired flag.
- */
-function _wireRunChecksButton() {
-    const btn = el('ccs_run_checks_btn');
-    if (!btn || btn._ccsWired) return;
-    btn._ccsWired = true;
-
-    btn.addEventListener('click', () => {
-        const ALL_FIELDS = [
-            'description', 'personality', 'scenario',
-            'first_mes', 'mes_example', 'creator_notes',
-            'character_note', 'alternate_greetings', 'tags',
-        ];
-        const session = getSession();
-        const filledFields = ALL_FIELDS.filter(f =>
-            session?.cardDrafts?.[f]?.content || session?.fieldHashes?.[f]
-        );
-
-        if (filledFields.length === 0) {
-            showToast('No filled fields to check yet.', 'info', 2000);
-            return;
-        }
-
-        for (const f of filledFields) {
-            enqueueCheck('conflict', f);
-            enqueueCheck('token', f);
-        }
-        showToast(`Queued checks for ${filledFields.length} field(s)`, 'info', 2000);
-    });
 }
 
 /**

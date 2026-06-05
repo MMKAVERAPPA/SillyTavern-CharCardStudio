@@ -68,7 +68,7 @@ If the user doesn't specify, ask which model/platform they are using.`;
 
 // ─── Layer 2: Field Knowledge ────────────────────────────────────────────────
 
-export const FIELD_KNOWLEDGE = `
+export const getFieldKnowledge = (limits) => `
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 SILLYTAVERN FIELD REFERENCE
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -76,7 +76,7 @@ SILLYTAVERN FIELD REFERENCE
 DESCRIPTION — Most important permanent field. Always in context.
   For PList+Ali:Chat: holds Ali:Chat examples. PList goes in Author's Note.
   Most important content near BOTTOM — stronger influence.
-  Target: 400–900 tokens. Never put narrator behavior instructions here.
+  Target: ${limits.desc_min}–${limits.desc_ideal} tokens. Never put narrator behavior instructions here.
 
 PERSONALITY SUMMARY — Brief supplementary. 2–5 sentences or short PList.
   For PList+Ali:Chat: disable personality formatting, use supporting PList or leave empty.
@@ -120,7 +120,7 @@ JANITORAI FIELD REFERENCE
 
 PERSONALITY (Janitor) — equivalent to ST Description. Most important permanent field.
   Contains character template (JED, plaintext, Ali:Chat). Permanent tokens.
-  Keep under 1500 tokens ideally. 2000 is absolute maximum.
+  Keep under ${limits.desc_ideal} tokens ideally. ${limits.desc_max} is absolute maximum.
   High token counts make JLLM forget things — every token must earn its place.
 
 SCENARIO (Janitor) — Most permanent, most powerful field on Janitor.
@@ -253,7 +253,7 @@ Same logic for location names, faction names, and concepts.`;
 
 // ─── Creative Principles ────────────────────────────────────────────────────
 
-export const CREATIVE_PRINCIPLES = `
+export const getCreativePrinciples = (limits) => `
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 FIRST MESSAGE CRAFT — FULL RULES
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -311,7 +311,7 @@ PROMPTS THAT ACTUALLY WORK (use only when relevant):
 When negatives are unavoidable: use "refrain, avoid, abstain" rather than "don't, will not, never".
 
 TOKEN BUDGET:
-  System prompts: keep under 100 tokens if possible. 200 max.
+  System prompts: keep under ${limits.sys_ideal} tokens if possible. ${limits.sys_max} max.
   500+ token system prompts: stop. Reconsider the bot's design.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

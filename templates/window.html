@@ -47,6 +47,26 @@
                     </div>
                 </div>
 
+                <!-- Tool Log indicator -->
+                <div id="ccs_tool_log" class="ccs-bg-tasks" title="Tool Activity Log">
+                    <button id="ccs_tool_log_btn" class="ccs-icon-btn">
+                        <i class="fa-solid fa-list-check"></i>
+                    </button>
+                    <!-- Dropdown panel -->
+                    <div id="ccs_tool_log_panel" class="ccs-bg-tasks-panel" style="display:none;">
+                        <div class="ccs-bg-tasks-header">
+                            <span><i class="fa-solid fa-list-check"></i> Tool Log</span>
+                            <button id="ccs_tool_log_clear_btn" class="ccs-btn ccs-btn--sm">
+                                Clear
+                            </button>
+                        </div>
+                        <div id="ccs_tool_log_list" class="ccs-bg-tasks-list">
+                            <!-- Populated by ui/app.js -->
+                            <p class="ccs-empty-state">No tools called yet.</p>
+                        </div>
+                    </div>
+                </div>
+
                 <button id="ccs_wide_mode_btn" class="ccs-icon-btn" title="Wide Mode — side-by-side chat &amp; editor (desktop only)">
                     <i class="fa-solid fa-table-columns"></i>
                 </button>

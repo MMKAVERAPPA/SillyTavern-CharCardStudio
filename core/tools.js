@@ -580,7 +580,7 @@ async function toolReadLoreEntries(params) {
       const content = params.include_content !== false 
         ? `\n  Content: ${String(e.content).substring(0, 300)}` 
         : '';
-      return `• ${e.comment || e.name || 'Untitled'} (uid: ${e.uid}) [keys: ${keys}]${content}`;
+      return `• ${e.comment || e.name || 'Untitled'} (uid: ${e.uid}) [keys: ${keys}] [~${e.tokens || 0} tokens]${content}`;
     });
 
     return { result: `${entries.length} lorebook entries:\n${lines.join('\n')}` };

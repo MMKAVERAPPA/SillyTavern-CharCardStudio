@@ -649,14 +649,20 @@ async function _handleMessageAction(action, messageId) {
                 try {
                     await _onSendCallback(userText, {
                         appendAssistantMessage: (content, meta) => {
-                            const msg = {
-                                id: generateId('msg'),
-                                role: 'assistant',
-                                content,
-                                timestamp: Date.now(),
-                                meta,
-                            };
-                            appendMessage(msg);
+                            const session = getSession();
+                            const lastMsg = session?.messages?.[session.messages.length - 1];
+                            if (lastMsg && lastMsg.role === 'assistant') {
+                                appendMessage(lastMsg);
+                            } else {
+                                const msg = {
+                                    id: generateId('msg'),
+                                    role: 'assistant',
+                                    content,
+                                    timestamp: Date.now(),
+                                    meta,
+                                };
+                                appendMessage(msg);
+                            }
                         },
                         renderDraft: (draft) => renderStagedDraftMessage(draft),
                         setTyping,
@@ -757,7 +763,7 @@ async function _handleDraftAction(action, draftId, buttonEl) {
             }
             if (field && _onSendCallback) {
                 draftCard?.remove();
-                await _sendMessage(`Please regenerate the ${field} field with a different approach.`);
+                await sendMessage(`Please regenerate the ${field} field with a different approach.`);
             }
             break;
         }

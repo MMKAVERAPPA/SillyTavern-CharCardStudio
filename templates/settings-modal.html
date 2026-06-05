@@ -44,6 +44,25 @@
                 </div>
 
                 <div class="ccs-setting-group">
+                    <label class="ccs-setting-label"><i class="fa-solid fa-list-ol"></i> Token Limits</label>
+                    <p class="ccs-setting-desc">Set your preferred target token sizes for the AI. These numbers will be injected into the AI's system prompt.</p>
+                    <div class="ccs-setting-row" style="margin-bottom: 8px;">
+                        <span class="ccs-setting-inline-label" style="width: 140px;">Description Target</span>
+                        <input type="number" id="ccs_setting_token_desc_min" class="ccs-setting-input" style="width: 60px;" placeholder="Min" title="Minimum acceptable tokens">
+                        <span>—</span>
+                        <input type="number" id="ccs_setting_token_desc_ideal" class="ccs-setting-input" style="width: 60px;" placeholder="Ideal" title="Ideal token target">
+                        <span>—</span>
+                        <input type="number" id="ccs_setting_token_desc_max" class="ccs-setting-input" style="width: 60px;" placeholder="Max" title="Absolute maximum tokens">
+                    </div>
+                    <div class="ccs-setting-row">
+                        <span class="ccs-setting-inline-label" style="width: 140px;">System Prompt Limit</span>
+                        <input type="number" id="ccs_setting_token_sys_ideal" class="ccs-setting-input" style="width: 60px;" placeholder="Ideal" title="Ideal max tokens">
+                        <span>—</span>
+                        <input type="number" id="ccs_setting_token_sys_max" class="ccs-setting-input" style="width: 60px;" placeholder="Max" title="Absolute maximum tokens">
+                    </div>
+                </div>
+
+                <div class="ccs-setting-group">
                     <label class="ccs-setting-label"><i class="fa-solid fa-brain"></i> Main Agent Connection</label>
                     <p class="ccs-setting-desc">Route the Studio's AI agent through a specific ST connection profile. Use this to select your model without leaving CCS. Leave blank to use ST's currently active API connection.</p>
                     <select id="ccs_setting_main_api" class="ccs-setting-select">

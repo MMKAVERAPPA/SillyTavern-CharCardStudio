@@ -61,6 +61,30 @@ export function setUtilityProfileId(profileId) {
 }
 
 /**
+ * Get custom token limits.
+ * @returns {Object}
+ */
+export function getTokenLimits() {
+    const limits = _extSettings().tokenLimits || {};
+    return {
+        desc_min: limits.desc_min || 400,
+        desc_ideal: limits.desc_ideal || 900,
+        desc_max: limits.desc_max || 1500,
+        sys_ideal: limits.sys_ideal || 100,
+        sys_max: limits.sys_max || 200,
+    };
+}
+
+/**
+ * Set custom token limits.
+ * @param {Object} newLimits
+ */
+export function setTokenLimits(newLimits) {
+    _extSettings().tokenLimits = { ...getTokenLimits(), ...newLimits };
+    _saveExtSettings();
+}
+
+/**
  * Get the currently selected main agent API profile ID.
  * When set, the agent routes its primary generation through this profile.
  * @returns {string|null}

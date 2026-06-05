@@ -653,7 +653,15 @@ export const TOOL_REMINDER = `Remember: use tool_call blocks to perform actions.
 
 // ─── Build System Prompt ────────────────────────────────────────────────────
 
-import { AGENT_IDENTITY, FIELD_KNOWLEDGE, FORMAT_RULES, NAMING_RULES, CREATIVE_PRINCIPLES } from './identity.js';
+import { getLorebookTokenBudget } from '../core/lorebook.js';
+import { getTokenLimits } from '../core/api-router.js';
+import { 
+  AGENT_IDENTITY, 
+  getFieldKnowledge, 
+  FORMAT_RULES, 
+  NAMING_RULES, 
+  getCreativePrinciples 
+} from './identity.js';
 import { JANITOR_PROMPT, HTML_PROMPT, IMAGEPROMPT_PROMPT } from './mode-prompts.js';
 import { buildMemoryBlock } from '../core/session-memory.js';
 
@@ -704,17 +712,18 @@ export async function buildSystemPrompt(session, opts = {}) {
   // These are identical across all turns for the same phase+format.
   // Build only once per agent turn (the agent caches this string).
   if (!opts.dynamicOnly) {
+    const limits = getTokenLimits();
     const stablePrefix = [
       // Layer 1: Agent identity & role
       AGENT_IDENTITY,
       // Layer 2: Deep field knowledge
-      FIELD_KNOWLEDGE,
+      getFieldKnowledge(limits),
       // Layer 2b: Active format rules
       FORMAT_RULES[format] || FORMAT_RULES.prose,
       // Layer 2c: Naming rules (never changes)
       NAMING_RULES,
       // Layer 2d: Creative principles (never changes)
-      CREATIVE_PRINCIPLES,
+      getCreativePrinciples(limits),
       // Layer 3: Phase behavioral instructions
       PHASE_PROMPTS[phase] || PHASE_PROMPTS.ideate,
       // Layer 4: Phase-gated tool definitions

@@ -248,8 +248,28 @@ async function _agentLoop(userText, session, signal, callbacks) {
       if (setToolStatus) setToolStatus(call.name);
       setTyping(true, `Running ${call.name}...`);
 
-      const { result, draft } = await executeToolCall(call);
+      let result = '';
+      let draft = null;
+      try {
+        const res = await executeToolCall(call);
+        result = res.result;
+        draft = res.draft;
+      } catch (err) {
+        console.error(`[CCS] Tool execution error for ${call.name}:`, err);
+        result = `Error executing tool ${call.name}: ${err.message}`;
+      }
       log(`[CCS] Tool ${call.name} result:`, result.substring(0, 150));
+
+      // Dispatch tool log event for UI
+      try {
+        document.dispatchEvent(new CustomEvent('ccs:tool-log', {
+          detail: {
+            name: call.name,
+            params: call.parameters,
+            timestamp: Date.now()
+          }
+        }));
+      } catch (e) { /* ignore */ }
 
       // GAP 7: Track tool names used this turn for session metadata
       toolsUsedThisTurn.push(call.name);

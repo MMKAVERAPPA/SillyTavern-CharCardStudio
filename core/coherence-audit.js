@@ -33,19 +33,25 @@ import { countTokensSync } from './token-utils.js';
  * @property {number} score - 0–100
  */
 
+import { getTokenLimits } from './api-router.js';
+
 // ─── Field config ─────────────────────────────────────────────────────────────
 
 const REQUIRED_FIELDS = ['description', 'personality', 'first_mes'];
-const FIELD_BUDGETS = {
-    description:    { min: 50, max: 2000 },
-    personality:    { min: 20, max: 600 },
-    scenario:       { min: 0,  max: 1200 },
-    first_mes:      { min: 30, max: 2000 },
-    mes_example:    { min: 0,  max: 2000 },
-    system_prompt:  { min: 0,  max: 800 },
-    creator_notes:  { min: 0,  max: 500 },
-    character_note: { min: 0,  max: 400 },
-};
+
+function getFieldBudgets() {
+    const limits = getTokenLimits();
+    return {
+        description:    { min: limits.desc_min, max: limits.desc_max },
+        personality:    { min: 20, max: 600 },
+        scenario:       { min: 0,  max: 1200 },
+        first_mes:      { min: 30, max: 2000 },
+        mes_example:    { min: 0,  max: 2000 },
+        system_prompt:  { min: 0,  max: limits.sys_max },
+        creator_notes:  { min: 0,  max: 500 },
+        character_note: { min: 0,  max: 400 },
+    };
+}
 
 // ─── Public ───────────────────────────────────────────────────────────────────
 
@@ -85,7 +91,7 @@ export async function runCoherenceAudit() {
     }
 
     // ── 2. Field length anomalies ────────────────────────────────────────────
-    for (const [f, budget] of Object.entries(FIELD_BUDGETS)) {
+    for (const [f, budget] of Object.entries(getFieldBudgets())) {
         const content = fields[f];
         if (!content?.trim()) continue;
         const tokens = countTokensSync(content);

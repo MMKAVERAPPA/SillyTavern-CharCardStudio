@@ -23,6 +23,7 @@ import { getFieldHistory, buildFieldDiffHtml } from '../core/field-history.js';
 import { sendMessage, triggerAIReview } from './chat.js';
 import { openPromptInspector } from './prompt-inspector.js';
 import { runCoherenceAudit } from '../core/coherence-audit.js';
+import { enqueueCheck } from '../core/background.js';
 import { openLoreGraphOverlay, getLoreGraphData } from './lore-graph-v2.js';
 import { renderRadarChart, matrixToPromptString } from './personality-radar.js';
 
@@ -2117,6 +2118,72 @@ export function bindAppEvents() {
         }
     });
 
+    // Tool Log UI toggle
+    const toolLogBtn = el('ccs_tool_log_btn');
+    if (toolLogBtn) {
+        toolLogBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            const panel = el('ccs_tool_log_panel');
+            if (panel) {
+                const isVis = panel.style.display === 'flex';
+                panel.style.display = isVis ? 'none' : 'flex';
+            }
+        });
+    }
+    const toolLogClearBtn = el('ccs_tool_log_clear_btn');
+    if (toolLogClearBtn) {
+        toolLogClearBtn.addEventListener('click', () => {
+            const list = el('ccs_tool_log_list');
+            if (list) list.innerHTML = '<p class="ccs-empty-state">No tools called yet.</p>';
+            el('ccs_tool_log_btn')?.classList.remove('ccs-pulse');
+        });
+    }
+
+    // Dismiss tool log on click outside
+    document.addEventListener('mousedown', (e) => {
+        const logPanel = el('ccs_tool_log_panel');
+        const logBtn = el('ccs_tool_log_btn');
+        if (logPanel && logPanel.style.display === 'flex' && !logPanel.contains(e.target) && (!logBtn || !logBtn.contains(e.target))) {
+            logPanel.style.display = 'none';
+        }
+    });
+
+    // Listen for tool log events
+    document.addEventListener('ccs:tool-log', (e) => {
+        const list = el('ccs_tool_log_list');
+        const btn = el('ccs_tool_log_btn');
+        if (!list || !e.detail) return;
+
+        // Remove empty state if present
+        const empty = list.querySelector('.ccs-empty-state');
+        if (empty) empty.remove();
+
+        const time = new Date(e.detail.timestamp || Date.now()).toLocaleTimeString();
+        const html = `
+            <div class="ccs-bg-task-item ccs-bg-task--running">
+                <div class="ccs-bg-task-info">
+                    <span class="ccs-bg-task-name">${e.detail.name}</span>
+                    <span class="ccs-bg-task-meta">${time}</span>
+                </div>
+                <div class="ccs-bg-task-status" title='${JSON.stringify(e.detail.params)}'>
+                    Params: ${JSON.stringify(e.detail.params).substring(0, 40)}...
+                </div>
+            </div>
+        `;
+        list.insertAdjacentHTML('afterbegin', html);
+
+        // Keep max 20
+        while (list.children.length > 20) {
+            list.lastElementChild.remove();
+        }
+
+        if (btn && (!el('ccs_tool_log_panel') || el('ccs_tool_log_panel').style.display !== 'flex')) {
+            btn.classList.add('ccs-pulse');
+        }
+    });
+
+    // Listen for card-updated events (fired after Apply succeeds)
+
     // Listen for card-updated events (fired after Apply succeeds)
     document.addEventListener('ccs:card-updated', () => {
         console.log('[CCS] Card updated — refreshing panels');
@@ -2133,6 +2200,33 @@ export function bindAppEvents() {
         showToast(`Conflict detected: ${conflict.fieldA} ↔ ${conflict.fieldB}`, 'warning', 5000);
         _renderConceptTab();
     });
+
+    // Wire the "Run Checks" button in the Card tab header
+    const runChecksBtn = el('ccs_run_checks_btn');
+    if (runChecksBtn) {
+        runChecksBtn.addEventListener('click', () => {
+            const ALL_FIELDS = [
+                'description', 'personality', 'scenario',
+                'first_mes', 'mes_example', 'creator_notes',
+                'character_note', 'alternate_greetings', 'tags',
+            ];
+            const session = getSession();
+            const filledFields = ALL_FIELDS.filter(f =>
+                session?.cardDrafts?.[f]?.content || session?.fieldHashes?.[f]
+            );
+
+            if (filledFields.length === 0) {
+                showToast('No filled fields to check yet.', 'info', 2000);
+                return;
+            }
+
+            for (const f of filledFields) {
+                enqueueCheck('conflict', f);
+                enqueueCheck('token', f);
+            }
+            showToast(`Queued checks for ${filledFields.length} field(s)`, 'info', 2000);
+        });
+    }
 
     // Session changes → re-render right panel
     // Bug 10 fix: debounced + active-tab-only renders to prevent 24 full repaints per AI turn.
