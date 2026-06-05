@@ -397,13 +397,23 @@ export async function detectRecursion(entries) {
     const warnings = [];
     const triggerMap = new Map();
 
+    // Pre-lowercase everything to avoid allocating millions of strings in the inner loop
+    const lowerContents = new Map();
+    const lowerKeys = new Map();
+    for (const entry of enabledEntries) {
+        lowerContents.set(entry.uid, (entry.content || '').toLowerCase());
+        const keys = (entry.keys || []).filter(k => k && k.length >= 2).map(k => k.toLowerCase());
+        lowerKeys.set(entry.uid, keys);
+    }
+
     for (const entry of enabledEntries) {
         const triggered = [];
+        const contentLower = lowerContents.get(entry.uid);
         for (const other of enabledEntries) {
             if (other.uid === entry.uid) continue;
-            // Check if THIS entry's content triggers the OTHER entry's keys
-            for (const key of (other.keys || [])) {
-                if (key && key.length >= 2 && entry.content.toLowerCase().includes(key.toLowerCase())) {
+            const keys = lowerKeys.get(other.uid) || [];
+            for (const key of keys) {
+                if (contentLower.includes(key)) {
                     triggered.push(other.uid);
                     break;
                 }
@@ -412,40 +422,64 @@ export async function detectRecursion(entries) {
         if (triggered.length > 0) triggerMap.set(entry.uid, triggered);
     }
 
-    // Bug H fix: Replace recursive walkChain (exponential Set copies, stack-overflow
-    // risk on dense lorebooks) with an iterative DFS using an explicit work stack.
-    // Each stack frame is [uid, visitedSet, depth, pathArray].
-    const walkChainIterative = (startUid, startName) => {
-        let localMaxDepth = 0;
-        const stack = [[startUid, new Set(), 0, [startName]]];
+    // Bug H fix (OOM crash on dense lorebooks): Replace exhaustive DFS 
+    // with a memoized DFS (O(V+E) time/space) to find max depth and cycles.
+    const cycleSignatures = new Set();
+    const visiting = new Set();
+    const fullyVisited = new Set();
+    const pathStack = []; 
+    const memoDepth = new Map();
 
-        while (stack.length > 0) {
-            const [uid, visited, depth, path] = stack.pop();
-
-            if (visited.has(uid)) {
-                warnings.push(`Circular recursion detected: ${path.join(' -> ')} -> loops to uid:${uid}`);
-                localMaxDepth = Math.max(localMaxDepth, depth);
-                continue;
+    const dfs = (uid) => {
+        if (visiting.has(uid)) {
+            // Found a cycle (back-edge)
+            const cycleStartIdx = pathStack.findIndex(p => p.uid === uid);
+            if (cycleStartIdx !== -1) {
+                const cyclePath = pathStack.slice(cycleStartIdx).map(p => p.name);
+                const nextEntry = enabledEntries.find(e => e.uid === uid);
+                const sig = cyclePath.join('->');
+                if (!cycleSignatures.has(sig)) {
+                    warnings.push(`Circular recursion detected: ${cyclePath.join(' -> ')} -> loops to ${nextEntry?.name || 'uid:'+uid}`);
+                    cycleSignatures.add(sig);
+                }
             }
-
-            const newVisited = new Set(visited);
-            newVisited.add(uid);
-            localMaxDepth = Math.max(localMaxDepth, depth);
-
-            for (const nextUid of (triggerMap.get(uid) || [])) {
-                const nextEntry = enabledEntries.find(e => e.uid === nextUid);
-                const nextName = nextEntry?.name || `uid:${nextUid}`;
-                stack.push([nextUid, newVisited, depth + 1, [...path, nextName]]);
-            }
+            return 0; // The back-edge itself contributes 0 to max depth
         }
 
-        return localMaxDepth;
+        if (fullyVisited.has(uid)) {
+            return memoDepth.get(uid) || 0;
+        }
+
+        visiting.add(uid);
+        const entry = enabledEntries.find(e => e.uid === uid);
+        pathStack.push({ uid, name: entry?.name || `uid:${uid}` });
+
+        let maxChildDepth = 0;
+        const neighbors = triggerMap.get(uid) || [];
+        for (const nextUid of neighbors) {
+            const childDepth = dfs(nextUid);
+            maxChildDepth = Math.max(maxChildDepth, childDepth);
+        }
+
+        pathStack.pop();
+        visiting.delete(uid);
+        fullyVisited.add(uid);
+
+        const depth = maxChildDepth + 1;
+        memoDepth.set(uid, depth);
+        return depth;
     };
 
     let maxDepth = 0;
-
     for (const entry of enabledEntries) {
-        const depth = walkChainIterative(entry.uid, entry.name || `uid:${entry.uid}`);
+        if (!fullyVisited.has(entry.uid)) {
+            dfs(entry.uid);
+        }
+    }
+
+    // Populate chains array based on computed depths
+    for (const entry of enabledEntries) {
+        const depth = memoDepth.get(entry.uid) || 1;
         if (depth > 1) {
             chains.push({ uid: entry.uid, name: entry.name || `uid:${entry.uid}`, depth });
             maxDepth = Math.max(maxDepth, depth);
