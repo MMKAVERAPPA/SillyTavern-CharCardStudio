@@ -561,6 +561,7 @@ ccs_update_lore_entry — Edit an existing lorebook entry (staged)
     content: string (optional) — new content
     keys: array (optional) — new keywords
     name: string (optional) — new title
+    category: string (optional) — new category
 
 ccs_delete_lore_entry — Mark a lorebook entry for deletion (staged)
   Parameters:

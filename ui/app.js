@@ -1407,6 +1407,7 @@ async function _renderLoreTab() {
                 <span class="ccs-lore-folder-icon">⏳</span>
                 <span class="ccs-lore-folder-name">Staged Updates</span>
                 <span class="ccs-badge ccs-badge--warning">${pendingDrafts.length}</span>
+                <button class="ccs-icon-btn" id="ccs_lore_clear_staged_btn" title="Clear all staged drafts" style="margin-left:auto; font-size: 14px;"><i class="fa-solid fa-trash-can"></i></button>
             </summary>
             <div class="ccs-lore-folder-entries">
             ${pendingDrafts.map(d => `
@@ -1548,6 +1549,7 @@ function _renderLoreTabFromCache() {
                 <span class="ccs-lore-folder-icon">⏳</span>
                 <span class="ccs-lore-folder-name">Staged Updates</span>
                 <span class="ccs-badge ccs-badge--warning">${pendingDrafts.length}</span>
+                <button class="ccs-icon-btn" id="ccs_lore_clear_staged_btn" title="Clear all staged drafts" style="margin-left:auto; font-size: 14px;"><i class="fa-solid fa-trash-can"></i></button>
             </summary>
             <div class="ccs-lore-folder-entries">
             ${pendingDrafts.map(d => `
@@ -1618,6 +1620,17 @@ function _wireLoreViewBtns(loreEl, entries) {
                 }
             },
         });
+    });
+
+    loreEl.querySelector('#ccs_lore_clear_staged_btn')?.addEventListener('click', async (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        if (confirm('Are you sure you want to clear all staged lore drafts?')) {
+            const session = getSession();
+            const loreDrafts = (session.loreDrafts || []).filter(d => d.status !== 'pending');
+            await updateSession({ loreDrafts });
+            _renderLoreTab();
+        }
     });
 }
 

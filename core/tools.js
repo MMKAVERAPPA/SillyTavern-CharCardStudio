@@ -136,6 +136,7 @@ const TOOL_COERCIONS = {
       keys: v => (v === undefined || v === null) ? undefined
         : Array.isArray(v) ? v
         : String(v).split(',').map(s => s.trim()).filter(Boolean),
+      category: v => (v === undefined || v === null) ? undefined : String(v),
     },
   },
   ccs_delete_lore_entry: {
