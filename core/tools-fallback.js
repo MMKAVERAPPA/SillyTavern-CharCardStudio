@@ -77,9 +77,9 @@ function _tryParseToolCall(raw) {
     if (obj.name) return { name: obj.name, parameters: obj.parameters || obj.arguments || {} };
   } catch (e) { /* continue */ }
 
-  // Strategy B: tool_name {params} or tool_name({params})
-  // Match: optional word characters, then JSON object
-  const nameJsonMatch = raw.match(/^([a-z_][a-z0-9_]*)\s*\(?\s*(\{[\s\S]*\})\s*\)?$/i);
+  // Strategy B: tool_name {params} or tool_name({params}) or tool_name parameters: {params}
+  // Match: optional word characters, optional "parameters:", then JSON object
+  const nameJsonMatch = raw.match(/^([a-z_][a-z0-9_]*)(?:\s*parameters:)?\s*\(?\s*(\{[\s\S]*\})\s*\)?$/i);
   if (nameJsonMatch) {
     const toolName = nameJsonMatch[1];
     try {

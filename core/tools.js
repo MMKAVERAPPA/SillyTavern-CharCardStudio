@@ -331,6 +331,7 @@ async function toolReadField(params) {
   // Handle both { fields: [...] } and { field: "..." } patterns
   let fields = params.fields || (params.field ? [params.field] : ['all']);
   if (typeof fields === 'string') fields = [fields];
+  fields = fields.map(f => String(f).toLowerCase().replace(/ /g, '_').trim());
 
   const ctx = getCtx();
   if (!ctx) return { result: 'Error: SillyTavern context not available.' };
