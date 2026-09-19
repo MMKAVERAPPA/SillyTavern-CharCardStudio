@@ -723,7 +723,7 @@ CharCardStudio/
 
 ## 🤝 Credits
 
-Built by **DeathGamerSolo**  
+ 
 Character card writing philosophy informed by years of SillyTavern card authoring.  
 v4.0.0+ agentic architecture built with AI assistance.
 
