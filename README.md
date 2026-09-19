@@ -248,8 +248,7 @@ CharCardStudio/
 ---
 
 ## 🤝 Credits
-
-Built by **DeathGamerSolo**  
+ 
 Character card writing philosophy informed by years of SillyTavern card authoring.
 
 ---
